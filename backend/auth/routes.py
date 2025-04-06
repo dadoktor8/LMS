@@ -1,6 +1,7 @@
-# backend/auth/routes.py
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request, Form
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
 import jwt
@@ -9,8 +10,9 @@ from typing import Literal
 import os
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
-from db.session import get_db
+
 from db.models import User
+from db.database import engine,get_db
 
 load_dotenv()
 
@@ -20,7 +22,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 auth_router = APIRouter()
-
+templates = Jinja2Templates(directory="backend/templates")
+print(engine.url)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 class SignupRequest(BaseModel):
@@ -63,6 +66,7 @@ def require_role(required_role: str):
         return payload
     return role_checker
 
+# === JSON API SIGNUP ===
 @auth_router.post("/signup")
 def signup(payload: SignupRequest, db: Session = Depends(get_db)):
     existing_user = db.query(User).filter(User.email == payload.email).first()
@@ -76,8 +80,34 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    print(f"Creating user with email: {payload.email}")
     return {"msg": "User created successfully"}
 
+# === HTMX SIGNUP FORM ===
+@auth_router.get("/signup-page", response_class=HTMLResponse)
+def signup_page(request: Request):
+    return templates.TemplateResponse("signup.html", {"request": request})
+
+@auth_router.post("/signup-form", response_class=HTMLResponse)
+def signup_form(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    role: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    existing_user = db.query(User).filter(User.email == email).first()
+    if existing_user:
+        return HTMLResponse(content="❌ User already exists", status_code=400)
+    
+    new_user = User(email=email, hashed_password=hash_password(password), role=role)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    print("✅ User added:", new_user.email)
+    return HTMLResponse(content="✅ User created successfully!")
+
+# === JSON API LOGIN ===
 @auth_router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
@@ -89,6 +119,25 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         "token_type": "bearer"
     }
 
+# === HTMX LOGIN FORM ===
+@auth_router.get("/login-page", response_class=HTMLResponse)
+def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@auth_router.post("/login-form", response_class=HTMLResponse)
+def login_form(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    user = db.query(User).filter(User.email == email).first()
+    if not user or not verify_password(password, user.hashed_password):
+        return HTMLResponse(content="❌ Invalid credentials", status_code=401)
+    
+    return HTMLResponse(content=f"✅ Welcome back, {user.email}!")
+
+# === USER INFO + ROLE ROUTES ===
 @auth_router.get("/me")
 def read_users_me(token: str = Depends(oauth2_scheme)):
     user_data = decode_token(token)
@@ -101,3 +150,13 @@ def admin_dashboard(user=Depends(require_role("admin"))):
 @auth_router.get("/student/courses")
 def student_courses(user=Depends(require_role("student"))):
     return {"message": "Welcome Student! Here are your courses.", "email": user.get("sub")}
+
+
+@auth_router.get("/users", response_class=HTMLResponse)
+def list_users(db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    html = "<h2>Registered Users</h2><ul>"
+    for user in users:
+        html += f"<li><strong>{user.email}</strong> - Role: {user.role} - Password: {user.hashed_password} </li>"
+    html += "</ul>"
+    return html

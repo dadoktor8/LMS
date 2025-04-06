@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Signup</h2>
+
+<form id="signup-form"
+      hx-post="/auth/signup-form"
+      hx-target="#signup-result"
+      hx-swap="innerHTML"
+      method="POST">
+  
+  <input name="email" type="email" placeholder="Email" required><br>
+  <input name="password" type="password" placeholder="Password" required><br>
+  <select name="role" required>
+    <option value="student">Student</option>
+    <option value="admin">Admin</option>
+  </select><br>
+  
+  <button type="submit">Signup</button>
+</form>
+
+<div id="signup-result"></div>
+<a href="/">Login</a>
+{% endblock %}

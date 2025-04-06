@@ -6,12 +6,17 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[0] / '.env')
 print("Loaded SECRET_KEY:", os.getenv("SECRET_KEY"))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 sys.path.append(str(Path(__file__).resolve().parent))
 import os
 from backend.auth.routes import auth_router
 from db.init_db import init_db
+from db.session import get_db
 
 app = FastAPI()
+templates = Jinja2Templates(directory="backend/templates")
 init_db()
 
 
@@ -26,6 +31,6 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/auth")
 
-@app.get("/")
-def root():
-    return {"message": "Welcome to the backend!"}
+@app.get("/", response_class=HTMLResponse)
+def home(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})

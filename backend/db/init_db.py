@@ -1,5 +1,5 @@
 # backend/db/init_db.py
-from db.database import Base, engine
+from db.session import Base, engine
 from db import models
 from db.models import User
 
