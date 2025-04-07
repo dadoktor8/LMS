@@ -124,6 +124,10 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         "access_token": access_token,
         "token_type": "bearer"
     }
+@auth_router.get("/login")
+def redirect_to_login_page(msg: str = ""):
+    return RedirectResponse(url=f"/auth/login-page?msg={msg}", status_code=302)
+
 
 # === HTMX LOGIN FORM ===
 @auth_router.get("/login-page", response_class=HTMLResponse)
@@ -139,9 +143,14 @@ def login_form(
 ):
     user = db.query(User).filter(User.email == email).first()
     if not user or not verify_password(password, user.hashed_password):
-        return HTMLResponse(content="❌ Invalid credentials", status_code=401)
-    
-    return HTMLResponse(content=f"✅ Welcome back, {user.email}!")
+        return HTMLResponse(
+            content='<div class="toast error">❌ Invalid email or password</div>',
+            status_code=401
+        )
+
+    return HTMLResponse(
+        content=f'<div class="toast success">✅ Welcome back, {user.email}!</div>'
+    )
 
 # === USER INFO + ROLE ROUTES ===
 @auth_router.get("/me")

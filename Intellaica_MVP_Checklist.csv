@@ -1,6 +1,6 @@
 Module,Task,Status,What's Left
 Foundational Setup,Setup GitHub repository and project board (Agile/Kanban),Done,
-Foundational Setup,"Design system architecture (frontend, backend, AI services)",,Ensure only verified user's  can Login Later
+Foundational Setup,"Design system architecture (frontend, backend, AI services)",,"Ensure only verified user's  can Login Later, Reminder to change local host link with production link later"
 Foundational Setup,User authentication (JWT-based or OAuth),Done,
 Foundational Setup,Admin and student user roles,Done,
 Foundational Setup,Mobile-first responsive frontend (React Native / Flutter),,
