@@ -10,7 +10,8 @@ from typing import Literal
 import os
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
-
+from utils.tokens import generate_verification_token
+from utils.tokens import confirm_token
 from db.models import User
 from db.database import engine,get_db
 

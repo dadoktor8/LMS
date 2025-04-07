@@ -1,23 +1,24 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Signup</h2>
+<h2>Create your account</h2>
 
 <form id="signup-form"
       hx-post="/auth/signup-form"
       hx-target="#signup-result"
-      hx-swap="innerHTML"
-      method="POST">
+      hx-swap="innerHTML">
   
-  <input name="email" type="email" placeholder="Email" required><br>
-  <input name="password" type="password" placeholder="Password" required><br>
+  <input name="email" type="email" placeholder="Email" required>
+  <input name="password" type="password" placeholder="Password" required>
   <select name="role" required>
+    <option value="" disabled selected>Select role</option>
     <option value="student">Student</option>
     <option value="admin">Admin</option>
-  </select><br>
+    <option value="teacher">Teacher</option>
+  </select>
   
-  <button type="submit">Signup</button>
+  <button type="submit">Sign Up</button>
 </form>
 
-<div id="signup-result"></div>
-<a href="/">Login</a>
+<div id="signup-result" class="response-message"></div>
+<p class="switch-link">Already have an account? <a href="/">Log in</a></p>
 {% endblock %}

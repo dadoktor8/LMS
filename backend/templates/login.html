@@ -1,11 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>Login</h2>
-<form hx-post="/auth/login-form" hx-target="#login-result" hx-swap="innerHTML">
-  <input name="email" type="email" placeholder="Email" required><br>
-  <input name="password" type="password" placeholder="Password" required><br>
+<h2>Welcome back</h2>
+
+<form id="login-form"
+      hx-post="/auth/login-form"
+      hx-target="#login-result"
+      hx-swap="innerHTML">
+  
+  <input name="email" type="email" placeholder="Email" required>
+  <input name="password" type="password" placeholder="Password" required>
+  
   <button type="submit">Login</button>
 </form>
-<div id="login-result"></div>
-<a href="/auth/signup-page">Signup</a>
+
+<div id="login-result" class="response-message"></div>
+<p class="switch-link">New user? <a href="/auth/signup-page">Sign up</a></p>
 {% endblock %}

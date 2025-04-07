@@ -4,3 +4,4 @@ sqlalchemy
 python-dotenv
 jinja2
 passlib[bcrypt]
+itsdangerous
