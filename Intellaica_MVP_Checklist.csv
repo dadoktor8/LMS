@@ -1,40 +1,40 @@
-Module,Task
-Foundational Setup,Setup GitHub repository and project board (Agile/Kanban)
-Foundational Setup,"Design system architecture (frontend, backend, AI services)"
-Foundational Setup,User authentication (JWT-based or OAuth)
-Foundational Setup,Admin and student user roles
-Foundational Setup,Mobile-first responsive frontend (React Native / Flutter)
-Foundational Setup,Backend with API routes (Node.js/Django/FastAPI)
-AI Tutor,Integrate with GPT (OpenAI / Llama) for natural language Q&A
-AI Tutor,Upload and embed PDFs/lecture notes for context-based answers
-AI Tutor,Implement chat interface with context memory (per user/session)
-AI Tutor,Log each interaction for analytics
-AI Tutor,Allow tutors to pre-load custom data (via admin panel)
-AI Content Generator,"Generate summaries, flashcards, or quizzes from PDFs"
-AI Content Generator,Integrate OCR for scanned content
-AI Content Generator,Downloadable and editable content (PDF/Word)
-AI Content Generator,Topic-based or keyword-based generation
-AI Document Manager,"Upload, store, and categorize documents by course/subject"
-AI Document Manager,OCR + auto-tagging and metadata extraction
-AI Document Manager,Preview documents inside app (PDF viewer)
-AI Document Manager,Summarization / keyword extraction as side widgets
-AI Performance Tracker,Manually enter test scores or GPA data
-AI Performance Tracker,"Analyze trends and generate graphs (e.g., Line/Bar)"
-AI Performance Tracker,AI-based suggestions for improvement
-AI Performance Tracker,Basic dashboard per student (study time vs. performance)
-AI Personal Assistant,"Smart reminders for classes, assignments, exams"
-AI Personal Assistant,Sync with Google Calendar or local calendar
-AI Personal Assistant,Notification system (push/email)
-AI Personal Assistant,Quick action voice/text interface
-Testing & Deployment,Unit testing for each module
-Testing & Deployment,Backend API testing (Postman/Swagger)
-Testing & Deployment,Mobile testing on Android + iOS simulators/devices
-Testing & Deployment,"Deploy backend (Render, Heroku, AWS)"
-Testing & Deployment,Deploy frontend (Expo/Firebase/Play Store draft)
-Security & Compliance,User data encryption at rest and in transit
-Security & Compliance,Role-based access control (RBAC)
-Security & Compliance,GDPR and FERPA compliance consideration
-Post-MVP,AI model fine-tuning on user data
-Post-MVP,Real-time collaboration (group studies)
-Post-MVP,AI feedback on user interaction quality
-Post-MVP,Admin analytics dashboard
+Module,Task,Status,What's Left
+Foundational Setup,Setup GitHub repository and project board (Agile/Kanban),Done,
+Foundational Setup,"Design system architecture (frontend, backend, AI services)",,Ensure only verified user's  can Login Later
+Foundational Setup,User authentication (JWT-based or OAuth),Done,
+Foundational Setup,Admin and student user roles,Done,
+Foundational Setup,Mobile-first responsive frontend (React Native / Flutter),,
+Foundational Setup,Backend with API routes (Node.js/Django/FastAPI),,
+AI Tutor,Integrate with GPT (OpenAI / Llama) for natural language Q&A,,
+AI Tutor,Upload and embed PDFs/lecture notes for context-based answers,,
+AI Tutor,Implement chat interface with context memory (per user/session),,
+AI Tutor,Log each interaction for analytics,,
+AI Tutor,Allow tutors to pre-load custom data (via admin panel),,
+AI Content Generator,"Generate summaries, flashcards, or quizzes from PDFs",,
+AI Content Generator,Integrate OCR for scanned content,,
+AI Content Generator,Downloadable and editable content (PDF/Word),,
+AI Content Generator,Topic-based or keyword-based generation,,
+AI Document Manager,"Upload, store, and categorize documents by course/subject",,
+AI Document Manager,OCR + auto-tagging and metadata extraction,,
+AI Document Manager,Preview documents inside app (PDF viewer),,
+AI Document Manager,Summarization / keyword extraction as side widgets,,
+AI Performance Tracker,Manually enter test scores or GPA data,,
+AI Performance Tracker,"Analyze trends and generate graphs (e.g., Line/Bar)",,
+AI Performance Tracker,AI-based suggestions for improvement,,
+AI Performance Tracker,Basic dashboard per student (study time vs. performance),,
+AI Personal Assistant,"Smart reminders for classes, assignments, exams",,
+AI Personal Assistant,Sync with Google Calendar or local calendar,,
+AI Personal Assistant,Notification system (push/email),,
+AI Personal Assistant,Quick action voice/text interface,,
+Testing & Deployment,Unit testing for each module,,
+Testing & Deployment,Backend API testing (Postman/Swagger),,
+Testing & Deployment,Mobile testing on Android + iOS simulators/devices,,
+Testing & Deployment,"Deploy backend (Render, Heroku, AWS)",,
+Testing & Deployment,Deploy frontend (Expo/Firebase/Play Store draft),,
+Security & Compliance,User data encryption at rest and in transit,,
+Security & Compliance,Role-based access control (RBAC),,
+Security & Compliance,GDPR and FERPA compliance consideration,,
+Post-MVP,AI model fine-tuning on user data,,
+Post-MVP,Real-time collaboration (group studies),,
+Post-MVP,AI feedback on user interaction quality,,
+Post-MVP,Admin analytics dashboard,,

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, Form
 from fastapi.security import OAuth2PasswordBearer
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from utils.tokens import generate_verification_token
 from utils.tokens import confirm_token
 from utils.email_utils import send_verification_email
-from utils.tokens import generate_email_token
+from utils.tokens import generate_verification_token
 from db.models import User
 from db.database import engine,get_db
 
@@ -108,7 +108,7 @@ def signup_form(
     db.commit()
     db.refresh(new_user)
     print("✅ User added:", new_user.email)
-    token = generate_email_token(email)
+    token = generate_verification_token(email)
     link = f"{os.getenv('FRONTEND_URL', 'http://127.0.0.1:8000')}/auth/verify-email?token={token}"
     send_verification_email(email, link)
     return HTMLResponse(content="✅ User created successfully!")
@@ -170,7 +170,7 @@ def list_users(db: Session = Depends(get_db)):
 
 @auth_router.get("/verify-email", response_class=HTMLResponse)
 def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
-    email = confirm_verification_token(token)
+    email = confirm_token(token)
     if not email:
         return templates.TemplateResponse("message.html", {
             "request": request,
@@ -201,3 +201,55 @@ def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
         "title": "Success",
         "message": "🎉 Email verified successfully!"
     })
+
+@auth_router.post("/forgot-password", response_class=HTMLResponse)
+def forgot_password(request: Request, email: str = Form(...), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return HTMLResponse(content="❌ No account found with that email", status_code=404)
+
+    token = generate_verification_token(email)
+    reset_link = f"{os.getenv('FRONTEND_URL', 'http://127.0.0.1:8000')}/auth/reset-password?token={token}"
+    send_verification_email(email, reset_link)  # Reuse your email function
+
+    return HTMLResponse(content="📧 Password reset link sent!")
+
+@auth_router.get("/reset-password", response_class=HTMLResponse)
+def reset_password_form(request: Request, token: str):
+    email = confirm_token(token)
+    if not email:
+        return HTMLResponse(content="❌ Invalid or expired token", status_code=400)
+
+    return templates.TemplateResponse(
+        "reset_password.html",
+        {"request": request, "token": token}
+    )
+
+@auth_router.post("/reset-password", response_class=HTMLResponse)
+def reset_password(
+    request: Request,
+    token: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    if new_password != confirm_password:
+        return HTMLResponse(content="❌ Passwords do not match", status_code=400)
+
+    email = confirm_token(token)
+    if not email:
+        return HTMLResponse(content="❌ Invalid or expired token", status_code=400)
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return HTMLResponse(content="❌ User not found", status_code=400)
+
+    user.hashed_password = hash_password(new_password)
+    db.commit()
+
+    # Redirect to login page after successful password reset
+    return RedirectResponse(url="/auth/login?msg=Password+reset+successful", status_code=303)
+
+@auth_router.get("/forgot-password-page", response_class=HTMLResponse)
+def forgot_password_page(request: Request):
+    return templates.TemplateResponse("forgot_password.html", {"request": request})

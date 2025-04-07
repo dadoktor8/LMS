@@ -6,7 +6,7 @@ try:
     users = db.query(User).all()
     print("✅ DB is working! Users in database:")
     for user in users:
-        print(f"ID: {user.id}, Email: {user.email}, Role: {user.role}")
+        print(f"ID: {user.id}, Email: {user.email}, Role: {user.role}, Verified: {user.is_verified}")
 except Exception as e:
     print("❌ DB connection failed:", e)
 finally:
