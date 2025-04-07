@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+
 sys.path.append(str(Path(__file__).resolve().parent))
 import os
 from backend.auth.routes import auth_router
@@ -17,6 +19,8 @@ from db.session import get_db
 
 app = FastAPI()
 templates = Jinja2Templates(directory="backend/templates")
+app.mount("/static", StaticFiles(directory="backend/static"), name="static")
+
 init_db()
 
 
