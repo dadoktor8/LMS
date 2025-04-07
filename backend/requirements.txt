@@ -5,3 +5,7 @@ python-dotenv
 jinja2
 passlib[bcrypt]
 itsdangerous
+jwt
+pydantic[email]
+python-multipart
+yagmail

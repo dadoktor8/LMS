@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 from utils.tokens import generate_verification_token
 from utils.tokens import confirm_token
+from utils.email_utils import send_verification_email
+from utils.tokens import generate_email_token
 from db.models import User
 from db.database import engine,get_db
 
@@ -106,6 +108,9 @@ def signup_form(
     db.commit()
     db.refresh(new_user)
     print("✅ User added:", new_user.email)
+    token = generate_email_token(email)
+    link = f"{os.getenv('FRONTEND_URL', 'http://127.0.0.1:8000')}/auth/verify-email?token={token}"
+    send_verification_email(email, link)
     return HTMLResponse(content="✅ User created successfully!")
 
 # === JSON API LOGIN ===
@@ -161,3 +166,38 @@ def list_users(db: Session = Depends(get_db)):
         html += f"<li><strong>{user.email}</strong> - Role: {user.role} - Password: {user.hashed_password} </li>"
     html += "</ul>"
     return html
+
+
+@auth_router.get("/verify-email", response_class=HTMLResponse)
+def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
+    email = confirm_verification_token(token)
+    if not email:
+        return templates.TemplateResponse("message.html", {
+            "request": request,
+            "title": "Verification Failed",
+            "message": "❌ Invalid or expired token."
+        })
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return templates.TemplateResponse("message.html", {
+            "request": request,
+            "title": "User Not Found",
+            "message": "❌ User does not exist."
+        })
+
+    if user.is_verified:
+        return templates.TemplateResponse("message.html", {
+            "request": request,
+            "title": "Already Verified",
+            "message": "✅ Email already verified!"
+        })
+
+    user.is_verified = True
+    db.commit()
+    
+    return templates.TemplateResponse("message.html", {
+        "request": request,
+        "title": "Success",
+        "message": "🎉 Email verified successfully!"
+    })
