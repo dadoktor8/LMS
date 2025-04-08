@@ -85,7 +85,9 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
     new_user = User(
         email=payload.email,
         hashed_password=hash_password(payload.password),
-        role=payload.role
+        role=payload.role,
+        f_name = payload.f_name,
+        l_name = payload.l_name
     )
     db.add(new_user)
     db.commit()
@@ -104,13 +106,15 @@ def signup_form(
     email: str = Form(...),
     password: str = Form(...),
     role: str = Form(...),
+    f_name: str = Form(...),
+    l_name: str = Form(...),
     db: Session = Depends(get_db)
 ):
     existing_user = db.query(User).filter(User.email == email).first()
     if existing_user:
         return HTMLResponse(content="❌ User already exists", status_code=400)
     
-    new_user = User(email=email, hashed_password=hash_password(password), role=role)
+    new_user = User(f_name=f_name,l_name=l_name,email=email, hashed_password=hash_password(password), role=role)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -162,8 +166,8 @@ def login_form(
     user = db.query(User).filter(User.email == email).first()
     if not user or not verify_password(password, user.hashed_password):
         return HTMLResponse(
-            content='<div class="toast error">❌ Invalid email or password</div>',
-            status_code=401
+            content='<div class="toast error" style="text-align:center;">❌ Invalid email or password</div>',
+            status_code=200
         )
 
     # Redirect logic
@@ -330,7 +334,10 @@ def create_course(
     db.add(new_course)
     db.commit()
     db.refresh(new_course)
-    return {"msg": "Course created", "course_id": new_course.id}
+    return HTMLResponse(
+    content='<div class="toast success">✅ Course created successfully!</div>',
+    status_code=200
+)
 
 @auth_router.post("/courses/{course_id}/upload-students")
 def upload_students(course_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -351,12 +358,30 @@ def new_course_form(request: Request):
     return templates.TemplateResponse("create_course.html", {"request": request})
 
 
-@auth_router.get("/courses/{course_id}/upload-students-page", response_class=HTMLResponse)
-def upload_students_page(request: Request, course_id: int):
-    return templates.TemplateResponse("upload_students.html", {
+@auth_router.get("/courses/{course_id}/enroll", response_class=HTMLResponse)
+def enroll_students_page(request: Request, course_id: int, db: Session = Depends(get_db), user=Depends(require_role("teacher"))):
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        return HTMLResponse("❌ Course not found", status_code=404)
+    
+    return templates.TemplateResponse("enroll_students.html", {
         "request": request,
-        "course_id": course_id
+        "course": course
     })
+
+@auth_router.post("/courses/{course_id}/invite-student", response_class=HTMLResponse)
+def invite_student(course_id: int, email: str = Form(...), db: Session = Depends(get_db)):
+    student = db.query(User).filter(User.email == email).first()
+    
+    if not student:
+        return HTMLResponse(content="❌ Student not found", status_code=404)
+
+    enrollment = Enrollment(course_id=course_id, student_id=student.id)
+    db.add(enrollment)
+    db.commit()
+    
+    return HTMLResponse(content=f"✅ {email} enrolled successfully.")
+
 
 @auth_router.get("/teacher/dashboard", response_class=HTMLResponse)
 def teacher_dashboard(
@@ -366,9 +391,11 @@ def teacher_dashboard(
 ):
     teacher_id = user["user_id"]
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
+    teacher = db.query(User).filter(User.id == teacher_id).first()
     
     return templates.TemplateResponse("teacher_dashboard.html", {
         "request": request,
-        "courses": courses
+        "courses": courses,
+        "teacher_name":teacher.f_name
     })
 

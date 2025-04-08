@@ -11,6 +11,8 @@ class User(Base):
     is_verified = Column(Boolean, default=False)
     hashed_password = Column(String, nullable=False)
     role = Column(String, nullable=False)
+    f_name = Column(String, nullable=False)
+    l_name = Column(String, nullable=True)
     courses = relationship("Course",back_populates="teacher")
 
 

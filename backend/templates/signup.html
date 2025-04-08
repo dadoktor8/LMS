@@ -5,8 +5,11 @@
 <form id="signup-form"
       hx-post="/auth/signup-form"
       hx-target="#signup-result"
-      hx-swap="innerHTML">
+      hx-swap="innerHTML"
+      onsubmit="this.querySelector('button').disabled = true;">
   
+  <input name="f_name" type="f_name" placeholder="First Name" required>
+  <input name="l_name" type="l_name" placeholder="Last Name">
   <input name="email" type="email" placeholder="Email" required>
   <input name="password" type="password" placeholder="Password" required>
   <select name="role" required>

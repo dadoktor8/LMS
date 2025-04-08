@@ -19,7 +19,6 @@
   
   <main class="container">
     <h2>➕ Create a New Course</h2>
-
     <form 
       hx-post="/auth/courses" 
       hx-target="#message" 
@@ -38,7 +37,8 @@
 
       <button type="submit">🚀 Create Course</button>
     </form>
-
+    <a href="/auth/teacher/dashboard" class="secondary" role="button">⬅️ Back to Dashboard</a>
+    <div id="course-message" class="response-message"></div>
     <div id="message" style="margin-top: 1.5rem;"></div>
   </main>
 </body>

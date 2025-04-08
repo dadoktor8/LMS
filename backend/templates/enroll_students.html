@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Enroll Students</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <nav class="container-fluid">
+        <ul>
+          <li><strong>Teacher Portal</strong></li>
+        </ul>
+        <ul>
+          <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+        </ul>
+      </nav>
+    <main class="container">
+        <h2>👥 Enroll Students to <strong>{{ course.name }}</strong></h2>
+
+        <!-- Individual Student Invite Form -->
+        <section class="card">
+            <form method="post" action="/auth/courses/{{ course.id }}/invite-student" hx-post hx-target="#invite-status">
+                <label for="student_email">Student Email:</label>
+                <input type="email" name="student_email" id="student_email" required>
+                <button type="submit">Invite Student</button>
+            </form>
+            <div id="invite-status" class="status"></div>
+        </section>
+
+        <hr>
+
+        <!-- Excel Upload Form -->
+        <section class="card">
+            <form method="post" action="/auth/courses/{{ course.id }}/upload-students" enctype="multipart/form-data">
+                <label for="file">Upload Excel (.xlsx):</label>
+                <input type="file" name="file" id="file" accept=".xlsx" required>
+                <button type="submit">Upload Excel</button>
+            </form>
+        </section>
+        <a href="/auth/teacher/dashboard" class="secondary" role="button">⬅️ Back to Dashboard</a>
+    </main>
+</body>
+</html>
