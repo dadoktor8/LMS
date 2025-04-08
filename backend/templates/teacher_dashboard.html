@@ -17,7 +17,7 @@
   </nav>
   
   <div class="welcome-container">
-      <h2>👩‍🏫 Welcome, Teacher!</h2>
+      <h2 class="text-center">Welcome, {{ teacher_name }} 👋</h2>
       <p>What would you like to do today?</p>
     </div>
     
@@ -27,14 +27,14 @@
       <div class="course-card create-course-card">
         <h4>➕ Create New Course</h4>
         <p>Start a new course and invite students.</p>
-        <a href="/create-course" class="card-link">Create</a>
+        <a href="/auth/courses/new" class="card-link">Create</a>
       </div>
       {% for course in courses %}
       <div class="course-card">
         <h4>{{ course.title }}</h4>
         <p>{{ course.description }}</p>
         
-        <a href="/courses/{{ course.id }}/enroll" class="card-link">👥 Enroll Students</a>
+        <a href="/auth/courses/{{ course.id }}/enroll" class="card-link">👥 Enroll Students</a>
         <a href="/courses/{{ course.id }}/attendance" class="card-link">📝 Mark/View Attendance</a>
         <a href="/courses/{{ course.id }}/info" class="card-link">📄 Course Info</a>
         <a href="/courses/{{ course.id }}/materials" class="card-link">📤 Upload Materials</a>
