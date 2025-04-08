@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Create Course</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+</head>
+<body>
+  <main class="container">
+    <h2>Create a New Course</h2>
+    <form hx-post="/courses" hx-target="#message" method="post">
+      <label>
+        Title:
+        <input type="text" name="title" required>
+      </label>
+      <label>
+        Description:
+        <textarea name="description" required></textarea>
+      </label>
+      <button type="submit">Create Course</button>
+    </form>
+    <div id="message" style="margin-top: 1em;"></div>
+  </main>
+</body>
+</html>
+

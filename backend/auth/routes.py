@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends, Request, Form
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from fastapi import UploadFile, File 
+import pandas as pd
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
 import jwt
@@ -134,6 +136,8 @@ def redirect_to_login_page(msg: str = ""):
 def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
+from fastapi.responses import Response
+
 @auth_router.post("/login-form", response_class=HTMLResponse)
 def login_form(
     request: Request,
@@ -147,10 +151,23 @@ def login_form(
             content='<div class="toast error">❌ Invalid email or password</div>',
             status_code=401
         )
+    
+    if user.role == "admin":
+        redirect_url = "/auth/admin/dashboard"
+    elif user.role == "student":
+        redirect_url = "/auth/student/courses"
+    elif user.role == "teacher":
+        redirect_url = "/auth/teacher/dashboard"
+    else:
+        return HTMLResponse(
+            content=f'<div class="toast success">✅ Welcome back, {user.email}!</div>'
+        )
 
-    return HTMLResponse(
-        content=f'<div class="toast success">✅ Welcome back, {user.email}!</div>'
-    )
+    # 🔁 Return an HTMX-specific redirect
+    response = HTMLResponse(status_code=200)
+    response.headers["HX-Redirect"] = redirect_url
+    return response
+
 
 # === USER INFO + ROLE ROUTES ===
 @auth_router.get("/me")
@@ -262,3 +279,51 @@ def reset_password(
 @auth_router.get("/forgot-password-page", response_class=HTMLResponse)
 def forgot_password_page(request: Request):
     return templates.TemplateResponse("forgot_password.html", {"request": request})
+
+
+@auth_router.post("/courses")
+def create_course(
+    title: str = Form(...),
+    description: str = Form(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
+    new_course = Course(title=title, description=description, teacher_id=user["user_id"])
+    db.add(new_course)
+    db.commit()
+    db.refresh(new_course)
+    return {"msg": "Course created", "course_id": new_course.id}
+
+@auth_router.post("/courses/{course_id}/upload-students")
+def upload_students(course_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    df = pd.read_excel(file.file)
+
+    for email in df["email"]:
+        student = db.query(User).filter(User.email == email).first()
+        if student:
+            enrollment = Enrollment(course_id=course_id, student_id=student.id)
+            db.add(enrollment)
+
+    db.commit()
+    return {"msg": "Students enrolled successfully"}
+
+
+@auth_router.get("/courses/new", response_class=HTMLResponse)
+def new_course_form(request: Request):
+    return templates.TemplateResponse("create_course.html", {"request": request})
+
+
+@auth_router.get("/courses/{course_id}/upload-students-page", response_class=HTMLResponse)
+def upload_students_page(request: Request, course_id: int):
+    return templates.TemplateResponse("upload_students.html", {
+        "request": request,
+        "course_id": course_id
+    })
+
+@auth_router.get("/teacher/dashboard", response_class=HTMLResponse)
+def teacher_dashboard(request: Request, db: Session = Depends(get_db)):
+    # Fetch teacher's courses (optional enhancement)
+    return templates.TemplateResponse("teacher_dashboard.html", {
+        "request": request
+    })
+

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Teacher Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+  <style>
+    body {
+      background-color: #f4f9ff;
+    }
+
+    .dashboard {
+      margin-top: 4rem;
+      text-align: center;
+    }
+
+    .card-grid {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      flex-wrap: wrap;
+      margin-top: 2rem;
+    }
+
+    .card {
+      padding: 2rem;
+      background-color: white;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      transition: all 0.3s ease;
+      width: 250px;
+    }
+
+    .card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+    }
+
+    .card a {
+      text-decoration: none;
+    }
+
+    footer {
+      margin-top: 4rem;
+      text-align: center;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <main class="container dashboard">
+    <h2>👩‍🏫 Welcome, Teacher!</h2>
+    <p>What would you like to do today?</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <h3>➕ Create Course</h3>
+        <p>Start a new course and invite students.</p>
+        <a href="/courses/new" role="button">Create</a>
+      </div>
+      <div class="card">
+        <h3>📚 My Courses</h3>
+        <p>See all your current and past courses.</p>
+        <a href="/courses/list" role="button" class="secondary">View</a>
+      </div>
+      <div class="card">
+        <h3>📝 Mark Attendance</h3>
+        <p>Record daily attendance for your students.</p>
+        <a href="/attendance/mark" role="button" class="contrast">Mark</a>
+      </div>
+    </div>
+
+    <footer>
+      <p>✨ Built with ❤️ for dedicated teachers</p>
+    </footer>
+  </main>
+</body>
+</html>
+

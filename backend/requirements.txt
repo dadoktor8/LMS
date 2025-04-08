@@ -9,3 +9,4 @@ jwt
 pydantic[email]
 python-multipart
 yagmail
+pandas
