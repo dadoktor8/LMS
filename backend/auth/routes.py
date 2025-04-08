@@ -16,7 +16,7 @@ from utils.tokens import generate_verification_token
 from utils.tokens import confirm_token
 from utils.email_utils import send_verification_email
 from utils.tokens import generate_verification_token
-from db.models import User
+from db.models import User,Course,Enrollment
 from db.database import engine,get_db
 
 load_dotenv()
@@ -64,11 +64,16 @@ def decode_token(token: str):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 def require_role(required_role: str):
-    def role_checker(token: str = Depends(oauth2_scheme)):
-        payload = decode_token(token)
+    def role_checker(request: Request):
+        token = request.cookies.get("access_token")
+        if not token:
+            raise HTTPException(status_code=401, detail="Missing token in cookies")
+
+        payload = decode_token(token)  # Your decode_token logic
         if payload.get("role") != required_role:
             raise HTTPException(status_code=403, detail="Not authorized")
-        return payload
+        return payload  # Contains user_id, role, etc.
+
     return role_checker
 
 # === JSON API SIGNUP ===
@@ -134,9 +139,18 @@ def redirect_to_login_page(msg: str = ""):
 # === HTMX LOGIN FORM ===
 @auth_router.get("/login-page", response_class=HTMLResponse)
 def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    logged_out = request.cookies.get("logged_out")
 
-from fastapi.responses import Response
+    response = templates.TemplateResponse("login.html", {
+        "request": request,
+        "logged_out": logged_out
+    })
+
+    # 🍪 Clear the cookie after reading so it doesn’t show again next time
+    response.delete_cookie("logged_out")
+
+    return response
+
 
 @auth_router.post("/login-form", response_class=HTMLResponse)
 def login_form(
@@ -151,7 +165,8 @@ def login_form(
             content='<div class="toast error">❌ Invalid email or password</div>',
             status_code=401
         )
-    
+
+    # Redirect logic
     if user.role == "admin":
         redirect_url = "/auth/admin/dashboard"
     elif user.role == "student":
@@ -159,13 +174,36 @@ def login_form(
     elif user.role == "teacher":
         redirect_url = "/auth/teacher/dashboard"
     else:
-        return HTMLResponse(
-            content=f'<div class="toast success">✅ Welcome back, {user.email}!</div>'
-        )
+        return HTMLResponse(content="Invalid role", status_code=400)
 
-    # 🔁 Return an HTMX-specific redirect
+    # ⛓️ Create JWT token
+    access_token = create_access_token(data={
+        "sub": user.email,
+        "role": user.role,
+        "user_id": user.id
+    }, expires_delta=timedelta(hours=24))
+
+    # 🌐 Set token in cookie
     response = HTMLResponse(status_code=200)
     response.headers["HX-Redirect"] = redirect_url
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=60 * 60 * 24,  # 1 day
+        secure=False,  # True in production with HTTPS
+        samesite="Lax"
+    )
+
+    return response
+
+
+
+@auth_router.get("/logout")
+def logout():
+    response = RedirectResponse(url="/auth/login-page")
+    response.delete_cookie("access_token")
+    response.set_cookie(key="logged_out", value="1", max_age=5)  # Expires in 5 seconds
     return response
 
 
@@ -321,9 +359,16 @@ def upload_students_page(request: Request, course_id: int):
     })
 
 @auth_router.get("/teacher/dashboard", response_class=HTMLResponse)
-def teacher_dashboard(request: Request, db: Session = Depends(get_db)):
-    # Fetch teacher's courses (optional enhancement)
+def teacher_dashboard(
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
+    teacher_id = user["user_id"]
+    courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
+    
     return templates.TemplateResponse("teacher_dashboard.html", {
-        "request": request
+        "request": request,
+        "courses": courses
     })
 

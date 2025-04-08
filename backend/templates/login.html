@@ -21,4 +21,9 @@
 <p class="switch-link">
   <a href="/auth/forgot-password-page" style="font-size: 0.9em; color: #888; text-decoration: underline;">Forgot your password?</a>
 </p>
+{% if logged_out %}
+  <div class="toast success" style="margin-top: 1em;">
+    ✅ You have been logged out.
+  </div>
+{% endif %}
 {% endblock %}
