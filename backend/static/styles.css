@@ -1,94 +1,263 @@
+/* Global Resets */
+* {
+  box-sizing: border-box;
+}
+
 body {
-    margin: 0;
-    font-family: "Segoe UI", Roboto, sans-serif;
-    background: #f3f6f9;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
+  margin: 0;
+  font-family: "Segoe UI", Roboto, sans-serif;
+  background: #f3f6f9;
+  color: #1a1a1a; /* Slightly darker text for readability */
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+main.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+/* Centered Auth Page Layout */
+.auth-container {
+  background: white;
+  padding: 3rem 2rem;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+  margin: auto;
+}
+
+/* Headings */
+.auth-container h2,
+h1, h2, h3, h4 {
+  margin-bottom: 1.5rem;
+  color: #222;
+}
+
+/* Form Styles */
+form input,
+form select,
+form textarea {
+  width: 100%;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1rem;
+  background: #fff;
+  color: #1a1a1a;
+}
+
+button {
+  width: 100%;
+  padding: 0.75rem;
+  background: #6366f1;
+  color: white;
+  font-weight: bold;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+button:hover {
+  background: #4f46e5;
+}
+
+/* Toast Alerts */
+.toast {
+  display: block;
+  padding: 12px 16px;
+  border-radius: 5px;
+  margin-top: 10px;
+  font-weight: bold;
+  animation: fadeIn 0.5s ease-in-out;
+  transition: all 0.3s ease-in-out;
+}
+.toast.success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+.toast.error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Link Styles */
+a {
+  color: #4f46e5;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* Switch Login/Register Link */
+.switch-link {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+/* Utility Container */
+.container {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: auto;
+}
+
+/* Reusable Card Styles */
+
+/* Navigation Bar */
+nav {
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  background: #ffffff;
+  border-bottom: 1px solid #ddd;
+}
+
+/* Responsive Grid (like card-grid) */
+
+
+/* Table Enhancements */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1.5rem;
+}
+th, td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid #ccc;
+}
+th {
+  background-color: #f1f5f9;
+  color: #333;
+}
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
+  width: 100%;
+  justify-content: center;
+}
+
+/* Card styling */
+.card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center; /* vertical center */
+  align-items: center;     /* horizontal center */
+  text-align: center;
+  padding: 1.5rem;
+  border-radius: 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  background-color: rgb(253, 215, 215);
+  max-width: 320px;
+  margin: 0 auto;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+}
+
+.card h3,
+.card h4 {
+  margin-top: 0;
+  color: #333;
+}
+
+.card p {
+  color: #444;
+  font-size: 0.95rem;
+  margin-bottom: auto;
+}
+
+.card a {
+  display: inline-block;
+  margin-top: 1rem;
+  color: #6366f1;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.card a:hover {
+  text-decoration: underline;
+}
+.welcome-container {
+  text-align: center;
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+}
+.footer-text {
+  text-align: center;
+  margin-top: 3rem;
+  font-size: 0.9rem;
+  color: #555;
+}
+.course-card {
+  background-color: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 300px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transition: transform 0.2s ease-in-out;
+}
+
+.course-card:hover {
+  transform: translateY(-5px);
+}
+
+.courses-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 1rem;
+}
+
+.card-link {
+  display: block;
+  margin-top: 0.5rem;
+  color: #5A3EED;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+@media (max-width: 768px) {
+  .course-card {
+    width: 90%;
   }
-  
-  .auth-container {
-    background: white;
-    padding: 3rem 2rem;
-    border-radius: 12px;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-    width: 100%;
-    max-width: 400px;
-    text-align: center;
+}
+.welcome-container,
+.section-title,
+.footer {
+  text-align: center;
+}
+
+
+@media (max-width: 600px) {
+  .card {
+    padding: 1rem;
   }
-  
-  .auth-container h2 {
-    margin-bottom: 1.5rem;
-    color: #333;
+
+  .grid {
+    gap: 1rem;
   }
-  
-  form input,
-  form select {
-    width: 100%;
-    padding: 0.75rem;
-    margin-bottom: 1rem;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    font-size: 1rem;
-  }
-  
-  button {
-    width: 100%;
-    padding: 0.75rem;
-    background: #6366f1;
-    color: white;
-    font-weight: bold;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background 0.3s ease;
-  }
-  
-  button:hover {
-    background: #4f46e5;
-  }
-  
-  .response-message {
-    margin-top: 1rem;
-    color: #16a34a;
-    font-weight: bold;
-  }
-  
-  .switch-link {
-    margin-top: 1rem;
+
+  .card p {
     font-size: 0.9rem;
   }
-  
-  .switch-link a {
-    color: #6366f1;
-    text-decoration: none;
-  }
-  
-  .switch-link a:hover {
-    text-decoration: underline;
-  }
-  .toast {
-    display: block;
-    padding: 12px 16px;
-    border-radius: 5px;
-    margin-top: 10px;
-    font-weight: bold;
-    animation: fadeIn 0.5s ease-in-out;
-    transition: all 0.3s ease-in-out;
-  }
-  .toast.success {
-    background-color: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
-  }
-  .toast.error {
-    background-color: #f8d7da;
-    color: #721c24;
-    border: 1px solid #f5c6cb;
-  }
-  
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
+}
