@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Upload Students</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+</head>
+<body>
+  <main class="container">
+    <h2>Upload Student Excel Sheet</h2>
+    <form hx-post="/courses/{{ course_id }}/upload-students" hx-encoding="multipart/form-data" hx-target="#result" method="post">
+      <input type="file" name="file" accept=".xlsx,.csv" required>
+      <button type="submit">Upload</button>
+    </form>
+    <div id="result"></div>
+  </main>
+</body>
+</html>
+
