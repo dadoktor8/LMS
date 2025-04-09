@@ -228,22 +228,35 @@ def student_courses(
     user=Depends(require_role("student"))
 ):
     student_id = user["user_id"]
-    invites = db.query(CourseInvite).filter_by(student_id=student_id, status="pending").all()
-    enrolled = db.query(Enrollment).filter_by(student_id=student_id).all()
-    courses = [enroll.course for enroll in enrolled]
+    student = db.query(User).filter_by(id=user["user_id"]).first()
 
-    # ✅ Create invite links in Python
+
+    # ✅ Only pending invites
+    invites = db.query(CourseInvite).filter_by(student_id=student_id, status="pending").all()
+
+    # ✅ Enrolled courses
+    enrollments = db.query(Enrollment).filter_by(student_id=student_id, is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
+
+    # ✅ Build invite links for pending ones
     invite_links = []
     for invite in invites:
         token = generate_verification_token(invite.student.email)
         link = f"/auth/accept-invite?token={token}&course_id={invite.course_id}"
-        invite_links.append({"course": invite.course, "link": link})
+        invite_links.append({
+            "course": invite.course,
+            "link": link,
+            "invite_id": invite.id,  # useful if you later use AJAX/HTMX to accept without reloading
+            "token":token
+        })
 
     return templates.TemplateResponse("student_dashboard.html", {
         "request": request,
         "courses": courses,
-        "pending_invites": invite_links
+        "pending_invites": invite_links,
+        "user": student
     })
+
 
 
 
@@ -360,18 +373,38 @@ def create_course(
     status_code=200
 )
 
-@auth_router.post("/courses/{course_id}/upload-students")
+@auth_router.post("/courses/{course_id}/upload-students", response_class=HTMLResponse)
 def upload_students(course_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
     df = pd.read_excel(file.file)
 
     for email in df["email"]:
         student = db.query(User).filter(User.email == email).first()
-        if student:
-            enrollment = Enrollment(course_id=course_id, student_id=student.id)
-            db.add(enrollment)
+        if not student:
+            return HTMLResponse(content="❌ Student not found", status_code=404)
+        invite = db.query(CourseInvite).filter_by(course_id=course_id, student_id=student.id).first()
+        enrollment = db.query(Enrollment).filter_by(course_id=course_id, student_id=student.id).first()
+
+        #if invite and invite.status == "accepted":
+            #return HTMLResponse(content="✅ Student already enrolled.", status_code=200)
+
+        if not invite:
+            invite = CourseInvite(course_id=course_id, student_id=student.id)
+            db.add(invite)
+        else:
+            invite.status = "pending"
+
+        # Send email with confirmation link
+        token = generate_verification_token(email)
+        link = f"http://127.0.0.1:8000/auth/accept-invite?token={token}&course_id={course_id}"
+        send_verification_email(email, f"You've been invited to join a course! Accept: {link}")
 
     db.commit()
-    return {"msg": "Students enrolled successfully"}
+
+    toast = f"<div class='toast success'>✅ student(s) invited successfully.</div>"
+    return HTMLResponse(content=toast, status_code=200)
+
+
+
 
 
 @auth_router.get("/courses/new", response_class=HTMLResponse)
@@ -409,48 +442,67 @@ def invite_student(
     if not student:
         return HTMLResponse(content="❌ Student not found", status_code=404)
 
-    existing_invite = db.query(CourseInvite).filter_by(course_id=course_id, student_id=student.id).first()
-    if existing_invite:
-        return HTMLResponse(content="⚠️ Student already invited.", status_code=400)
+    invite = db.query(CourseInvite).filter_by(course_id=course_id, student_id=student.id).first()
+    enrollment = db.query(Enrollment).filter_by(course_id=course_id, student_id=student.id).first()
 
-    invite = CourseInvite(course_id=course_id, student_id=student.id)
-    db.add(invite)
-    db.commit()
+    #if invite and invite.status == "accepted":
+        #return HTMLResponse(content="✅ Student already enrolled.", status_code=200)
+
+    if not invite:
+        invite = CourseInvite(course_id=course_id, student_id=student.id)
+        db.add(invite)
+    else:
+        invite.status = "pending"
 
     # Send email with confirmation link
     token = generate_verification_token(email)
     link = f"http://127.0.0.1:8000/auth/accept-invite?token={token}&course_id={course_id}"
     send_verification_email(email, f"You've been invited to join a course! Accept: {link}")
 
+    db.commit()
+    
     return HTMLResponse(
         content='<div class="toast success">✅ Invite sent to student via email.</div>',
         status_code=200
     )
     
-@auth_router.get("/accept-invite")
+@auth_router.get("/accept-invite", response_class=HTMLResponse)
 def accept_invite(token: str, course_id: int, db: Session = Depends(get_db)):
     email = confirm_token(token)
     if not email:
         return HTMLResponse("❌ Invalid or expired invite", status_code=400)
 
     student = db.query(User).filter(User.email == email).first()
-    invite = db.query(CourseInvite).filter_by(course_id=course_id, student_id=student.id).first()
+    if not student:
+        return HTMLResponse("❌ Student not found", status_code=404)
 
+    invite = db.query(CourseInvite).filter_by(course_id=course_id, student_id=student.id).first()
     if not invite:
         return HTMLResponse("❌ Invite not found", status_code=404)
 
     if invite.status == "accepted":
-        return HTMLResponse("✅ Already accepted")
+        return HTMLResponse("✅ You've already joined this course!")
 
     invite.status = "accepted"
+
+
+    # Check if already enrolled
+    enrollment = db.query(Enrollment).filter_by(course_id=course_id, student_id=student.id).first()
+    if not enrollment:
+        enrollment = Enrollment(course_id=course_id, student_id=student.id, is_accepted=True)
+        db.add(enrollment)
+    else:
+        enrollment.is_accepted = True
+
     db.commit()
 
-    # Enroll the student
-    enrollment = Enrollment(course_id=course_id, student_id=student.id)
-    db.add(enrollment)
-    db.commit()
+    return HTMLResponse("""
+        <div class="toast success">🎉 Invite accepted and course joined!</div>
+        <script>
+          setTimeout(() => { window.location.href = '/auth/student/courses'; }, 1500);
+        </script>
+    """)
 
-    return HTMLResponse("🎉 Invite accepted and student enrolled!")
 
 
 @auth_router.post("/courses/{course_id}/accept", response_class=HTMLResponse)
@@ -460,12 +512,28 @@ def accept_invite(
     user=Depends(require_role("student"))
 ):
     enrollment = db.query(Enrollment).filter_by(course_id=course_id, student_id=user["user_id"]).first()
+
     if not enrollment or enrollment.is_accepted:
         return HTMLResponse(content="⚠️ Invalid or already accepted invite.", status_code=400)
 
     enrollment.is_accepted = True
+
+    # Update invite if exists
+    invite = db.query(CourseInvite).filter_by(course_id=course_id, student_id=user["user_id"]).first()
+    if invite:
+        invite.status = "accepted"
+
     db.commit()
-    return HTMLResponse(content="🎉 Successfully joined the course!")
+
+    course = db.query(Course).filter(Course.id == course_id).first()
+    return HTMLResponse(content=f"""
+        <div class="card">
+            <h4>{course.title}</h4>
+            <p>{course.description}</p>
+            <div class="toast success">🎉 Successfully joined the course!</div>
+        </div>
+    """)
+
 
 
 @auth_router.get("/teacher/dashboard", response_class=HTMLResponse)
@@ -484,3 +552,8 @@ def teacher_dashboard(
         "teacher_name":teacher.f_name
     })
 
+@auth_router.get("/debug/invites")
+def debug_invites(db: Session = Depends(get_db)):
+    invites = db.query(CourseInvite).all()
+    return [{"email": db.query(User).filter(User.id == i.student_id).first().email,
+             "course_id": i.course_id, "status": i.status} for i in invites]
