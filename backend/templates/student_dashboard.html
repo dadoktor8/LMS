@@ -36,6 +36,19 @@
   <main class="container dashboard">
     <h2>🎓 Welcome, Student!</h2>
     <p>Here are your enrolled courses and attendance details:</p>
+    <h3>📩 Pending Invites</h3>
+<div class="dashboard-grid">
+  {% for invite in pending_invites %}
+    <div class="card">
+      <h4>You've been invited to: {{ invite.course.title }}</h4>
+      <p>{{ invite.course.description }}</p>
+      <a href="{{ invite.link }}" class="button">✅ Accept Invite</a>
+    </div>
+  {% else %}
+    <p style="text-align:center; width: 100%;">No pending invites!</p>
+  {% endfor %}
+</div>
+
     <div class="dashboard-grid">
       {% for course in courses %}
       <div class="card">
