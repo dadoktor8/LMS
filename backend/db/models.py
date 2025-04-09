@@ -31,6 +31,17 @@ class Enrollment(Base):
     id = Column(Integer,primary_key=True, index=True)
     course_id = Column(Integer, ForeignKey("courses.id"))
     student_id = Column(Integer, ForeignKey("users.id"))
-
+    is_accepted = Column(Boolean, default=False)
     course = relationship("Course", back_populates="enrollments")
+    student = relationship("User")
+
+class CourseInvite(Base):
+    __tablename__ = "course_invites"
+
+    id = Column(Integer, primary_key=True)
+    course_id = Column(Integer, ForeignKey("courses.id"))
+    student_id = Column(Integer, ForeignKey("users.id"))
+    status = Column(String, default="pending")  # pending | accepted
+
+    course = relationship("Course", backref="invites")
     student = relationship("User")
