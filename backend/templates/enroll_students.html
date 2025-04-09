@@ -19,7 +19,7 @@
 
         <!-- Individual Student Invite Form -->
         <section class="card">
-            <form method="POST" hx-post="/auth/courses/{{ course.id }}/invite-student" hx-target="#invite-status" hx-swap="innerHTML">
+            <form method="POST" action="/auth/courses/{{ course.id }}/invite-student" hx-post hx-target="#invite-status" hx-swap="innerHTML">
                 <label for="student_email">Student Email:</label>
                 <input type="email" name="email" id="student_email" required>
                 <button type="submit">Invite Student</button>

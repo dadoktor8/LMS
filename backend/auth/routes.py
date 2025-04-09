@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 from utils.tokens import generate_verification_token
 from utils.tokens import confirm_token
 from utils.email_utils import send_verification_email
-from utils.tokens import generate_verification_token
 from db.models import User,Course,Enrollment,CourseInvite
 from db.database import engine,get_db
 
@@ -221,6 +220,7 @@ def read_users_me(token: str = Depends(oauth2_scheme)):
 def admin_dashboard(user=Depends(require_role("admin"))):
     return {"message": "Welcome Admin!", "email": user.get("sub")}
 
+
 @auth_router.get("/student/courses", response_class=HTMLResponse)
 def student_courses(
     request: Request,
@@ -231,11 +231,20 @@ def student_courses(
     invites = db.query(CourseInvite).filter_by(student_id=student_id, status="pending").all()
     enrolled = db.query(Enrollment).filter_by(student_id=student_id).all()
     courses = [enroll.course for enroll in enrolled]
+
+    # ✅ Create invite links in Python
+    invite_links = []
+    for invite in invites:
+        token = generate_verification_token(invite.student.email)
+        link = f"/auth/accept-invite?token={token}&course_id={invite.course_id}"
+        invite_links.append({"course": invite.course, "link": link})
+
     return templates.TemplateResponse("student_dashboard.html", {
         "request": request,
         "courses": courses,
-        "pending_invites": invites 
+        "pending_invites": invite_links
     })
+
 
 
 @auth_router.get("/users", response_class=HTMLResponse)
