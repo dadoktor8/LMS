@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Student Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <nav class="container-fluid">
+    <ul>
+      <li><strong>Student Portal</strong></li>
+    </ul>
+    <ul>
+      <li>
+        <details role="list">
+          <summary role="link">🔔 Invites</summary>
+          <ul>
+            {% for invite in pending_invites %}
+              <li>
+                <a href="/auth/accept-invite?token={{ generate_email_token(invite.student.email) }}&course_id={{ invite.course_id }}">
+                  📩 Accept invite for {{ invite.course.title }}
+                </a>
+              </li>
+            {% else %}
+              <li><em>No new invites</em></li>
+            {% endfor %}
+          </ul>
+        </details>
+      </li>
+      <li><a href="/auth/logout" role="button" class="secondary">Logout</a></li>
+    </ul>
+  </nav>
+  
+
+  <main class="container dashboard">
+    <h2>🎓 Welcome, Student!</h2>
+    <p>Here are your enrolled courses and attendance details:</p>
+    <div class="dashboard-grid">
+      {% for course in courses %}
+      <div class="card">
+        <h4>{{ course.title }}</h4>
+        <p>{{ course.description }}</p>
+        {% if not course.is_accepted %}
+          <form method="post" hx-post="/auth/courses/{{ course.id }}/accept" hx-target="#response-{{ course.id }}">
+            <button type="submit">✅ Accept Invite</button>
+          </form>
+          <div id="response-{{ course.id }}"></div>
+        {% endif %}
+      </div>
+      {% else %}
+      <p style="text-align:center; width: 100%;">You haven't joined any courses yet.</p>
+      {% endfor %}
+    </div>
+
+    <section style="margin-top: 3rem;">
+      <h3>📌 Join a Course</h3>
+      <form hx-post="/auth/courses/join" hx-target="#join-result" method="POST">
+        <input type="text" name="course_code" placeholder="Enter Course Code or ID" required>
+        <button type="submit">Join</button>
+      </form>
+      <div id="join-result" class="response-message"></div>
+    </section>
+
+    <footer style="margin-top: 3rem;">
+      <p>✨ Stay curious, keep learning!</p>
+    </footer>
+  </main>
+</body>
+</html>
+

@@ -16,7 +16,7 @@ from utils.tokens import generate_verification_token
 from utils.tokens import confirm_token
 from utils.email_utils import send_verification_email
 from utils.tokens import generate_verification_token
-from db.models import User,Course,Enrollment
+from db.models import User,Course,Enrollment,CourseInvite
 from db.database import engine,get_db
 
 load_dotenv()
@@ -221,9 +221,21 @@ def read_users_me(token: str = Depends(oauth2_scheme)):
 def admin_dashboard(user=Depends(require_role("admin"))):
     return {"message": "Welcome Admin!", "email": user.get("sub")}
 
-@auth_router.get("/student/courses")
-def student_courses(user=Depends(require_role("student"))):
-    return {"message": "Welcome Student! Here are your courses.", "email": user.get("sub")}
+@auth_router.get("/student/courses", response_class=HTMLResponse)
+def student_courses(
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
+):
+    student_id = user["user_id"]
+    invites = db.query(CourseInvite).filter_by(student_id=student_id, status="pending").all()
+    enrolled = db.query(Enrollment).filter_by(student_id=student_id).all()
+    courses = [enroll.course for enroll in enrolled]
+    return templates.TemplateResponse("student_dashboard.html", {
+        "request": request,
+        "courses": courses,
+        "pending_invites": invites 
+    })
 
 
 @auth_router.get("/users", response_class=HTMLResponse)
@@ -369,18 +381,82 @@ def enroll_students_page(request: Request, course_id: int, db: Session = Depends
         "course": course
     })
 
+@auth_router.get("/courses/{course_id}/invite-student", response_class=HTMLResponse)
+def invite_student_page(request: Request, course_id: int, user=Depends(require_role("teacher"))):
+    return templates.TemplateResponse("invite_student.html", {
+        "request": request,
+        "course_id": course_id
+    })
+
 @auth_router.post("/courses/{course_id}/invite-student", response_class=HTMLResponse)
-def invite_student(course_id: int, email: str = Form(...), db: Session = Depends(get_db)):
+def invite_student(
+    request: Request,
+    course_id: int,
+    email: str = Form(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
     student = db.query(User).filter(User.email == email).first()
-    
     if not student:
         return HTMLResponse(content="❌ Student not found", status_code=404)
 
+    existing_invite = db.query(CourseInvite).filter_by(course_id=course_id, student_id=student.id).first()
+    if existing_invite:
+        return HTMLResponse(content="⚠️ Student already invited.", status_code=400)
+
+    invite = CourseInvite(course_id=course_id, student_id=student.id)
+    db.add(invite)
+    db.commit()
+
+    # Send email with confirmation link
+    token = generate_verification_token(email)
+    link = f"http://127.0.0.1:8000/auth/accept-invite?token={token}&course_id={course_id}"
+    send_verification_email(email, f"You've been invited to join a course! Accept: {link}")
+
+    return HTMLResponse(
+        content='<div class="toast success">✅ Invite sent to student via email.</div>',
+        status_code=200
+    )
+    
+@auth_router.get("/accept-invite")
+def accept_invite(token: str, course_id: int, db: Session = Depends(get_db)):
+    email = confirm_token(token)
+    if not email:
+        return HTMLResponse("❌ Invalid or expired invite", status_code=400)
+
+    student = db.query(User).filter(User.email == email).first()
+    invite = db.query(CourseInvite).filter_by(course_id=course_id, student_id=student.id).first()
+
+    if not invite:
+        return HTMLResponse("❌ Invite not found", status_code=404)
+
+    if invite.status == "accepted":
+        return HTMLResponse("✅ Already accepted")
+
+    invite.status = "accepted"
+    db.commit()
+
+    # Enroll the student
     enrollment = Enrollment(course_id=course_id, student_id=student.id)
     db.add(enrollment)
     db.commit()
-    
-    return HTMLResponse(content=f"✅ {email} enrolled successfully.")
+
+    return HTMLResponse("🎉 Invite accepted and student enrolled!")
+
+
+@auth_router.post("/courses/{course_id}/accept", response_class=HTMLResponse)
+def accept_invite(
+    course_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
+):
+    enrollment = db.query(Enrollment).filter_by(course_id=course_id, student_id=user["user_id"]).first()
+    if not enrollment or enrollment.is_accepted:
+        return HTMLResponse(content="⚠️ Invalid or already accepted invite.", status_code=400)
+
+    enrollment.is_accepted = True
+    db.commit()
+    return HTMLResponse(content="🎉 Successfully joined the course!")
 
 
 @auth_router.get("/teacher/dashboard", response_class=HTMLResponse)
