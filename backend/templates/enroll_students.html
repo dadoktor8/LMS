@@ -24,18 +24,24 @@
                 <input type="email" name="email" id="student_email" required>
                 <button type="submit">Invite Student</button>
             </form>
-            <div id="invite-status"></div>
+            <div id="invite-status" style="position: fixed; top: 20px; right: 20px; z-index: 9999;"></div>
         </section>
 
         <hr>
 
         <!-- Excel Upload Form -->
         <section class="card">
-            <form method="post" action="/auth/courses/{{ course.id }}/upload-students" enctype="multipart/form-data">
-                <label for="file">Upload Excel (.xlsx):</label>
-                <input type="file" name="file" id="file" accept=".xlsx" required>
-                <button type="submit">Upload Excel</button>
-            </form>
+        <form 
+        method="POST"
+        action="/auth/courses/{{ course.id }}/upload-students"
+        hx-post="/auth/courses/{{ course.id }}/upload-students"
+        enctype="multipart/form-data"
+        hx-target="#invite-status"
+        hx-swap="innerHTML"
+        >
+        <input type="file" name="file" accept=".xlsx" required />
+        <button type="submit">📤 Upload Students</button>
+        </form>
         </section>
         <a href="/auth/teacher/dashboard" class="secondary" role="button">⬅️ Back to Dashboard</a>
     </main>

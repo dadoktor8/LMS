@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Student Dashboard</title>
   <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
 </head>
 <body>
   <nav class="container-fluid">
@@ -18,7 +19,7 @@
           <ul>
             {% for invite in pending_invites %}
               <li>
-                <a href="/auth/accept-invite?token={{ generate_email_token(invite.student.email) }}&course_id={{ invite.course_id }}">
+                <a href="{{ invite.link }}">
                   📩 Accept invite for {{ invite.course.title }}
                 </a>
               </li>
@@ -31,41 +32,45 @@
       <li><a href="/auth/logout" role="button" class="secondary">Logout</a></li>
     </ul>
   </nav>
-  
 
-  <main class="container dashboard">
-    <h2>🎓 Welcome, Student!</h2>
+  <main class="student-dashboard">
+    <h2>🎓 Welcome, {{ user.f_name }}!</h2>
     <p>Here are your enrolled courses and attendance details:</p>
-    <h3>📩 Pending Invites</h3>
-<div class="dashboard-grid">
-  {% for invite in pending_invites %}
-    <div class="card">
-      <h4>You've been invited to: {{ invite.course.title }}</h4>
-      <p>{{ invite.course.description }}</p>
-      <a href="{{ invite.link }}" class="button">✅ Accept Invite</a>
-    </div>
-  {% else %}
-    <p style="text-align:center; width: 100%;">No pending invites!</p>
-  {% endfor %}
-</div>
 
-    <div class="dashboard-grid">
+    <h3>📚 Your Courses</h3>
+    <div class="courses-grid" id="course-list">
       {% for course in courses %}
-      <div class="card">
-        <h4>{{ course.title }}</h4>
-        <p>{{ course.description }}</p>
-        {% if not course.is_accepted %}
-          <form method="post" hx-post="/auth/courses/{{ course.id }}/accept" hx-target="#response-{{ course.id }}">
-            <button type="submit">✅ Accept Invite</button>
-          </form>
-          <div id="response-{{ course.id }}"></div>
-        {% endif %}
-      </div>
+        <div class="course-card" id="course-{{ course.id }}">
+          <h4>{{ course.title }}</h4>
+          <p>{{ course.description }}</p>
+        </div>
       {% else %}
-      <p style="text-align:center; width: 100%;">You haven't joined any courses yet.</p>
+        <p style="text-align:center; width: 100%;">You haven't joined any courses yet.</p>
       {% endfor %}
     </div>
 
+    {% if pending_invites %}
+    <section style="margin-top: 3rem;">
+      <h3>📩 Pending Invites</h3>
+      <div class="dashboard-grid">
+        {% for invite in pending_invites %}
+          <div class="card" id="invite-{{ invite.course.id }}">
+            <h4>{{ invite.course.title }}</h4>
+            <p>You're invited to this course. Click below to accept:</p>
+            <form 
+            method="get"
+            hx-get="/auth/accept-invite?token={{ invite.token }}&course_id={{ invite.course.id }}"
+            hx-target="#invite-{{ invite.course.id }}"
+            hx-swap="outerHTML"
+            >
+              <button type="submit">✅ Accept Invite</button>
+            </form>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+<!-- 
     <section style="margin-top: 3rem;">
       <h3>📌 Join a Course</h3>
       <form hx-post="/auth/courses/join" hx-target="#join-result" method="POST">
@@ -74,11 +79,10 @@
       </form>
       <div id="join-result" class="response-message"></div>
     </section>
-
+-->
     <footer style="margin-top: 3rem;">
       <p>✨ Stay curious, keep learning!</p>
     </footer>
   </main>
 </body>
 </html>
-
