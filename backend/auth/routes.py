@@ -1,3 +1,5 @@
+import random
+import string
 from fastapi import APIRouter, HTTPException, Depends, Request, Form
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -8,14 +10,14 @@ from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
 import jwt
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import List, Literal
 import os
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 from utils.tokens import generate_verification_token
 from utils.tokens import confirm_token
 from utils.email_utils import send_verification_email
-from db.models import User,Course,Enrollment,CourseInvite
+from db.models import AttendanceCode, AttendanceRecord, User,Course,Enrollment,CourseInvite
 from db.database import engine,get_db
 
 load_dotenv()
@@ -557,3 +559,129 @@ def debug_invites(db: Session = Depends(get_db)):
     invites = db.query(CourseInvite).all()
     return [{"email": db.query(User).filter(User.id == i.student_id).first().email,
              "course_id": i.course_id, "status": i.status} for i in invites]
+
+@auth_router.post("/courses/{course_id}/generate-attendance-code", response_class=HTMLResponse)
+def generate_attendance_code(
+    course_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
+    # Ensure the teacher owns the course
+    course = db.query(Course).filter(
+        Course.id == course_id,
+        Course.teacher_id == user["user_id"]
+    ).first()
+
+    if not course:
+        return HTMLResponse(content="❌ Unauthorized or course not found", status_code=403)
+
+    # Generate a secure 6-character alphanumeric code
+    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+    # Create and save the new attendance code
+    new_code = AttendanceCode(
+        course_id=course_id,
+        code=code,
+        expires_at=expires_at
+    )
+    db.add(new_code)
+    db.commit()
+
+    return HTMLResponse(
+        content=f"<div class='toast success'>🕒 Code <strong>{code}</strong> generated! Valid for 10 mins.</div>"
+    )
+
+
+@auth_router.post("/courses/{course_id}/submit-attendance", response_class=HTMLResponse)
+def submit_attendance(
+    course_id: int,
+    code: str = Form(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
+):
+    student_id = user["user_id"]
+    now = datetime.utcnow()
+
+    # Validate the code
+    valid_code = db.query(AttendanceCode).filter(
+        AttendanceCode.course_id == course_id,
+        AttendanceCode.code == code,
+        AttendanceCode.expires_at > now
+    ).first()
+
+    if not valid_code:
+        return HTMLResponse(
+            content="<div class='toast error'>❌ Invalid or expired code.</div>",
+            status_code=400
+        )
+
+    # Prevent duplicate attendance entries with same code
+    already_present = db.query(AttendanceRecord).filter_by(
+        student_id=student_id,
+        course_id=course_id,
+        code_used=code
+    ).first()
+
+    if already_present:
+        return HTMLResponse(
+            content="<div class='toast warning'>⚠️ You’ve already marked attendance with this code.</div>",
+            status_code=200
+        )
+
+    # Record attendance
+    record = AttendanceRecord(
+        student_id=student_id,
+        course_id=course_id,
+        code_used=code
+    )
+    db.add(record)
+    db.commit()
+
+    return HTMLResponse(
+        content="<div class='toast success'>✅ Attendance marked successfully!</div>"
+    )
+
+@auth_router.get("/courses/{course_id}/attendance", response_class=HTMLResponse)
+def view_attendance_page(
+    course_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
+    course = db.query(Course).filter(Course.id == course_id, Course.teacher_id == user["user_id"]).first()
+    if not course:
+        return HTMLResponse(content="❌ Unauthorized", status_code=403)
+
+    students = [e.student for e in course.enrollments]
+    records = db.query(AttendanceRecord).filter(AttendanceRecord.course_id == course_id).all()
+
+    return templates.TemplateResponse("teacher_attendance.html", {
+        "request": request,
+        "course": course,
+        "students": students,
+        "records": records
+    })
+
+@auth_router.post("/courses/{course_id}/mark-manual-attendance", response_class=HTMLResponse)
+def mark_manual_attendance(
+    course_id: int,
+    present_ids: List[int] = Form(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
+    now = datetime.utcnow()
+    for student_id in present_ids:
+        existing = db.query(AttendanceRecord).filter_by(
+            student_id=student_id,
+            course_id=course_id,
+            attended_at=now.date()  # Optional: avoid double marking same day
+        ).first()
+        if not existing:
+            db.add(AttendanceRecord(
+                student_id=student_id,
+                course_id=course_id,
+                code_used="Manual"
+            ))
+    db.commit()
+    return RedirectResponse(url=f"/courses/{course_id}/attendance", status_code=302)

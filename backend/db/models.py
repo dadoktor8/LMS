@@ -1,5 +1,6 @@
 # backend/db/models.py
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey
+from datetime import datetime
+from sqlalchemy import Column, DateTime, Integer, String, Boolean, ForeignKey
 from db.database import Base
 from sqlalchemy.orm import relationship
 
@@ -14,6 +15,7 @@ class User(Base):
     f_name = Column(String, nullable=False)
     l_name = Column(String, nullable=True)
     courses = relationship("Course",back_populates="teacher")
+    attendance = relationship("AttendanceRecord", backref="student")
 
 
 class Course(Base):
@@ -25,6 +27,9 @@ class Course(Base):
 
     teacher = relationship("User", back_populates="courses")
     enrollments = relationship("Enrollment", back_populates="course")
+    attendance_codes = relationship("AttendanceCode", backref="course", cascade="all, delete-orphan")
+    attendance_records = relationship("AttendanceRecord", backref="course", cascade="all, delete-orphan")
+
 
 class Enrollment(Base):
     __tablename__ = "Enrollment"
@@ -45,3 +50,21 @@ class CourseInvite(Base):
 
     course = relationship("Course", backref="invites")
     student = relationship("User")
+
+class AttendanceCode(Base):
+    __tablename__ = "attendance_codes"
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"))
+    code = Column(String, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class AttendanceRecord(Base):
+    __tablename__ = "attendance_records"
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"))
+    course_id = Column(Integer, ForeignKey("courses.id"))
+    attended_at = Column(DateTime, default=datetime.utcnow)
+    code_used = Column(String, nullable=False)
+
+

@@ -43,6 +43,9 @@
         <div class="course-card" id="course-{{ course.id }}">
           <h4>{{ course.title }}</h4>
           <p>{{ course.description }}</p>
+          <p>Attendance: {{ course.attended_sessions }} / {{ course.total_sessions }}</p>
+          <a href="/auth/courses/{{ course.id }}/attendance/check" class="button">🎯 Check Attendance</a>
+          <a href="/auth/courses/{{ course.id }}/attendance/history" class="button secondary">📅 View History</a>
         </div>
       {% else %}
         <p style="text-align:center; width: 100%;">You haven't joined any courses yet.</p>
