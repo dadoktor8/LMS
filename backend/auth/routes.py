@@ -241,16 +241,28 @@ def student_courses(
             "course": invite.course,
             "link": link,
             "invite_id": invite.id,  # useful if you later use AJAX/HTMX to accept without reloading
-            "token":token,
-            "ta_invite":ta_invites
+            "token":token
         })
+
+    ta_invite_links = [
+    {
+        "course": ta.course,
+        "link": f"/auth/accept-ta-invite?course_id={ta.course_id}"
+    }
+    for ta in ta_invites
+]
+    ta_courses = db.query(TeachingAssistant).filter_by(student_id=student_id, status="accepted").all()
+    ta_course_list = [ta.course for ta in ta_courses]
 
     return templates.TemplateResponse("student_dashboard.html", {
         "request": request,
+        "user": student,
         "courses": courses,
         "pending_invites": invite_links,
-        "user": student
+        "ta_invites": ta_invite_links,
+        "ta_courses": ta_course_list
     })
+
 
 
 
@@ -415,7 +427,8 @@ def enroll_students_page(request: Request, course_id: int, db: Session = Depends
     
     return templates.TemplateResponse("enroll_students.html", {
         "request": request,
-        "course": course
+        "course": course,
+        "role": user["role"]
     })
 
 @auth_router.get("/courses/{course_id}/invite-student", response_class=HTMLResponse)
@@ -654,13 +667,10 @@ def view_attendance_page(
     db: Session = Depends(get_db),
     user=Depends(require_teacher_or_ta())
 ):
-    course = db.query(Course).filter(
-        Course.id == course_id,
-        Course.teacher_id == user["user_id"]
-    ).first()
-
+    course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        return HTMLResponse(content="❌ Unauthorized", status_code=403)
+        return HTMLResponse(content="❌ Course not found", status_code=404)
+
 
     selected_date = None
     query = db.query(AttendanceRecord).filter(AttendanceRecord.course_id == course_id)
@@ -691,7 +701,8 @@ def view_attendance_page(
         "course": course,
         "students": students,
         "attendance_records": formatted_records,
-        "selected_date": selected_date.strftime("%Y-%m-%d") if selected_date else ""
+        "selected_date": selected_date.strftime("%Y-%m-%d") if selected_date else "",
+        "role": user["role"]
     })
 
 
