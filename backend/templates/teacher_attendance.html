@@ -2,64 +2,125 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>📋 Manage Attendance - {{ course.title }}</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Attendance - {{ course.name }}</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://unpkg.com/htmx.org@1.9.2"></script>
 </head>
 <body>
-  <main class="student-dashboard">
-    <h2>📋 Attendance for {{ course.title }}</h2>
+  <nav class="container-fluid">
+    <ul>
+      <li><strong>Teacher Portal</strong></li>
+    </ul>
+    <ul>
+      <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+    </ul>
+  </nav>
 
-    <!-- Attendance Code Section -->
-    <section class="course-card">
-      <h3>🎯 Generate Attendance Code</h3>
-      <form method="post" action="/auth/courses/{{ course.id }}/attendance/code" hx-target="#code-display" hx-swap="innerHTML">
-        <button type="submit">Generate Code</button>
-      </form>
-      <div id="code-display">
-        {% if code %}
-          <p class="toast success">Code: <strong>{{ code }}</strong> | Expires: {{ expiry.strftime('%I:%M %p') }}</p>
-        {% endif %}
-      </div>
-    </section>
+  <h2 style="text-align: center;">🗒️ Attendance for {{ course.title }}</h2>
 
-    <!-- Manual Marking Section -->
-    <section class="course-card">
-      <h3>✅ Manual Attendance</h3>
-      <form method="post" action="/auth/courses/{{ course.id }}/attendance/manual">
+  <div class="courses-grid">
+
+    <!-- LEFT: Generate Code -->
+    <div class="course-card">
+      <h3 style="font-size: medium;">
+        🎯 Generate Attendance Code
+      </h3>
+      <button
+      id="generate-code-btn" 
+      hx-post="/auth/courses/{{ course.id }}/generate-attendance-code"
+      hx-target="#code-display"
+      hx-swap="innerHTML"
+      class="btn btn-primary"
+      onclick="disableButtonFor10Minutes()"
+    >
+      Generate Code
+    </button>
+  
+    <!-- Area where code will appear -->
+    <div id="code-display" style="margin-top: 15px;"></div>
+    </div>
+
+    <!-- CENTER: Manual Attendance -->
+    <div class="course-card">
+      <h3 style="margin-bottom: 10px; font-size: medium;">📄 Attendance Sheet – {{ course.title }}</h3>
+      <p style="color: green; font-weight: bold; margin-bottom: 15px;">
+        ✅ Manual Attendance
+      </p>
+      <form method="post" 
+      hx-post="/auth/courses/{{ course.id }}/mark-manual-attendance" 
+      hx-target="#manual-attendance-toast" 
+      hx-swap="innerHTML">
         {% for student in students %}
-          <div>
-            <input type="checkbox" id="stu-{{ student.id }}" name="present_ids" value="{{ student.id }}">
-            <label for="stu-{{ student.id }}">{{ student.f_name }} {{ student.l_name }} ({{ student.email }})</label>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div>
+              <div style="font-weight: 500;">{{ student.f_name }} {{ student.l_name }}</div>
+              <div style="font-size: 0.9em; color: #555;">{{ student.email }}</div>
+            </div>
+            <input type="checkbox" name="present_ids" value="{{ student.id }}" id="student_{{ student.id }}" style="transform: scale(1.2); margin-left: 12px;">
           </div>
         {% endfor %}
-        <button type="submit">Save Attendance</button>
+        <button type="submit" class="btn btn-primary" style="margin-top: 10px;">Save Attendance</button>
       </form>
-    </section>
-
-    <!-- History Section -->
-    <section class="card">
-      <h3>📅 Attendance History</h3>
-      <table>
+      <div id="manual-attendance-toast" style="margin-top: 1rem;"></div>
+    </div>
+    <!-- RIGHT: Attendance History -->
+    <div style="margin-top: 40px; text-align: center;">
+      <h3 style="margin-bottom: 10px;">📅 Attendance History - {{ course.title }}</h3>
+    
+      <form method="get" action="/auth/courses/{{ course.id }}/attendance">
+        <label for="attendance-date">Select Date:</label>
+        <input type="date" id="attendance-date" name="date" value="{{ selected_date }}">
+        <button type="submit" class="btn btn-secondary" style="margin-left: 10px;">Filter</button>
+      </form>
+    
+      {% if attendance_records %}
+      <table style="margin: 20px auto; border-collapse: collapse;">
         <thead>
           <tr>
-            <th>Date</th>
-            <th>Present Students</th>
+            <th style="padding: 8px 12px;">Student</th>
+            <th style="padding: 8px 12px;">Date</th>
+            <th style="padding: 8px 12px;">Status</th>
           </tr>
         </thead>
         <tbody>
-          {% for session in history %}
-            <tr>
-              <td>{{ session.date.strftime('%d %b %Y') }}</td>
-              <td>
-                {% for record in session.records %}
-                  {{ record.student.f_name }} {{ record.student.l_name }}{% if not loop.last %}, {% endif %}
-                {% endfor %}
-              </td>
-            </tr>
+          {% for record in attendance_records %}
+          <tr>
+            <td style="padding: 6px 12px;">{{ record.student.name }}</td>
+            <td style="padding: 6px 12px;">{{ record.date.strftime('%Y-%m-%d') }}</td>
+            <td style="padding: 6px 12px;">{{ "✅ Present" if record.present else "❌ Absent" }}</td>
+          </tr>
           {% endfor %}
         </tbody>
       </table>
-    </section>
-  </main>
+      {% else %}
+      <p style="margin-top: 15px;">No attendance records found for this course.</p>
+      {% endif %}
+    
+      <form method="get" action="/auth/courses/{{ course.id }}/attendance/export-attendance">
+        <button type="submit" class="btn btn-secondary" style="margin-top: 10px; width: auto;">📤 Export CSV</button>
+      </form>
+    </div>
+  </div>
+
+  <div style="text-align: center; margin-top: 2rem;">
+    <a href="/auth/teacher/dashboard" class="btn-secondary">⬅ Back to Dashboard</a>
+  </div>
+  <script>
+    function disableButtonFor10Minutes() {
+      const btn = document.getElementById("generate-code-btn");
+      btn.disabled = true;
+      btn.innerText = "Code Active (10 mins)";
+      
+      // Reset after 10 minutes (600,000 ms)
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.innerText = "Generate Code";
+        document.getElementById("code-display").innerHTML = "";  // Optional: clear the code display
+      }, 600000);
+    }
+    </script>
+    
+
 </body>
 </html>
