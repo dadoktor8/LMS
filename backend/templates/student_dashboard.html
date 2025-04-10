@@ -13,9 +13,10 @@
       <li><strong>Student Portal</strong></li>
     </ul>
     <ul>
+      <!-- 🔔 Course Invites -->
       <li>
         <details role="list">
-          <summary role="link">🔔 Invites</summary>
+          <summary role="link">🔔 Course Invites</summary>
           <ul>
             {% for invite in pending_invites %}
               <li>
@@ -29,6 +30,27 @@
           </ul>
         </details>
       </li>
+  
+      <!-- 🧑‍🏫 TA Invites -->
+      <li>
+        <details role="list">
+          <summary role="link">🧑‍🏫 TA Invites</summary>
+          <ul>
+            {% for ta in ta_invites %}
+              <li>
+                <form method="post" action="/auth/courses/{{ ta.course.id }}/accept-ta" style="margin: 0;">
+                  <button type="submit" style="background: none; border: none; padding: 0; color: #4f46e5; cursor: pointer;">
+                    ✅ Accept TA role for {{ ta.course.title }}
+                  </button>
+                </form>
+              </li>
+            {% else %}
+              <li><em>No TA invites</em></li>
+            {% endfor %}
+          </ul>
+        </details>
+      </li>
+  
       <li><a href="/auth/logout" role="button" class="secondary">Logout</a></li>
     </ul>
   </nav>

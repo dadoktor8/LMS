@@ -16,19 +16,19 @@ from datetime import datetime, timedelta
 from typing import List, Literal, Optional
 import os
 from dotenv import load_dotenv
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, text
 from sqlalchemy.orm import Session
-from utils.tokens import generate_verification_token
+from backend.utils.permissions import require_teacher_or_ta
+from utils.tokens import create_access_token, decode_token, generate_verification_token
 from utils.tokens import confirm_token
 from utils.email_utils import send_verification_email
-from db.models import AttendanceCode, AttendanceRecord, User,Course,Enrollment,CourseInvite
+from db.models import AttendanceCode, AttendanceRecord, TeachingAssistant, User,Course,Enrollment,CourseInvite
 from db.database import engine,get_db
 
 load_dotenv()
 
 SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 auth_router = APIRouter()
@@ -54,19 +54,6 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password, hashed_password) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
-
-def create_access_token(data: dict, expires_delta: timedelta = None):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-def decode_token(token: str):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
 
 def require_role(required_role: str):
     def role_checker(request: Request):
@@ -239,6 +226,7 @@ def student_courses(
 
     # ✅ Only pending invites
     invites = db.query(CourseInvite).filter_by(student_id=student_id, status="pending").all()
+    ta_invites = db.query(TeachingAssistant).filter_by(student_id=student_id, status="pending").all()
 
     # ✅ Enrolled courses
     enrollments = db.query(Enrollment).filter_by(student_id=student_id, is_accepted=True).all()
@@ -253,7 +241,8 @@ def student_courses(
             "course": invite.course,
             "link": link,
             "invite_id": invite.id,  # useful if you later use AJAX/HTMX to accept without reloading
-            "token":token
+            "token":token,
+            "ta_invite":ta_invites
         })
 
     return templates.TemplateResponse("student_dashboard.html", {
@@ -419,7 +408,7 @@ def new_course_form(request: Request):
 
 
 @auth_router.get("/courses/{course_id}/enroll", response_class=HTMLResponse)
-def enroll_students_page(request: Request, course_id: int, db: Session = Depends(get_db), user=Depends(require_role("teacher"))):
+def enroll_students_page(request: Request, course_id: int, db: Session = Depends(get_db), user=Depends(require_teacher_or_ta())):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         return HTMLResponse("❌ Course not found", status_code=404)
@@ -430,7 +419,7 @@ def enroll_students_page(request: Request, course_id: int, db: Session = Depends
     })
 
 @auth_router.get("/courses/{course_id}/invite-student", response_class=HTMLResponse)
-def invite_student_page(request: Request, course_id: int, user=Depends(require_role("teacher"))):
+def invite_student_page(request: Request, course_id: int, user=Depends(require_teacher_or_ta())):
     return templates.TemplateResponse("invite_student.html", {
         "request": request,
         "course_id": course_id
@@ -442,7 +431,7 @@ def invite_student(
     course_id: int,
     email: str = Form(...),
     db: Session = Depends(get_db),
-    user=Depends(require_role("teacher"))
+    user=Depends(require_teacher_or_ta())
 ):
     student = db.query(User).filter(User.email == email).first()
     if not student:
@@ -569,7 +558,7 @@ def generate_attendance_code(
     request : Request,
     course_id: int,
     db: Session = Depends(get_db),
-    user=Depends(require_role("teacher"))
+    user=Depends(require_teacher_or_ta())
 ):
     # Ensure the teacher owns the course
     course = db.query(Course).filter(
@@ -663,7 +652,7 @@ def view_attendance_page(
     request: Request,
     date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    user=Depends(require_role("teacher"))
+    user=Depends(require_teacher_or_ta())
 ):
     course = db.query(Course).filter(
         Course.id == course_id,
@@ -711,7 +700,7 @@ def mark_manual_attendance(
     course_id: int,
     present_ids: List[int] = Form(default=[]),
     db: Session = Depends(get_db),
-    user=Depends(require_role("teacher"))
+    user=Depends(require_teacher_or_ta())
 ):
     today = datetime.utcnow().date()
 
@@ -740,7 +729,7 @@ def mark_manual_attendance(
 def export_attendance_csv(
     course_id: int,
     db: Session = Depends(get_db),
-    user=Depends(require_role("teacher"))
+    user=Depends(require_teacher_or_ta())
 ):
     course = db.query(Course).filter_by(id=course_id, teacher_id=user["user_id"]).first()
     if not course:
@@ -835,3 +824,61 @@ def view_student_attendance(
         "course": course,
         "records": records
     })
+
+@auth_router.get("/courses/{course_id}/invite-ta", response_class=HTMLResponse)
+def invite_ta_page(
+    request: Request,
+    course_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
+    course = db.query(Course).filter_by(id=course_id, teacher_id=user["user_id"]).first()
+    if not course:
+        return HTMLResponse(content="❌ Unauthorized", status_code=403)
+
+    return templates.TemplateResponse("invite_ta.html", {
+        "request": request,
+        "course": course
+    })
+
+
+@auth_router.post("/courses/{course_id}/invite-ta", response_class=HTMLResponse)
+def invite_ta(
+    course_id: int,
+    email: str = Form(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
+    course = db.query(Course).filter_by(id=course_id, teacher_id=user["user_id"]).first()
+    if not course:
+        return HTMLResponse(content="<div class='toast error'> Course doesn't Exist!</div>", status_code=200)
+
+    student = db.query(User).filter_by(email=email).first()
+    if not student:
+        return HTMLResponse(content="<div class='toast error'> User Doesn't Exist!</div>", status_code=200)
+
+    existing = db.query(TeachingAssistant).filter_by(course_id=course_id, student_id=student.id).first()
+    if existing:
+        return HTMLResponse(content="<div class='toast error'> TA already invited or has joined!</div>", status_code=200)
+
+    invite = TeachingAssistant(course_id=course_id, student_id=student.id, status="pending")
+    db.add(invite)
+    db.commit()
+
+    return HTMLResponse("<div class='toast success'>✅ TA invite sent successfully!</div>")
+
+
+
+@auth_router.post("/courses/{course_id}/accept-ta", response_class=HTMLResponse)
+def accept_ta_invite(
+    course_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
+):
+    ta = db.query(TeachingAssistant).filter_by(course_id=course_id, student_id=user["user_id"]).first()
+    if not ta or ta.status == "accepted":
+        return HTMLResponse("❌ Invalid or already accepted", status_code=400)
+
+    ta.status = "accepted"
+    db.commit()
+    return HTMLResponse('<div class="toast success">🎉 You are now a TA for this course!</div>')
