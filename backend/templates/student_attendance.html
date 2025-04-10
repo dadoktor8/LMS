@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>📌 Student Attendance</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+</head>
+<body>
+    <nav class="container-fluid">
+        <ul>
+          <li><strong>Student Portal</strong></li>
+        </ul>
+        <ul>
+          <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+        </ul>
+      </nav>
+  <main class="container">
+    <h2>📘 {{ course.title }} – Attendance</h2>
+
+    <form 
+      method="post" 
+      action="/auth/courses/{{ course.id }}/submit-attendance" 
+      hx-post="/auth/courses/{{ course.id }}/submit-attendance"
+      hx-target="#attendance-response" 
+      hx-swap="innerHTML"
+      style="margin-top: 1.5rem;"
+    >
+      <input type="text" name="code" placeholder="Enter attendance code..." required>
+      <button type="submit">✅ Submit Code</button>
+    </form>
+    <div id="attendance-response" style="margin-top: 1rem;"></div>
+
+    <h3 style="margin-top: 2rem;">📅 Attendance History</h3>
+    {% if records %}
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Status</th>
+            <th>Code Used</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for record in records %}
+          <tr>
+            <td>{{ record.attended_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>✅ Present</td>
+            <td>{{ record.code_used }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>No attendance records found.</p>
+    {% endif %}
+    <div style="text-align: center; margin-top: 2rem;">
+        <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
+      </div>
+  </main>
+</body>
+</html>

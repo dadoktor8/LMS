@@ -1,8 +1,11 @@
+from collections import defaultdict
+import csv
+import io
 import random
 import string
-from fastapi import APIRouter, HTTPException, Depends, Request, Form
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, Form
 from fastapi.security import OAuth2PasswordBearer
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import UploadFile, File 
 import pandas as pd
@@ -10,9 +13,10 @@ from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
 import jwt
 from datetime import datetime, timedelta
-from typing import List, Literal
+from typing import List, Literal, Optional
 import os
 from dotenv import load_dotenv
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 from utils.tokens import generate_verification_token
 from utils.tokens import confirm_token
@@ -562,6 +566,7 @@ def debug_invites(db: Session = Depends(get_db)):
 
 @auth_router.post("/courses/{course_id}/generate-attendance-code", response_class=HTMLResponse)
 def generate_attendance_code(
+    request : Request,
     course_id: int,
     db: Session = Depends(get_db),
     user=Depends(require_role("teacher"))
@@ -575,22 +580,32 @@ def generate_attendance_code(
     if not course:
         return HTMLResponse(content="❌ Unauthorized or course not found", status_code=403)
 
-    # Generate a secure 6-character alphanumeric code
-    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    expires_at = datetime.utcnow() + timedelta(minutes=10)
+    now = datetime.utcnow()
+    existing_code = db.query(AttendanceCode).filter(
+        AttendanceCode.course_id == course_id,
+        AttendanceCode.expires_at > now
+    ).order_by(desc(AttendanceCode.created_at)).first()
+    if existing_code:
+        code = existing_code.code
+        expires_at = existing_code.expires_at
+    else:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        expires_at = datetime.utcnow() + timedelta(minutes=10)
 
-    # Create and save the new attendance code
-    new_code = AttendanceCode(
-        course_id=course_id,
-        code=code,
-        expires_at=expires_at
-    )
-    db.add(new_code)
-    db.commit()
+        # Create and save the new attendance code
+        new_code = AttendanceCode(
+            course_id=course_id,
+            code=code,
+            expires_at=expires_at
+        )
+        db.add(new_code)
+        db.commit()
 
-    return HTMLResponse(
-        content=f"<div class='toast success'>🕒 Code <strong>{code}</strong> generated! Valid for 10 mins.</div>"
-    )
+    return templates.TemplateResponse("attendance_code.html", {
+        "request": request,
+        "code": code,
+        "expires_at": expires_at,
+    }, status_code=200)
 
 
 @auth_router.post("/courses/{course_id}/submit-attendance", response_class=HTMLResponse)
@@ -646,42 +661,177 @@ def submit_attendance(
 def view_attendance_page(
     course_id: int,
     request: Request,
+    date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     user=Depends(require_role("teacher"))
 ):
-    course = db.query(Course).filter(Course.id == course_id, Course.teacher_id == user["user_id"]).first()
+    course = db.query(Course).filter(
+        Course.id == course_id,
+        Course.teacher_id == user["user_id"]
+    ).first()
+
     if not course:
         return HTMLResponse(content="❌ Unauthorized", status_code=403)
 
+    selected_date = None
+    query = db.query(AttendanceRecord).filter(AttendanceRecord.course_id == course_id)
+
+    if date:
+        try:
+            selected_date = datetime.strptime(date, "%Y-%m-%d").date()
+            query = query.filter(func.date(AttendanceRecord.attended_at) == selected_date)
+        except ValueError:
+            selected_date = None
+
+    records = query.all()
     students = [e.student for e in course.enrollments]
-    records = db.query(AttendanceRecord).filter(AttendanceRecord.course_id == course_id).all()
+
+    formatted_records = []
+    for record in records:
+        student = db.query(User).filter(User.id == record.student_id).first()
+        formatted_records.append({
+            "student": {
+                "name": f"{student.f_name} {student.l_name}"
+            },
+            "date": record.attended_at,
+            "present": True  # Since they submitted a code or were marked manually
+        })
 
     return templates.TemplateResponse("teacher_attendance.html", {
         "request": request,
         "course": course,
         "students": students,
-        "records": records
+        "attendance_records": formatted_records,
+        "selected_date": selected_date.strftime("%Y-%m-%d") if selected_date else ""
     })
+
 
 @auth_router.post("/courses/{course_id}/mark-manual-attendance", response_class=HTMLResponse)
 def mark_manual_attendance(
     course_id: int,
-    present_ids: List[int] = Form(...),
+    present_ids: List[int] = Form(default=[]),
     db: Session = Depends(get_db),
     user=Depends(require_role("teacher"))
 ):
-    now = datetime.utcnow()
+    today = datetime.utcnow().date()
+
     for student_id in present_ids:
-        existing = db.query(AttendanceRecord).filter_by(
-            student_id=student_id,
-            course_id=course_id,
-            attended_at=now.date()  # Optional: avoid double marking same day
+        already_marked = db.query(AttendanceRecord).filter(
+            AttendanceRecord.course_id == course_id,
+            AttendanceRecord.student_id == student_id,
+            func.date(AttendanceRecord.attended_at) == today
         ).first()
-        if not existing:
+
+        if not already_marked:
             db.add(AttendanceRecord(
                 student_id=student_id,
                 course_id=course_id,
+                attended_at=datetime.utcnow(),
                 code_used="Manual"
             ))
+
     db.commit()
-    return RedirectResponse(url=f"/courses/{course_id}/attendance", status_code=302)
+    return HTMLResponse(
+        content="<div class='toast success'>✅ Attendance saved!</div>",
+        status_code=200
+    )
+
+@auth_router.get("/courses/{course_id}/attendance/export-attendance")
+def export_attendance_csv(
+    course_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
+    course = db.query(Course).filter_by(id=course_id, teacher_id=user["user_id"]).first()
+    if not course:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    records = db.query(AttendanceRecord).filter_by(course_id=course_id).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Student Name", "Email", "Date", "Code Used"])
+
+    for record in records:
+        student = db.query(User).filter(User.id == record.student_id).first()
+        writer.writerow([
+            f"{student.f_name} {student.l_name}",
+            student.email,
+            record.attended_at.strftime("%d/%m/%Y %H:%M"),
+            record.code_used
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=attendance_{course_id}.csv"}
+    )
+
+@auth_router.delete("/courses/{course_id}/attendance/clear")
+def clear_attendance_records(course_id: int, db: Session = Depends(get_db), user=Depends(require_role("teacher"))):
+    course = db.query(Course).filter_by(id=course_id, teacher_id=user["user_id"]).first()
+    if not course:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    db.query(AttendanceRecord).filter_by(course_id=course_id).delete()
+    db.commit()
+    return {"msg": f"✅ Cleared all attendance for course ID {course_id}"}
+
+
+@auth_router.post("/courses/{course_id}/submit-attendance", response_class=HTMLResponse)
+def submit_attendance(
+    course_id: int,
+    code: str = Form(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
+):
+    student_id = user["user_id"]
+    now = datetime.utcnow()
+
+    valid_code = db.query(AttendanceCode).filter(
+        AttendanceCode.course_id == course_id,
+        AttendanceCode.code == code,
+        AttendanceCode.expires_at > now
+    ).first()
+
+    if not valid_code:
+        return HTMLResponse("<div class='toast error'>❌ Invalid or expired code.</div>", status_code=400)
+
+    already_marked = db.query(AttendanceRecord).filter_by(
+        student_id=student_id,
+        course_id=course_id,
+        code_used=code
+    ).first()
+
+    if already_marked:
+        return HTMLResponse("<div class='toast warning'>⚠️ Already marked present with this code.</div>", status_code=200)
+
+    db.add(AttendanceRecord(
+        student_id=student_id,
+        course_id=course_id,
+        code_used=code
+    ))
+    db.commit()
+
+    return HTMLResponse("<div class='toast success'>✅ Attendance marked successfully!</div>")
+
+# View attendance page
+@auth_router.get("/courses/{course_id}/student-attendance", response_class=HTMLResponse)
+def view_student_attendance(
+    course_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
+):
+    student_id = user["user_id"]
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        return HTMLResponse("❌ Course not found", status_code=404)
+
+    records = db.query(AttendanceRecord).filter_by(course_id=course_id, student_id=student_id).all()
+    return templates.TemplateResponse("student_attendance.html", {
+        "request": request,
+        "course": course,
+        "records": records
+    })
