@@ -38,7 +38,7 @@
           <ul>
             {% for ta in ta_invites %}
               <li>
-                <form method="post" action="/auth/courses/{{ ta.course.id }}/accept-ta" style="margin: 0;">
+                <form method="post" hx-post="/auth/courses/{{ ta.course.id }}/accept-ta" hx-target="#code-display" hx-swap="innerHTML" style="margin: 0;">
                   <button type="submit" style="background: none; border: none; padding: 0; color: #4f46e5; cursor: pointer;">
                     ✅ Accept TA role for {{ ta.course.title }}
                   </button>
@@ -93,6 +93,22 @@
       </div>
     </section>
     {% endif %}
+    <h3>🧑‍🏫 Courses You’re a TA For</h3>
+    <div class="courses-grid">
+      {% for course in ta_courses %}
+        <div class="course-card">
+          <h4>{{ course.title }}</h4>
+          <p>{{ course.description }}</p>
+          <a href="/auth/courses/{{ course.id }}/attendance" class="card-link">📝 Mark/View Attendance</a>
+          <a href="/auth/courses/{{ course.id }}/enroll" class="card-link">👥 Enroll Students</a>
+          <a href="/courses/{{ course.id }}/info" class="card-link">📄 Course Info</a>
+          <a href="/courses/{{ course.id }}/materials" class="card-link">📤 Upload Materials</a>
+        </div>
+      {% else %}
+        <p style="text-align:center; width: 100%;">You're not a TA for any course yet.</p>
+      {% endfor %}
+    </div>
+
 <!-- 
     <section style="margin-top: 3rem;">
       <h3>📌 Join a Course</h3>
@@ -102,7 +118,7 @@
       </form>
       <div id="join-result" class="response-message"></div>
     </section>
--->
+--> <div id="code-display" style="margin-top: 15px;"></div>
     <footer style="margin-top: 3rem;">
       <p>✨ Stay curious, keep learning!</p>
     </footer>

@@ -104,8 +104,13 @@
   </div>
 
   <div style="text-align: center; margin-top: 2rem;">
-    <a href="/auth/teacher/dashboard" class="btn-secondary">⬅ Back to Dashboard</a>
+    {% if role == "teacher" %}
+      <a href="/auth/teacher/dashboard" class="btn-secondary">⬅ Back to Dashboard</a>
+    {% else %}
+      <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
+    {% endif %}
   </div>
+  
   <script>
     function disableButtonFor10Minutes() {
       const btn = document.getElementById("generate-code-btn");

@@ -43,7 +43,14 @@
         <button type="submit">📤 Upload Students</button>
         </form>
         </section>
-        <a href="/auth/teacher/dashboard" class="secondary" role="button">⬅️ Back to Dashboard</a>
+        <div style="text-align: center; margin-top: 2rem;">
+          {% if role == "teacher" %}
+            <a href="/auth/teacher/dashboard" class="btn-secondary">⬅ Back to Dashboard</a>
+          {% else %}
+            <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
+          {% endif %}
+        </div>
+        
     </main>
 </body>
 </html>
