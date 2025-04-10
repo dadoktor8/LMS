@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Invite TA</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+</head>
+<body>
+    <nav class="container-fluid">
+        <ul>
+          <li><strong>Teacher Portal</strong></li>
+        </ul>
+        <ul>
+          <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+        </ul>
+      </nav>
+  <main class="container">
+    <h2>🎓 Invite Teaching Assistant</h2>
+    <p>Invite a student by email to become a TA for <strong>{{ course.title }}</strong>.</p>
+
+    <form method="post" hx-post="/auth/courses/{{ course.id }}/invite-ta" hx-target="#code-display" hx-swap="innerHTML">
+      <input type="email" name="email" placeholder="Enter student's email" required>
+      <button type="submit">Send Invite</button>
+    </form>
+    <div id="code-display" style="margin-top: 15px;"></div>
+
+    <div style="margin-top: 2rem;">
+      <a href="/auth/teacher/dashboard" class="card-link">⬅ Back to Dashboard</a>
+    </div>
+  </main>
+</body>
+</html>

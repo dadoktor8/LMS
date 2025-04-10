@@ -29,6 +29,7 @@ class Course(Base):
     enrollments = relationship("Enrollment", back_populates="course")
     attendance_codes = relationship("AttendanceCode", backref="course", cascade="all, delete-orphan")
     attendance_records = relationship("AttendanceRecord", backref="course", cascade="all, delete-orphan")
+    tas = relationship("TeachingAssistant", back_populates="course", cascade="all, delete-orphan")
 
 
 class Enrollment(Base):
@@ -68,3 +69,13 @@ class AttendanceRecord(Base):
     code_used = Column(String, nullable=False)
 
 
+class TeachingAssistant(Base):
+    __tablename__ = "teaching_assistants"
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"))
+    student_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    course = relationship("Course", back_populates="tas")
+    status = Column(String, default="pending")
+    student = relationship("User")
