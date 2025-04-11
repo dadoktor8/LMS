@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Upload Material</title>
+    <link rel="stylesheet" href="/static/styles.css">   
+    <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+</head>
+<body>
+    <main class="container">
+    <div class="course-card">
+    <h2>📤 Upload Course Material</h2>
+
+    <form hx-post="/ai/courses/{{ course_id }}/upload-material" method="post" enctype="multipart/form-data" hx-target="#success-toast" hx-swap="innerHTML">
+        <input type="file" name="file" required>
+        <button type="submit">Upload</button>
+    </form>
+    </div>
+    <div id="success-toast" style="margin-top: 1rem;"></div>
+    <div style="text-align: center; margin-top: 2rem;">
+        {% if role == "teacher" %}
+          <a href="/auth/teacher/dashboard" class="btn-secondary">⬅ Back to Dashboard</a>
+        {% else %}
+          <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
+        {% endif %}
+      </div>
+    </main>
+</body>
+</html>

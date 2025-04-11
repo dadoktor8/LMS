@@ -1,8 +1,10 @@
 # backend/db/models.py
 from datetime import datetime
+import traceback
 from sqlalchemy import Column, DateTime, Integer, String, Boolean, ForeignKey
-from db.database import Base
+from backend.db.database import Base
 from sqlalchemy.orm import relationship
+
 
 class User(Base):
     __tablename__ = "users"
@@ -30,6 +32,7 @@ class Course(Base):
     attendance_codes = relationship("AttendanceCode", backref="course", cascade="all, delete-orphan")
     attendance_records = relationship("AttendanceRecord", backref="course", cascade="all, delete-orphan")
     tas = relationship("TeachingAssistant", back_populates="course", cascade="all, delete-orphan")
+    materials = relationship("CourseMaterial", back_populates="course", cascade="all, delete-orphan")
 
 
 class Enrollment(Base):
@@ -79,3 +82,14 @@ class TeachingAssistant(Base):
     course = relationship("Course", back_populates="tas")
     status = Column(String, default="pending")
     student = relationship("User")
+
+class CourseMaterial(Base):
+    __tablename__ = "course_materials"
+
+    id = Column(Integer, primary_key=True)
+    course_id = Column(Integer, ForeignKey("courses.id"))
+    title = Column(String, nullable=False)
+    filename = Column(String, nullable=False)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+    course = relationship("Course", back_populates="materials")

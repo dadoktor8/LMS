@@ -1,9 +1,9 @@
 # utils/permissions.py (recommended location)
 from fastapi import HTTPException, Depends, Request
 from sqlalchemy.orm import Session
-from db.database import get_db
-from db.models import Course, TeachingAssistant
-from utils.tokens import decode_token
+from backend.db.database import get_db
+from backend.db.models import Course, TeachingAssistant
+from backend.utils.tokens import decode_token
 
 def require_teacher_or_ta():
     def checker(request: Request, db: Session = Depends(get_db)):
