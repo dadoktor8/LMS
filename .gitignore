@@ -34,3 +34,6 @@ dist/
 .mypy_cache/
 .coverage
 htmlcov/
+
+
+backend/model/
