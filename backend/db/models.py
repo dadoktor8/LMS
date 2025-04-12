@@ -33,6 +33,7 @@ class Course(Base):
     attendance_records = relationship("AttendanceRecord", backref="course", cascade="all, delete-orphan")
     tas = relationship("TeachingAssistant", back_populates="course", cascade="all, delete-orphan")
     materials = relationship("CourseMaterial", back_populates="course", cascade="all, delete-orphan")
+    processed_materials = relationship("ProcessedMaterial", back_populates="course")
 
 
 class Enrollment(Base):
@@ -91,5 +92,18 @@ class CourseMaterial(Base):
     title = Column(String, nullable=False)
     filename = Column(String, nullable=False)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
+    filepath = Column(String, nullable=False)
+    uploaded_by = Column(Integer, ForeignKey("users.id"))
 
     course = relationship("Course", back_populates="materials")
+    processed_materials = relationship("ProcessedMaterial", back_populates="material")
+
+class ProcessedMaterial(Base):
+    __tablename__ = "processed_materials"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey('courses.id'), nullable=False)
+    material_id = Column(Integer, ForeignKey('course_materials.id'), nullable=False)
+    
+    course = relationship("Course", back_populates="processed_materials")
+    material = relationship("CourseMaterial", back_populates="processed_materials")

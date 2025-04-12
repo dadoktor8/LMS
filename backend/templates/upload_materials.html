@@ -8,23 +8,68 @@
     <script src="https://unpkg.com/htmx.org@1.9.2"></script>
 </head>
 <body>
-    <main class="container">
-    <div class="course-card">
-    <h2>📤 Upload Course Material</h2>
+  <nav class="container-fluid">
+    <ul>
+      <li><strong>Teacher Portal</strong></li>
+    </ul>
+    <ul>
+      <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+    </ul>
+  </nav>
+    <div class="courses-grid">
+      <div class="course-card">
+      <h2 style="font-size: medium;">📤 Upload Course Material</h2>
 
-    <form hx-post="/ai/courses/{{ course_id }}/upload-material" method="post" enctype="multipart/form-data" hx-target="#success-toast" hx-swap="innerHTML">
-        <input type="file" name="file" required>
-        <button type="submit">Upload</button>
-    </form>
+      <form hx-post="/ai/courses/{{ course_id }}/upload_materials" method="post" enctype="multipart/form-data" hx-target="#success-toast" hx-swap="innerHTML">
+          <input type="file" name="file" required>
+          <button type="submit">Upload</button>
+      </form>
     </div>
-    <div id="success-toast" style="margin-top: 1rem;"></div>
-    <div style="text-align: center; margin-top: 2rem;">
+    <div class="course-card-table">
+      <h3>📚 Uploaded Materials</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for material in materials %}
+          <tr>
+            <td>
+              <a href="/{{ material.filepath }}" target="_blank" download>
+                📄 {{ material.title or material.filename }}
+              </a>
+            </td>
+            <td>{{ material.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="2" style="text-align: center; color: #888;">No materials uploaded yet.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="button-container" style="margin-top: 20px; text-align: center;">
+        <button 
+          hx-post="/ai/courses/{{ course_id }}/process_materials" 
+          hx-target="#process-status"
+          class="button is-primary"
+          hx-swap="outerHTML">Process Materials</button>
+      </div>
+      
+      <!-- Display status of the processing -->
+      <div id="process-status" style="margin-top: 20px;"></div>
+      </div>
+      </div> 
+      <div style="text-align: center; margin-top: 2rem;">
         {% if role == "teacher" %}
           <a href="/auth/teacher/dashboard" class="btn-secondary">⬅ Back to Dashboard</a>
         {% else %}
           <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
-        {% endif %}
-      </div>
-    </main>
+        {% endif %} 
+    </div>  
+    <div id="success-toast" style="margin-top: 1rem;"></div>
 </body>
 </html>

@@ -11,3 +11,10 @@ python-multipart
 yagmail
 pandas
 openpyxl
+fitz
+PyMuPDF 
+nltk 
+transformers 
+torch 
+faiss-cpu
+sentence-transformers
