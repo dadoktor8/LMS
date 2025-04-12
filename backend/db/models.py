@@ -34,6 +34,7 @@ class Course(Base):
     tas = relationship("TeachingAssistant", back_populates="course", cascade="all, delete-orphan")
     materials = relationship("CourseMaterial", back_populates="course", cascade="all, delete-orphan")
     processed_materials = relationship("ProcessedMaterial", back_populates="course")
+    text_chunks = relationship("TextChunk", back_populates="course")
 
 
 class Enrollment(Base):
@@ -97,6 +98,7 @@ class CourseMaterial(Base):
 
     course = relationship("Course", back_populates="materials")
     processed_materials = relationship("ProcessedMaterial", back_populates="material")
+    text_chunks = relationship("TextChunk", back_populates="material")
 
 class ProcessedMaterial(Base):
     __tablename__ = "processed_materials"
@@ -107,3 +109,17 @@ class ProcessedMaterial(Base):
     
     course = relationship("Course", back_populates="processed_materials")
     material = relationship("CourseMaterial", back_populates="processed_materials")
+
+
+class TextChunk(Base):
+    __tablename__ = 'text_chunks'
+
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey('courses.id'))  # Link to the course
+    chunk_text = Column(String, nullable=False)
+    material_id = Column(Integer, ForeignKey('course_materials.id'))  # Link to the material
+    embedding = Column(String, nullable=False)  # Store the embeddings as a string or JSON
+    
+    # Establish relationships with Course and CourseMaterial tables
+    course = relationship("Course", back_populates="text_chunks")
+    material = relationship("CourseMaterial", back_populates="text_chunks")

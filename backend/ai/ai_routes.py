@@ -1,6 +1,6 @@
 # backend/ai/ai_routes.py
 import logging
-from fastapi import APIRouter, UploadFile, File, Form, Depends, Request, BackgroundTasks
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 import shutil
@@ -8,9 +8,10 @@ import os
 from datetime import datetime
 from backend.db.database import engine,get_db
 from backend.db.models import Course,CourseMaterial, ProcessedMaterial  # Make sure this is correct
+from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
-from .text_processing import extract_text_from_pdf, chunk_text, embed_chunks, save_embeddings_to_faiss,sanitize_filename
+from .text_processing import extract_text_from_pdf, chunk_text, embed_chunks, get_answer_from_rag, process_materials_in_background, save_embeddings_to_faiss,sanitize_filename
 
 ai_router = APIRouter()
 
@@ -75,45 +76,35 @@ async def process_materials(course_id: int, background_tasks: BackgroundTasks , 
     )
 
 
-def process_materials_in_background(course_id: int, db: Session):
+@ai_router.post("/ask_tutor")
+async def ask_tutor(request: QueryRequest, db: Session = Depends(get_db)):
     """
-    Process the materials for the given course in the background.
-    Extracts text, chunks, generates embeddings, and saves them to FAISS.
+    Route to query the AI tutor system and get answers based on the uploaded materials.
     """
-    # Step 1: Get all materials for the course
-    materials = db.query(CourseMaterial).filter_by(course_id=course_id).all()
+    try:
+        course_id = request.course_id  # Assuming QueryRequest includes a course_id field
 
-    for material in materials:
-        # Construct the file path to the material
-        logging.info(f"File path at => {material.filepath}")
-        print(f"File name currently being processed is: {material.filename}")
-        print(f"File path is: {material.filepath}")
-        file_path = f"backend/uploads/{material.filename}"
+        # Fetch all processed materials for the given course
+        course_materials = db.query(CourseMaterial).filter_by(course_id=course_id).all()
+        if not course_materials:
+            raise HTTPException(status_code=404, detail="No course materials found")
 
-        # Check if this material has already been processed
-        existing_material = db.query(ProcessedMaterial).filter_by(course_id=course_id, material_id=material.id).first()
-        if existing_material:
-            logging.info(f"Skipping already processed material: {material.filename}")
-            continue  # Skip processing if already done
-        
-        # Step 2: Extract text from the PDF file
-        try:
-            text = extract_text_from_pdf(file_path)
-        except Exception as e:
-            logging.error(f"Error extracting text from {file_path}: {e}")
-            continue  # Skip this file if an error occurs
-        
-        # Step 3: Chunk the extracted text into manageable parts for embedding
-        chunks = chunk_text(text)
-        
-        # Step 4: Generate embeddings for the chunks
-        embeddings = embed_chunks(chunks)
-        
-        # Step 5: Save the embeddings and associated chunks to FAISS
-        try:
-            save_embeddings_to_faiss(course_id, embeddings, chunks)
-        except Exception as e:
-            logging.error(f"Error saving embeddings for course {course_id}: {e}")
-            continue  # Skip this course if an error occurs
-    
-    logging.info(f"✅ Materials processed for course {course_id}")
+        processed_materials = db.query(ProcessedMaterial).filter_by(course_id=course_id).all()
+        if not processed_materials:
+            raise HTTPException(status_code=404, detail="Course materials haven't been processed yet")
+
+        # Define the correct path to the FAISS index for this course
+        faiss_index_path = f"faiss_index_{course_id}.index"
+
+        # Check if the FAISS index file exists
+        if not os.path.exists(faiss_index_path):
+            raise HTTPException(status_code=404, detail="FAISS index not found for this course")
+
+        # Get answer from RAG pipeline
+        answer = get_answer_from_rag(request.query, faiss_index_path=faiss_index_path, top_k=5)
+
+        return {"answer": answer}
+
+    except Exception as e:
+        logging.error(f"Error processing the query: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
