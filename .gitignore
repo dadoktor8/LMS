@@ -1,39 +1,13 @@
-# Python bytecode
+LMS/Lib/site-packages/
 __pycache__/
-*.py[cod]
-*$py.class
-
-# Environment variables
-.env
-.env.*
-
-# Virtual environments
+*.dll
+*.lib
+*.bin
+*.pt
+*.onnx
+*.pkl
 venv/
-.venv/
 env/
-
-# VSCode settings
-.vscode/
-
-# macOS junk files
-.DS_Store
-
-# Logs
-*.log
-
-# Testing cache
-.pytest_cache/
-.cache/
-
-# Build artifacts
-build/
-dist/
-*.egg-info/
-
-# mypy & coverage
-.mypy_cache/
-.coverage
-htmlcov/
-
-
-backend/model/
+*.zip
+*.tar.gz
+LMS/Lib/
