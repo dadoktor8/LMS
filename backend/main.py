@@ -42,3 +42,4 @@ app.include_router(ai_router, prefix="/ai")
 def home(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
+#Made with love Docjenny&GPT4-o
