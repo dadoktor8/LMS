@@ -10,6 +10,14 @@ from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
 from backend.db.models import CourseMaterial, ProcessedMaterial, TextChunk
 from backend.db.database import SessionLocal  # if you're using a unified DB setup
+from langchain.vectorstores import FAISS
+#from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
+#from langchain.llms import HuggingFacePipeline
+from langchain_huggingface import HuggingFacePipeline
+from langchain.chains import RetrievalQA
+from langchain.schema import Document
+from transformers import pipeline
 
 # ---------------------------------------------
 # Utility
@@ -86,7 +94,8 @@ def process_materials_in_background(course_id: int, db: Session):
             text = extract_text_from_pdf(file_path)
             chunks = chunk_text(text)
             embeddings = embed_chunks(chunks)
-            save_embeddings_to_faiss(course_id, embeddings, chunks, db)
+            #save_embeddings_to_faiss(course_id, embeddings, chunks, db)
+            save_embeddings_to_faiss_langchain(course_id, chunks, db)
             db.add(ProcessedMaterial(course_id=course_id, material_id=material.id))
             db.commit()
         except Exception as e:
@@ -122,3 +131,76 @@ def get_answer_from_rag(query: str, faiss_index_path: str, top_k: int = 5) -> st
         outputs = rag_model.generate(inputs['input_ids'], num_beams=4, max_length=200)
 
     return rag_tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+
+
+def get_answer_from_rag_langchain(query: str, course_id: int) -> str:
+    # Load FAISS index
+    index_path = f"faiss_index_{course_id}"
+    db = FAISS.load_local(index_path, HuggingFaceEmbeddings(model_name=r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2"), allow_dangerous_deserialization=True)
+
+    # Load RAG LLM (using same Facebook/BART model)
+    rag_pipeline = pipeline("text2text-generation", model="facebook/bart-large-cnn")
+    llm = HuggingFacePipeline(pipeline=rag_pipeline)
+
+    # Setup QA chain
+    qa = RetrievalQA.from_chain_type(
+        llm=llm,
+        retriever=db.as_retriever(search_kwargs={"k": 5}),
+        return_source_documents=False
+    )
+
+    # Enhanced Prompt Engineering for AI Tutor
+    prompt = f"""
+    You are an AI tutor that helps explain complex topics in a simple and concise manner. 
+    Given the following retrieved documents, answer the question in a way that makes the concept easy to understand.
+
+    Question: {query}
+
+    Explanation:
+    """
+
+    # Get the answer using the enhanced prompt
+    result = qa.invoke(query, input_prompt=prompt)
+
+    if isinstance(result, dict) and 'result' in result:
+        return result['result']  # Return only the answer part
+
+    return result  # In case it's not a dictionary, return the result as is
+
+def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session):
+    # 1. Prepare LangChain documents
+    documents = [Document(page_content=chunk) for chunk in chunks]
+
+    # 2. Load embedding model
+    embeddings_model = HuggingFaceEmbeddings(model_name=r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2")
+
+    # 3. Build FAISS vectorstore
+    vectorstore = FAISS.from_documents(documents, embedding=embeddings_model)
+
+    # 4. Save locally in LangChain format
+    vectorstore.save_local(f"faiss_index_{course_id}")
+
+    # 5. Store chunks in DB (with embedding values)
+    for chunk in chunks:
+        try:
+            # Generate embeddings for the current chunk
+            embedding = embeddings_model.embed_documents([chunk])
+
+            # If the embedding is a tensor, convert it to a list (use numpy for compatibility)
+            embedding_value = embedding[0].cpu().numpy().tolist() if isinstance(embedding[0], torch.Tensor) else embedding[0]
+
+            # Add the chunk to the database with embedding
+            db.add(TextChunk(
+                course_id=course_id,
+                chunk_text=chunk,
+                embedding=str(embedding_value)  # Store embeddings as a string or JSON
+            ))
+            db.commit()
+        except Exception as e:
+            db.rollback()  # Rollback to avoid PendingRollbackError
+            logging.error(f"❌ Failed to insert chunk: {e}")
+            print(f"❌ Failed to insert chunk: {e}")
+    
+    print(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")
+    logging.info(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")

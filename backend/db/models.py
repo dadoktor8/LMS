@@ -118,7 +118,7 @@ class TextChunk(Base):
     course_id = Column(Integer, ForeignKey('courses.id'))  # Link to the course
     chunk_text = Column(String, nullable=False)
     material_id = Column(Integer, ForeignKey('course_materials.id'))  # Link to the material
-    embedding = Column(String, nullable=False)  # Store the embeddings as a string or JSON
+    embedding = Column(String, nullable=True)  # Store the embeddings as a string or JSON
     
     # Establish relationships with Course and CourseMaterial tables
     course = relationship("Course", back_populates="text_chunks")

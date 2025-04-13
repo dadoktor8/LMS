@@ -12,7 +12,7 @@ from backend.db.models import Course,CourseMaterial, ProcessedMaterial  # Make s
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
-from .text_processing import extract_text_from_pdf, chunk_text, embed_chunks, get_answer_from_rag, process_materials_in_background, save_embeddings_to_faiss,sanitize_filename
+from .text_processing import extract_text_from_pdf, chunk_text, embed_chunks, get_answer_from_rag, get_answer_from_rag_langchain, process_materials_in_background, save_embeddings_to_faiss,sanitize_filename
 
 ai_router = APIRouter()
 
@@ -101,7 +101,8 @@ async def ask_tutor(
             raise HTTPException(status_code=404, detail="FAISS index not found for this course")
 
         # Get answer
-        answer = get_answer_from_rag(query, faiss_index_path=faiss_index_path, top_k=5)
+        #answer = get_answer_from_rag(query, faiss_index_path=faiss_index_path, top_k=5)
+        answer = get_answer_from_rag_langchain(query, course_id)
 
         return HTMLResponse(content=f"""
             <div class="chat-bubble student">🧑‍🎓 {query}</div>
@@ -123,3 +124,25 @@ async def show_student_tutor(request: Request, course_id: int, db: Session = Dep
         "course": course,
         "materials": materials
     })
+
+@ai_router.post("/process_materials")
+def process_materials(action: str, db: Session = Depends(get_db)):
+    return cleanup_or_reset_processed_materials(db, action)
+
+def cleanup_or_reset_processed_materials(db: Session, action: str):
+    try:
+        if action == "clean":
+            # Remove all records
+            db.query(ProcessedMaterial).delete()
+            db.commit()
+            return {"status": "success", "message": "All processed materials have been cleaned."}
+        elif action == "reset":
+            # Reset status to 'pending'
+            db.query(ProcessedMaterial).update({"status": "pending"})
+            db.commit()
+            return {"status": "success", "message": "Processed material statuses have been reset."}
+        else:
+            return {"status": "error", "message": "Invalid action. Use 'clean' or 'reset'."}
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
