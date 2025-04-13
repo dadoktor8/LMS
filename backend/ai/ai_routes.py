@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 import shutil
 import os
 from datetime import datetime
+from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
 from backend.db.models import Course,CourseMaterial, ProcessedMaterial  # Make sure this is correct
 from backend.db.schemas import QueryRequest
@@ -76,14 +77,15 @@ async def process_materials(course_id: int, background_tasks: BackgroundTasks , 
     )
 
 
-@ai_router.post("/ask_tutor")
-async def ask_tutor(request: QueryRequest, db: Session = Depends(get_db)):
-    """
-    Route to query the AI tutor system and get answers based on the uploaded materials.
-    """
-    try:
-        course_id = request.course_id  # Assuming QueryRequest includes a course_id field
+from fastapi import Form
 
+@ai_router.post("/ask_tutor", response_class=HTMLResponse)
+async def ask_tutor(
+    query: str = Form(...),
+    course_id: int = Form(...),
+    db: Session = Depends(get_db)
+):
+    try:
         # Fetch all processed materials for the given course
         course_materials = db.query(CourseMaterial).filter_by(course_id=course_id).all()
         if not course_materials:
@@ -93,18 +95,31 @@ async def ask_tutor(request: QueryRequest, db: Session = Depends(get_db)):
         if not processed_materials:
             raise HTTPException(status_code=404, detail="Course materials haven't been processed yet")
 
-        # Define the correct path to the FAISS index for this course
+        # FAISS path
         faiss_index_path = f"faiss_index_{course_id}.index"
-
-        # Check if the FAISS index file exists
         if not os.path.exists(faiss_index_path):
             raise HTTPException(status_code=404, detail="FAISS index not found for this course")
 
-        # Get answer from RAG pipeline
-        answer = get_answer_from_rag(request.query, faiss_index_path=faiss_index_path, top_k=5)
+        # Get answer
+        answer = get_answer_from_rag(query, faiss_index_path=faiss_index_path, top_k=5)
 
-        return {"answer": answer}
+        return HTMLResponse(content=f"""
+            <div class="chat-bubble student">🧑‍🎓 {query}</div>
+            <div class="chat-bubble ai">💡 {answer}</div>
+            """)
 
     except Exception as e:
-        logging.error(f"Error processing the query: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        logging.error(f"Error: {e}")
+        return HTMLResponse(content=f"<div class='toast error'>❌ {str(e)}</div>", status_code=500)
+
+
+@ai_router.get("/courses/{course_id}/tutor", response_class=HTMLResponse)
+async def show_student_tutor(request: Request, course_id: int, db: Session = Depends(get_db), user=Depends(require_role("student"))):
+    course = db.query(Course).filter(Course.id == course_id).first()
+    materials = db.query(CourseMaterial).filter_by(course_id=course_id).order_by(CourseMaterial.uploaded_at.desc()).all()
+
+    return templates.TemplateResponse("student_ai_tutor.html", {
+        "request": request,
+        "course": course,
+        "materials": materials
+    })

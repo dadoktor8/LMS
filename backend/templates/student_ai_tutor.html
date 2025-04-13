@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>📌 Student Attendance</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+</head>
+<body>
+    <nav class="container-fluid">
+        <ul>
+          <li><strong>Student Portal</strong></li>
+        </ul>
+        <ul>
+          <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+        </ul>
+      </nav>
+      <div class="tutor-container">
+        <!-- Sidebar with uploaded materials -->
+        <aside class="sidebar">
+          <h2>📚 Course Materials</h2>
+          <ul>
+            {% for material in materials %}
+            <li>
+            <a href="/{{ material.filepath }}" download>{{ material.title }}</a>
+            <span style="color: gray; font-size: 0.9em;">— Uploaded on {{ material.uploaded_at.strftime('%Y-%m-%d') }}</span>
+            </li>
+        {% else %}
+            <li>No materials uploaded yet.</li>
+        {% endfor %}
+        </ul>
+          </ul>
+        </aside>
+      
+        <!-- Main chat area -->
+        <main class="chat-area">
+          <h2>🤖 Ask your AI Tutor</h2>
+      
+          <!-- Chat messages -->
+          <div id="chat-history" class="chat-history">
+            <!-- Responses injected here by HTMX -->
+          </div>
+      
+          <!-- Input form -->
+          <form 
+            hx-post="/ai/ask_tutor" 
+            hx-target="#chat-history" 
+            hx-swap="beforeend" 
+            class="chat-form"
+          >
+            <input type="hidden" name="course_id" value="{{ course.id }}">
+            <input type="text" name="query" placeholder="Type your question..." required />
+            <button type="submit">Ask</button>
+          </form>
+        </main>
+      </div>
+      
+    <div style="text-align: center; margin-top: 2rem;">
+        <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
+    </div>
+</body>

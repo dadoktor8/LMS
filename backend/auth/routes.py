@@ -19,9 +19,9 @@ from dotenv import load_dotenv
 from sqlalchemy import desc, func, text
 from sqlalchemy.orm import Session
 from backend.utils.permissions import require_teacher_or_ta
-from utils.tokens import create_access_token, decode_token, generate_verification_token
-from utils.tokens import confirm_token
-from utils.email_utils import send_verification_email
+from backend.utils.tokens import create_access_token, decode_token, generate_verification_token
+from backend.utils.tokens import confirm_token
+from backend.utils.email_utils import send_verification_email
 from backend.db.models import AttendanceCode, AttendanceRecord, TeachingAssistant, User,Course,Enrollment,CourseInvite
 from backend.db.database import engine,get_db
 
