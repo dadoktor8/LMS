@@ -1,6 +1,7 @@
 import logging
 import re
 import fitz  # PyMuPDF for PDF text extraction
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from nltk.tokenize import sent_tokenize
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
@@ -33,7 +34,7 @@ def sanitize_filename(filename: str):
 def extract_text_from_pdf(pdf_path: str) -> str:
     doc = fitz.open(pdf_path)
     return "\n".join(page.get_text() for page in doc)
-
+"""
 # ---------------------------------------------
 # 2. Chunk Text into Manageable Pieces
 def chunk_text(text: str, max_chunk_size: int = 500) -> list:
@@ -52,12 +53,25 @@ def chunk_text(text: str, max_chunk_size: int = 500) -> list:
 
     return chunks
 
+"""
+def chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> list:
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n\n", "\n", ".", " ", ""]
+    )
+    return splitter.split_text(text)
 # ---------------------------------------------
 # 3. Embed Chunks
+'''
 def embed_chunks(chunks: list) -> torch.Tensor:
     model = SentenceTransformer(r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2")  # or use local path if offline
     return model.encode(chunks, convert_to_tensor=True)
-
+'''
+def embed_chunks(chunks: list) -> torch.Tensor:
+    model = SentenceTransformer(r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2")
+    normalized_chunks = [chunk.strip().replace("\n", " ") for chunk in chunks]
+    return model.encode(normalized_chunks, convert_to_tensor=True)
 # ---------------------------------------------
 # 4. Save Embeddings
 def save_embeddings_to_faiss(course_id: int, embeddings: torch.Tensor, chunks: list, db: Session):
@@ -106,6 +120,7 @@ def process_materials_in_background(course_id: int, db: Session):
             logging.error(f"❌ Failed processing {material.filename}: {e}")
             print(f"❌ Failed processing {material.filename}: {e}")
 
+'''
 # ---------------------------------------------
 # 6. FAISS Search
 def search_faiss(query: str, faiss_index_path: str, chunk_text_path: str, top_k: int = 5) -> list:
@@ -121,6 +136,25 @@ def search_faiss(query: str, faiss_index_path: str, chunk_text_path: str, top_k:
     return [all_chunks[i].strip() for i in indices[0] if i < len(all_chunks)]
 
 # ---------------------------------------------
+'''
+def search_faiss(query: str, faiss_index_path: str, chunk_text_path: str, top_k: int = 5) -> list:
+    index = faiss.read_index(faiss_index_path)
+    model = SentenceTransformer(r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2")
+    query_embedding = model.encode([query])
+
+    distances, indices = index.search(query_embedding, top_k)
+
+    with open(chunk_text_path, "r", encoding="utf-8") as f:
+        all_chunks = [line.strip() for line in f.readlines()]
+
+    results = []
+    for idx in indices[0]:
+        if idx < len(all_chunks):
+            chunk = all_chunks[idx]
+            print(f"\n🔹 Retrieved chunk: {chunk[:200]}...")  # debug log
+            results.append(chunk)
+    return results
+
 # 7. Generate Answer
 def get_answer_from_rag(query: str, faiss_index_path: str, top_k: int = 5) -> str:
     chunk_text_path = faiss_index_path.replace("faiss_index_", "faiss_chunks_").replace(".index", ".txt")
@@ -188,39 +222,45 @@ def get_answer_from_rag_langchain(query: str, course_id: int, student_id: str) -
     return result  # fallback
 
 def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session):
-    # 1. Prepare LangChain documents
-    documents = [Document(page_content=chunk) for chunk in chunks]
+    # 1. Normalize chunks
+    normalized_chunks = [chunk.strip().replace("\n", " ") for chunk in chunks]
 
-    # 2. Load embedding model
+    # 2. Prepare LangChain documents
+    documents = [Document(page_content=chunk) for chunk in normalized_chunks]
+
+    # 3. Load embedding model
     embeddings_model = HuggingFaceEmbeddings(model_name=r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2")
 
-    # 3. Build FAISS vectorstore
+    # 4. Build FAISS vectorstore from documents
     vectorstore = FAISS.from_documents(documents, embedding=embeddings_model)
 
-    # 4. Save locally in LangChain format
+    # 5. Save FAISS index (LangChain format)
     vectorstore.save_local(f"faiss_index_{course_id}")
 
-    # 5. Store chunks in DB (with embedding values)
-    for chunk in chunks:
+    # 6. Save chunks + embeddings to DB
+    for chunk in normalized_chunks:
         try:
-            # Generate embeddings for the current chunk
-            embedding = embeddings_model.embed_documents([chunk])
+            embedding = embeddings_model.embed_documents([chunk])[0]  # only one chunk
 
-            # If the embedding is a tensor, convert it to a list (use numpy for compatibility)
-            embedding_value = embedding[0].cpu().numpy().tolist() if isinstance(embedding[0], torch.Tensor) else embedding[0]
+            # Safely convert to list
+            if isinstance(embedding, torch.Tensor):
+                embedding_value = embedding.cpu().numpy().tolist()
+            elif hasattr(embedding, "tolist"):
+                embedding_value = embedding.tolist()
+            else:
+                embedding_value = embedding  # assume already a list
 
-            # Add the chunk to the database with embedding
             db.add(TextChunk(
                 course_id=course_id,
                 chunk_text=chunk,
-                embedding=str(embedding_value)  # Store embeddings as a string or JSON
+                embedding=str(embedding_value)
             ))
-            db.commit()
         except Exception as e:
-            db.rollback()  # Rollback to avoid PendingRollbackError
+            db.rollback()
             logging.error(f"❌ Failed to insert chunk: {e}")
-            print(f"❌ Failed to insert chunk: {e}")
-    
+            continue
+
+    db.commit()
     print(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")
     logging.info(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")
 
