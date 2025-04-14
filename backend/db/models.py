@@ -1,7 +1,7 @@
 # backend/db/models.py
 from datetime import datetime
 import traceback
-from sqlalchemy import Column, DateTime, Integer, String, Boolean, ForeignKey
+from sqlalchemy import Column, DateTime, Integer, String, Boolean, ForeignKey, Text
 from backend.db.database import Base
 from sqlalchemy.orm import relationship
 
@@ -123,3 +123,13 @@ class TextChunk(Base):
     # Establish relationships with Course and CourseMaterial tables
     course = relationship("Course", back_populates="text_chunks")
     material = relationship("CourseMaterial", back_populates="text_chunks")
+
+class ChatHistory(Base):
+    __tablename__ = "chat_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    course_id = Column(Integer, ForeignKey("courses.id"))
+    sender = Column(Text)  # 'student' or 'ai'
+    message = Column(Text)
+    timestamp = Column(DateTime, default=datetime.utcnow)

@@ -8,11 +8,13 @@ import os
 from datetime import datetime
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import Course,CourseMaterial, ProcessedMaterial  # Make sure this is correct
+from backend.db.models import ChatHistory, Course,CourseMaterial, ProcessedMaterial  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
 from .text_processing import extract_text_from_pdf, chunk_text, embed_chunks, get_answer_from_rag, get_answer_from_rag_langchain, process_materials_in_background, save_embeddings_to_faiss,sanitize_filename
+from langchain.memory.chat_message_histories import SQLChatMessageHistory
+from langchain.schema import AIMessage, HumanMessage
 
 ai_router = APIRouter()
 
@@ -77,16 +79,18 @@ async def process_materials(course_id: int, background_tasks: BackgroundTasks , 
     )
 
 
-from fastapi import Form
-
 @ai_router.post("/ask_tutor", response_class=HTMLResponse)
 async def ask_tutor(
     query: str = Form(...),
     course_id: int = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
 ):
     try:
-        # Fetch all processed materials for the given course
+        student_id = user["user_id"]
+        session_id = f"{student_id}_{course_id}"
+
+        # Ensure materials exist
         course_materials = db.query(CourseMaterial).filter_by(course_id=course_id).all()
         if not course_materials:
             raise HTTPException(status_code=404, detail="No course materials found")
@@ -95,19 +99,28 @@ async def ask_tutor(
         if not processed_materials:
             raise HTTPException(status_code=404, detail="Course materials haven't been processed yet")
 
-        # FAISS path
         faiss_index_path = f"faiss_index_{course_id}.index"
         if not os.path.exists(faiss_index_path):
-            raise HTTPException(status_code=404, detail="FAISS index not found for this course")
+            raise HTTPException(status_code=404, detail="FAISS index not found")
+        db.add(ChatHistory(user_id=user["user_id"], course_id=course_id, sender="student", message=query))
+        # Get answer using LangChain RAG
+        answer = get_answer_from_rag_langchain(query, course_id, student_id)
 
-        # Get answer
-        #answer = get_answer_from_rag(query, faiss_index_path=faiss_index_path, top_k=5)
-        answer = get_answer_from_rag_langchain(query, course_id)
+        db.add(ChatHistory(user_id=user["user_id"], course_id=course_id, sender="ai", message=answer))
+        db.commit()
+
+        # Save to chat history
+        history = SQLChatMessageHistory(
+            session_id=session_id,
+            connection_string="sqlite:///chat_history.db"
+        )
+        history.add_user_message(query)
+        history.add_ai_message(answer)
 
         return HTMLResponse(content=f"""
             <div class="chat-bubble student">🧑‍🎓 {query}</div>
             <div class="chat-bubble ai">💡 {answer}</div>
-            """)
+        """, status_code=200)
 
     except Exception as e:
         logging.error(f"Error: {e}")
@@ -118,11 +131,13 @@ async def ask_tutor(
 async def show_student_tutor(request: Request, course_id: int, db: Session = Depends(get_db), user=Depends(require_role("student"))):
     course = db.query(Course).filter(Course.id == course_id).first()
     materials = db.query(CourseMaterial).filter_by(course_id=course_id).order_by(CourseMaterial.uploaded_at.desc()).all()
+    messages = db.query(ChatHistory).filter_by(user_id=user["user_id"], course_id=course_id).order_by(ChatHistory.timestamp).all()
 
     return templates.TemplateResponse("student_ai_tutor.html", {
         "request": request,
         "course": course,
-        "materials": materials
+        "materials": materials,
+        "messages": messages
     })
 
 @ai_router.post("/process_materials")

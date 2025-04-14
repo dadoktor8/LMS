@@ -18,6 +18,10 @@ from langchain_huggingface import HuggingFacePipeline
 from langchain.chains import RetrievalQA
 from langchain.schema import Document
 from transformers import pipeline
+from langchain.memory.chat_message_histories import SQLChatMessageHistory
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationalRetrievalChain
+from sqlalchemy import create_engine
 
 # ---------------------------------------------
 # Utility
@@ -134,39 +138,54 @@ def get_answer_from_rag(query: str, faiss_index_path: str, top_k: int = 5) -> st
 
 
 
-def get_answer_from_rag_langchain(query: str, course_id: int) -> str:
+def get_answer_from_rag_langchain(query: str, course_id: int, student_id: str) -> str:
     # Load FAISS index
     index_path = f"faiss_index_{course_id}"
-    db = FAISS.load_local(index_path, HuggingFaceEmbeddings(model_name=r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2"), allow_dangerous_deserialization=True)
+    db = FAISS.load_local(
+        index_path, 
+        HuggingFaceEmbeddings(model_name=r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2"),
+        allow_dangerous_deserialization=True
+    )
 
-    # Load RAG LLM (using same Facebook/BART model)
+    # Load LLM pipeline
     rag_pipeline = pipeline("text2text-generation", model="facebook/bart-large-cnn")
     llm = HuggingFacePipeline(pipeline=rag_pipeline)
+    engine = create_engine("sqlite:///chat_history.db")
+    # Setup persistent memory
+    session_id = f"{student_id}_{course_id}"
+    chat_history = SQLChatMessageHistory(
+        session_id=session_id,
+        connection=engine
+    )
 
-    # Setup QA chain
-    qa = RetrievalQA.from_chain_type(
+    memory = ConversationBufferMemory(
+        memory_key="chat_history",
+        return_messages=True,
+        chat_memory=chat_history
+    )
+
+    # Setup Conversational RAG chain
+    qa_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
         retriever=db.as_retriever(search_kwargs={"k": 5}),
+        memory=memory,
         return_source_documents=False
     )
 
-    # Enhanced Prompt Engineering for AI Tutor
-    prompt = f"""
-    You are an AI tutor that helps explain complex topics in a simple and concise manner. 
-    Given the following retrieved documents, answer the question in a way that makes the concept easy to understand.
+    # Run the chain with history
+    result = qa_chain.invoke({
+            "question": f"""You are an AI tutor. Answer this question using relevant course materials. 
+        If the answer is not found in the course content, say 'I don't know' and do not guess.
 
-    Question: {query}
+        Question: {query}"""
+        })
 
-    Explanation:
-    """
-
-    # Get the answer using the enhanced prompt
-    result = qa.invoke(query, input_prompt=prompt)
-
-    if isinstance(result, dict) and 'result' in result:
-        return result['result']  # Return only the answer part
-
-    return result  # In case it's not a dictionary, return the result as is
+    if isinstance(result, dict) and 'answer' in result:
+        return result['answer']
+    elif 'result' in result:
+        return result['result']
+    
+    return result  # fallback
 
 def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session):
     # 1. Prepare LangChain documents
@@ -204,3 +223,12 @@ def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session
     
     print(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")
     logging.info(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")
+
+
+def get_past_messages(student_id, course_id):
+    session_id = f"{student_id}_{course_id}"
+    history = SQLChatMessageHistory(
+        session_id=session_id,
+        connection_string="sqlite:///chat_history.db"
+    )
+    return history.messages

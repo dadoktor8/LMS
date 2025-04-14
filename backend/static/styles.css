@@ -349,6 +349,10 @@ th {
   background-color: #fafafa;
   margin-bottom: 1rem;
   border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 8rem;
+  
 }
 
 /* Chat Bubbles */
@@ -363,6 +367,8 @@ th {
 .chat-bubble.student {
   background-color: #e0e7ff;
   align-self: flex-end;
+  margin-left: auto;      /* ensures it stays on the right */
+  margin-right: 0;
 }
 
 .chat-bubble.ai {
@@ -402,7 +408,19 @@ th {
   background-color: #4f46e5;
 }
 
-
+.chat-footer {
+  position: relative;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: white;
+  padding: 1rem;
+  border-top: 1px solid #ccc;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 100;
+}
 
 @media (max-width: 600px) {
   .card {
