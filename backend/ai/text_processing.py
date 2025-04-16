@@ -23,6 +23,7 @@ from langchain.memory.chat_message_histories import SQLChatMessageHistory
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from sqlalchemy import create_engine
+from langchain.llms import LlamaCpp
 
 # ---------------------------------------------
 # Utility
@@ -170,56 +171,150 @@ def get_answer_from_rag(query: str, faiss_index_path: str, top_k: int = 5) -> st
 
     return rag_tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-
+'''
 
 def get_answer_from_rag_langchain(query: str, course_id: int, student_id: str) -> str:
-    # Load FAISS index
-    index_path = f"faiss_index_{course_id}"
-    db = FAISS.load_local(
-        index_path, 
-        HuggingFaceEmbeddings(model_name=r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2"),
-        allow_dangerous_deserialization=True
-    )
+    try:
+        # Load FAISS index
+        index_path = f"faiss_index_{course_id}"
+        embeddings = HuggingFaceEmbeddings(model_name=r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2")
+        
+        db = FAISS.load_local(
+            index_path,
+            embeddings,
+            allow_dangerous_deserialization=True
+        )
+        print(f"📂 FAISS index loaded successfully for course {course_id}")
+        
+        # Retrieve relevant documents
+        docs = db.similarity_search(query, k=5)
+        if not docs:
+            return "I couldn't find anything relevant in the course materials to answer that question."
+        
+        print(f"🔍 Retrieved {len(docs)} docs")
+        for i, doc in enumerate(docs):
+            print(f"Doc {i+1}: {doc.page_content[:100]}...")
+        
+        # Extract content from documents
+        context = "\n\n".join([doc.page_content for doc in docs])
+        
+        # Set up session ID for chat history
+        session_id = f"{student_id}_{course_id}"
+        
+        # Initialize SQL history only for storing conversation
+        from langchain_community.chat_message_histories import SQLChatMessageHistory
+        
+        sql_history = SQLChatMessageHistory(
+            session_id=session_id,
+            connection="sqlite:///chat_history.db"
+        )
+        
+        # Set up LLM pipeline - use a simple approach
+        rag_pipeline = pipeline("text2text-generation", model="facebook/bart-large-cnn", max_length=512)
+        
+        # Simple prompt without including previous conversation
+        prompt = f"""Answer the following question based only on the provided course materials.
+If the answer is not found in the materials, say 'I don't find information about this in the course materials.'
 
-    # Load LLM pipeline
-    rag_pipeline = pipeline("text2text-generation", model="facebook/bart-large-cnn")
-    llm = HuggingFacePipeline(pipeline=rag_pipeline)
-    engine = create_engine("sqlite:///chat_history.db")
-    # Setup persistent memory
-    session_id = f"{student_id}_{course_id}"
-    chat_history = SQLChatMessageHistory(
-        session_id=session_id,
-        connection=engine
-    )
+Course materials:
+{context}
 
-    memory = ConversationBufferMemory(
-        memory_key="chat_history",
-        return_messages=True,
-        chat_memory=chat_history
-    )
+Question: {query}
 
-    # Setup Conversational RAG chain
-    qa_chain = ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=db.as_retriever(search_kwargs={"k": 5}),
-        memory=memory,
-        return_source_documents=False
-    )
+Answer:"""
+        
+        # Generate the answer
+        print("Generating answer...")
+        generated_text = rag_pipeline(prompt)[0]['generated_text']
+        
+        # Clean up the response 
+        result = generated_text
+        if "Answer:" in result:
+            result = result.split("Answer:")[-1].strip()
+        
+        # Store the interaction in chat history for display purposes
+        try:
+            sql_history.add_user_message(query)
+            sql_history.add_ai_message(result)
+            print("✅ Successfully saved conversation to history")
+        except Exception as e:
+            print(f"Warning: Failed to save conversation to history: {str(e)}")
+        
+        return result
+        
+    except Exception as e:
+        logging.error(f"Error: {str(e)}")
+        return f"❌ An error occurred: {str(e)}" '''
 
-    # Run the chain with history
-    result = qa_chain.invoke({
-            "question": f"""You are an AI tutor. Answer this question using relevant course materials. 
-        If the answer is not found in the course content, say 'I don't know' and do not guess.
+def get_answer_from_rag_langchain(query: str, course_id: int, student_id: str) -> str:
+    try:
+        # Load FAISS index
+        index_path = f"faiss_index_{course_id}"
+        embeddings = HuggingFaceEmbeddings(model_name=r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2")
+        
+        db = FAISS.load_local(
+            index_path,
+            embeddings,
+            allow_dangerous_deserialization=True
+        )
+        print(f"📂 FAISS index loaded successfully for course {course_id}")
+        
+        # Retrieve relevant documents
+        docs = db.similarity_search(query, k=5)
+        if not docs:
+            return "I couldn't find anything relevant in the course materials to answer that question."
+        
+        print(f"🔍 Retrieved {len(docs)} docs")
+        for i, doc in enumerate(docs):
+            print(f"Doc {i+1}: {doc.page_content[:100]}...")
+        
+        # Extract content from documents
+        context = "\n\n".join([doc.page_content for doc in docs])
+        
+        # Set up session ID for chat history
+        session_id = f"{student_id}_{course_id}"
+        
+        sql_history = SQLChatMessageHistory(
+            session_id=session_id,
+            connection="sqlite:///chat_history.db"
+        )
+        llm = LlamaCpp(
+            model_path=r"D:\My Projects And Such\lms\backend\model\DeepSeek-R1-Distill-Llama-8B-Q4_K_M.gguf",  # update to your file
+            temperature=0.7,
+            max_tokens=512,
+            n_ctx=2048,
+            verbose=True
+        )
+        
+        # Set up LLM pipeline - use a simple approach
+        prompt = f"""Answer the following question based only on the provided course materials.
+        If the answer is not found in the materials, say 'I don't find information about this in the course materials.'
 
-        Question: {query}"""
-        })
+        Course materials:
+        {context}
 
-    if isinstance(result, dict) and 'answer' in result:
-        return result['answer']
-    elif 'result' in result:
-        return result['result']
-    
-    return result  # fallback
+        Question: {query}
+
+        Answer:"""
+
+        print("🧠 Generating answer using DeepSeek...")
+        result = llm(prompt).strip()
+        result = clean_deepseek_response(result)
+        print("Answer :", result)
+        
+        # Store the interaction in chat history for display purposes
+        try:
+            sql_history.add_user_message(query)
+            sql_history.add_ai_message(result)
+            print("✅ Successfully saved conversation to history")
+        except Exception as e:
+            print(f"Warning: Failed to save conversation to history: {str(e)}")
+        
+        return result
+        
+    except Exception as e:
+        logging.error(f"Error: {str(e)}")
+        return f"❌ An error occurred: {str(e)}"
 
 def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session):
     # 1. Normalize chunks
@@ -229,40 +324,51 @@ def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session
     documents = [Document(page_content=chunk) for chunk in normalized_chunks]
 
     # 3. Load embedding model
-    embeddings_model = HuggingFaceEmbeddings(model_name=r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2")
+    embeddings_model = HuggingFaceEmbeddings(
+        model_name=r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2"
+    )
 
     # 4. Build FAISS vectorstore from documents
     vectorstore = FAISS.from_documents(documents, embedding=embeddings_model)
 
-    # 5. Save FAISS index (LangChain format)
-    vectorstore.save_local(f"faiss_index_{course_id}")
+    # 5. Check if FAISS index is populated
+    if len(vectorstore.docstore._dict) == 0:
+        logging.warning("⚠️ FAISS index appears to be empty!")
+    else:
+        logging.info(f"✅ FAISS index built with {len(vectorstore.docstore._dict)} documents")
 
-    # 6. Save chunks + embeddings to DB
+    # 6. Save FAISS index (LangChain format)
+    vectorstore.save_local(f"faiss_index_{course_id}")
+    logging.info(f"📁 FAISS index saved to faiss_index_{course_id}")
+
+    # 7. Save chunks + embeddings to DB
     for chunk in normalized_chunks:
         try:
-            embedding = embeddings_model.embed_documents([chunk])[0]  # only one chunk
+            # Use embed_query for a single chunk (consistent return format)
+            embedding = embeddings_model.embed_query(chunk)
 
-            # Safely convert to list
+            # Convert to list if it's a tensor or numpy array
             if isinstance(embedding, torch.Tensor):
                 embedding_value = embedding.cpu().numpy().tolist()
             elif hasattr(embedding, "tolist"):
                 embedding_value = embedding.tolist()
             else:
-                embedding_value = embedding  # assume already a list
+                embedding_value = embedding
 
             db.add(TextChunk(
                 course_id=course_id,
                 chunk_text=chunk,
                 embedding=str(embedding_value)
             ))
+
         except Exception as e:
             db.rollback()
             logging.error(f"❌ Failed to insert chunk: {e}")
             continue
 
     db.commit()
-    print(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")
     logging.info(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")
+    print(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")
 
 
 def get_past_messages(student_id, course_id):
@@ -272,3 +378,13 @@ def get_past_messages(student_id, course_id):
         connection_string="sqlite:///chat_history.db"
     )
     return history.messages
+
+import re
+
+def clean_deepseek_response(text: str) -> str:
+    text = text.strip()
+    text = text.replace("\u200B", "")
+    text = text.replace("\u00A0", " ")
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"[\s\S]*<\/think>\n?", "", text).strip()
+    return text

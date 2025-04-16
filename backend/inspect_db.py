@@ -1,5 +1,5 @@
-from backend.db.session import SessionLocal
-from backend.db.models import User
+from db.session import SessionLocal
+from db.models import User
 
 try:
     db = SessionLocal()

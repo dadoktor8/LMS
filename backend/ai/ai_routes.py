@@ -2,6 +2,7 @@
 import logging
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 import shutil
 import os
@@ -161,3 +162,19 @@ def cleanup_or_reset_processed_materials(db: Session, action: str):
     except Exception as e:
         db.rollback()
         return {"status": "error", "message": str(e)}
+    
+
+@ai_router.delete("/ai/clear_history/{student_id}/{course_id}")
+def clear_chat_history(student_id: str, course_id: int):
+    session_id = f"{student_id}_{course_id}"
+    try:
+        engine = create_engine("sqlite:///chat_history.db")
+        with engine.connect() as conn:
+            result = conn.execute(
+                text("DELETE FROM message_store WHERE session_id = :sid"),
+                {"sid": session_id}
+            )
+            conn.commit()
+        return {"message": f"🧹 Cleared chat history for session '{session_id}'."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear chat history: {str(e)}")
