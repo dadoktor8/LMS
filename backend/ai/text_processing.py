@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import fitz  # PyMuPDF for PDF text extraction
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -24,6 +25,8 @@ from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from sqlalchemy import create_engine
 from langchain.llms import LlamaCpp
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings 
+from langchain.prompts import PromptTemplate
 
 # ---------------------------------------------
 # Utility
@@ -114,7 +117,8 @@ def process_materials_in_background(course_id: int, db: Session):
             chunks = chunk_text(text)
             embeddings = embed_chunks(chunks)
             #save_embeddings_to_faiss(course_id, embeddings, chunks, db)
-            save_embeddings_to_faiss_langchain(course_id, chunks, db)
+            #save_embeddings_to_faiss_langchain(course_id, chunks, db)
+            save_embeddings_to_faiss_openai(course_id, chunks, db)
             db.add(ProcessedMaterial(course_id=course_id, material_id=material.id))
             db.commit()
         except Exception as e:
@@ -245,7 +249,7 @@ Answer:"""
     except Exception as e:
         logging.error(f"Error: {str(e)}")
         return f"❌ An error occurred: {str(e)}" '''
-
+'''
 def get_answer_from_rag_langchain(query: str, course_id: int, student_id: str) -> str:
     try:
         # Load FAISS index
@@ -314,7 +318,137 @@ def get_answer_from_rag_langchain(query: str, course_id: int, student_id: str) -
         
     except Exception as e:
         logging.error(f"Error: {str(e)}")
-        return f"❌ An error occurred: {str(e)}"
+        return f"❌ An error occurred: {str(e)}" '''
+def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id: str) -> str:
+    try:
+        # Input validation
+        if not query or not query.strip():
+            raise ValueError("Query cannot be empty")
+        if not isinstance(course_id, int) or course_id <= 0:
+            raise ValueError("Course ID must be a positive integer")
+        if not student_id or not isinstance(student_id, str):
+            raise ValueError("Student ID must be a non-empty string")
+            
+        # Load FAISS index
+        try:
+            index_path = f"faiss_index_{course_id}"
+            db = FAISS.load_local(index_path, OpenAIEmbeddings(), allow_dangerous_deserialization=True)
+            retriever = db.as_retriever(search_kwargs={"k": 5})
+        except FileNotFoundError:
+            raise ValueError(f"FAISS index not found for course ID: {course_id}")
+        except Exception as e:
+            raise ConnectionError(f"Error loading FAISS index: {str(e)}")
+            
+        # Chat history for memory
+        session_id = f"{student_id}_{course_id}"
+        try:
+            sql_history = SQLChatMessageHistory(session_id=session_id, connection="sqlite:///chat_history.db")
+        except Exception as e:
+            # Log but continue - history is non-critical
+            print(f"Warning: Could not initialize chat history: {e}")
+            sql_history = None
+            
+        # Set up OpenAI GPT-4
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OpenAI API key not found in environment variables")
+            
+        try:
+            chat = ChatOpenAI(
+                model="gpt-4.1-mini",
+                temperature=0.3,
+                openai_api_key=api_key
+            )
+        except Exception as e:
+            raise ConnectionError(f"Error initializing OpenAI client: {str(e)}")
+            
+        # Prompt Template with Personality
+        prompt_template = PromptTemplate(
+            input_variables=["context", "question"],
+            template="""
+            You are Lumi, a warm, caring AI tutor helping students understand complex topics using their course materials.
+            Be thoughtful, empathetic, and encouraging. Always thank them for asking and explain clearly.
+            
+            FORMATTING INSTRUCTIONS:
+            1. Start with a brief, friendly greeting and acknowledgment of their question
+            2. Structure your response as a set of clear, numbered or bulleted points instead of dense paragraphs
+            3. Use <strong> HTML tags to highlight important terms or concepts </strong>
+            4. Keep each point focused on a single idea or concept
+            5. If explaining a process or sequence, use numbered lists with the <ol> and <li> HTML tags
+            6. For general points, use bullet points with the <ul> and <li> HTML tags
+            7. For especially important information, wrap it in <div class="key-point">Important information here</div>
+            8. Conclude with a brief encouraging note
+            
+            If the answer is not in the provided materials, let them know gently.
+            
+            Course Materials:
+            {context}
+            
+            Student's Question:
+            {question}
+            
+            Lumi's Helpful Answer:
+            """
+        )
+        
+        # RetrievalQA chain
+        try:
+            qa_chain = RetrievalQA.from_chain_type(
+                llm=chat,
+                retriever=retriever,
+                return_source_documents=False,
+                chain_type_kwargs={"prompt": prompt_template, "verbose":False},
+                chain_type="stuff"
+            )
+            
+            # Get response with timeout
+            result = qa_chain({"query": query})
+            response = result.get("result", "")
+            
+            if not response:
+                return "I apologize, but I couldn't generate a response. Please try again or rephrase your question."
+                
+        except TimeoutError:
+            return "I'm sorry, but the request timed out. Please try again or ask a simpler question."
+        except Exception as e:
+            raise ConnectionError(f"Error during query processing: {str(e)}")
+            
+        # Clean formatting
+        response = response.replace("\u200B", "")
+        response = response.replace("\u00A0", " ")
+        response = re.sub(r"\s+", " ", response)
+        response = re.sub(r"[\s\S]*<\/think>\n?", "", response).strip()
+        response = post_process_response(response)
+        # Store in DB history
+        if sql_history:
+            try:
+                sql_history.add_user_message(query)
+                sql_history.add_ai_message(response)
+            except Exception as e:
+                print(f"Warning: Could not save chat history: {e}")
+                
+        return response
+        
+    except ValueError as e:
+        error_msg = f"Input error: {str(e)}"
+        print(error_msg)
+        return f"I'm sorry, but there was an issue with your request: {str(e)}. Please contact support if this continues."
+        
+    except ConnectionError as e:
+        error_msg = f"Connection error: {str(e)}"
+        print(error_msg)
+        import traceback
+        traceback.print_exc()
+        raise
+        #return "I'm sorry, but I'm having trouble connecting to my knowledge base right now. Please try again in a moment."
+        
+    except Exception as e:
+        error_msg = f"Unexpected error in RAG system: {str(e)}"
+        print(error_msg)
+        # Log the full traceback for debugging
+        import traceback
+        traceback.print_exc()
+        return "I apologize, but I encountered an unexpected error. Our team has been notified, and we're working to fix it."
 
 def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session):
     # 1. Normalize chunks
@@ -371,6 +505,51 @@ def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session
     print(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")
 
 
+def save_embeddings_to_faiss_openai(course_id: int, chunks: list, db: Session):
+    # 1. Normalize chunks
+    normalized_chunks = [chunk.strip().replace("\n", " ") for chunk in chunks]
+
+    # 2. Prepare LangChain documents
+    documents = [Document(page_content=chunk) for chunk in normalized_chunks]
+
+    # 3. Load OpenAI embedding model
+    embeddings_model = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
+
+    # 4. Build FAISS vectorstore
+    vectorstore = FAISS.from_documents(documents, embedding=embeddings_model)
+
+    # 5. Check if FAISS index is populated
+    if len(vectorstore.docstore._dict) == 0:
+        logging.warning("⚠️ FAISS index appears to be empty!")
+    else:
+        logging.info(f"✅ FAISS index built with {len(vectorstore.docstore._dict)} documents")
+
+    # 6. Save FAISS index (LangChain format)
+    index_path = f"faiss_index_{course_id}"
+    vectorstore.save_local(index_path)
+    logging.info(f"📁 FAISS index saved to {index_path}")
+
+    # 7. Save chunks + embeddings to DB
+    for chunk in normalized_chunks:
+        try:
+            embedding = embeddings_model.embed_query(chunk)
+
+            db.add(TextChunk(
+                course_id=course_id,
+                chunk_text=chunk,
+                embedding=str(embedding)
+            ))
+
+        except Exception as e:
+            db.rollback()
+            logging.error(f"❌ Failed to insert chunk: {e}")
+            continue
+
+    db.commit()
+    logging.info(f"✅ Saved FAISS index and OpenAI chunks for course {course_id}")
+    print(f"✅ Saved FAISS index and OpenAI chunks for course {course_id}")
+
+
 def get_past_messages(student_id, course_id):
     session_id = f"{student_id}_{course_id}"
     history = SQLChatMessageHistory(
@@ -388,3 +567,39 @@ def clean_deepseek_response(text: str) -> str:
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"[\s\S]*<\/think>\n?", "", text).strip()
     return text
+
+
+def post_process_response(response):
+    """
+    Enhance the response with additional HTML formatting if needed.
+    Converts markdown-style lists to proper HTML if the AI didn't use HTML tags.
+    """
+    # Convert markdown-style numbered lists if HTML lists weren't used
+    if "<ol>" not in response:
+        response = re.sub(r'(\d+\.\s+[^\n]+)(?:\n|$)', r'<li>\1</li>', response)
+        if re.search(r'<li>\d+\.', response):
+            response = re.sub(r'(<li>\d+\.[^<]+</li>)+', r'<ol>\g<0></ol>', response)
+    
+    # Convert markdown-style bullet lists if HTML lists weren't used
+    if "<ul>" not in response:
+        response = re.sub(r'([\*\-]\s+[^\n]+)(?:\n|$)', r'<li>\1</li>', response)
+        response = re.sub(r'<li>[\*\-]\s+', r'<li>', response)
+        if "<li>" in response and "<ul>" not in response:
+            response = re.sub(r'(<li>[^<]+</li>)+', r'<ul>\g<0></ul>', response)
+    
+    # Ensure paragraphs have p tags
+    paragraphs = re.split(r'\n\s*\n', response)
+    processed_paragraphs = []
+    
+    for para in paragraphs:
+        if not para.strip():
+            continue
+        if not (para.strip().startswith('<') and para.strip().endswith('>')):
+            # Skip wrapping if it's already in some kind of HTML tag
+            if not re.match(r'^<\w+>.*<\/\w+>$', para.strip()):
+                para = f'<p>{para}</p>'
+        processed_paragraphs.append(para)
+    
+    response = '\n'.join(processed_paragraphs)
+    
+    return response

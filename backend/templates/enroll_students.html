@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>Enroll Students</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
 </head>
 <body>
     <nav class="container-fluid">
@@ -15,7 +16,7 @@
         </ul>
       </nav>
     <main class="container">
-        <h2>👥 Enroll Students to <strong>{{ course.name }}</strong></h2>
+        <h2>👥 Enroll Students to <strong>{{ course.title }}</strong></h2>
 
         <!-- Individual Student Invite Form -->
         <section class="card">
@@ -24,7 +25,7 @@
                 <input type="email" name="email" id="student_email" required>
                 <button type="submit">Invite Student</button>
             </form>
-            <div id="invite-status" style="position: fixed; top: 20px; right: 20px; z-index: 9999;"></div>
+            <div id="invite-status" style="margin-top: 1rem;"></div>
         </section>
 
         <hr>
@@ -32,8 +33,6 @@
         <!-- Excel Upload Form -->
         <section class="card">
         <form 
-        method="POST"
-        action="/auth/courses/{{ course.id }}/upload-students"
         hx-post="/auth/courses/{{ course.id }}/upload-students"
         enctype="multipart/form-data"
         hx-target="#invite-status"
@@ -42,6 +41,7 @@
         <input type="file" name="file" accept=".xlsx" required />
         <button type="submit">📤 Upload Students</button>
         </form>
+        <div id="invite-status" style="margin-top: 1rem;"></div>
         </section>
         <div style="text-align: center; margin-top: 2rem;">
           {% if role == "teacher" %}

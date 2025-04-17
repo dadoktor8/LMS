@@ -12,3 +12,5 @@ env/
 *.tar.gz
 LMS/Lib/
 backend/model
+.env
+.env.*

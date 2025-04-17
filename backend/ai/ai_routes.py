@@ -1,4 +1,5 @@
 # backend/ai/ai_routes.py
+import html
 import logging
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
@@ -13,7 +14,7 @@ from backend.db.models import ChatHistory, Course,CourseMaterial, ProcessedMater
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
-from .text_processing import extract_text_from_pdf, chunk_text, embed_chunks, get_answer_from_rag, get_answer_from_rag_langchain, process_materials_in_background, save_embeddings_to_faiss,sanitize_filename
+from .text_processing import extract_text_from_pdf, chunk_text, embed_chunks, get_answer_from_rag_langchain_openai, process_materials_in_background, save_embeddings_to_faiss,sanitize_filename
 from langchain.memory.chat_message_histories import SQLChatMessageHistory
 from langchain.schema import AIMessage, HumanMessage
 
@@ -88,7 +89,7 @@ async def ask_tutor(
     user: dict = Depends(require_role("student"))
 ):
     try:
-        student_id = user["user_id"]
+        student_id = str(user["user_id"])
         session_id = f"{student_id}_{course_id}"
 
         # Ensure materials exist
@@ -105,11 +106,11 @@ async def ask_tutor(
             raise HTTPException(status_code=404, detail="FAISS index not found")
         db.add(ChatHistory(user_id=user["user_id"], course_id=course_id, sender="student", message=query))
         # Get answer using LangChain RAG
-        answer = get_answer_from_rag_langchain(query, course_id, student_id)
+        answer = get_answer_from_rag_langchain_openai(query, course_id, student_id)
 
         db.add(ChatHistory(user_id=user["user_id"], course_id=course_id, sender="ai", message=answer))
         db.commit()
-
+        safe_query = html.escape(query)
         # Save to chat history
         history = SQLChatMessageHistory(
             session_id=session_id,
@@ -119,13 +120,18 @@ async def ask_tutor(
         history.add_ai_message(answer)
 
         return HTMLResponse(content=f"""
-            <div class="chat-bubble student">🧑‍🎓 {query}</div>
+            <div class="chat-bubble student">🧑‍🎓 {safe_query}</div>
             <div class="chat-bubble ai">💡 {answer}</div>
         """, status_code=200)
-
+        
+    except HTTPException as e:
+        logging.error(f"HTTP Exception: {e.detail}")
+        return HTMLResponse(content=f"<div class='toast error'>❌ {e.detail}</div>", status_code=e.status_code)
     except Exception as e:
-        logging.error(f"Error: {e}")
-        return HTMLResponse(content=f"<div class='toast error'>❌ {str(e)}</div>", status_code=500)
+        import traceback
+        logging.error(f"Error in ask_tutor: {str(e)}")
+        logging.error(traceback.format_exc())
+        return HTMLResponse(content=f"<div class='toast error'>❌ Something went wrong. Please try again later.</div>", status_code=500)
 
 
 @ai_router.get("/courses/{course_id}/tutor", response_class=HTMLResponse)

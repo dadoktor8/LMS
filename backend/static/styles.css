@@ -326,7 +326,6 @@ th {
   text-decoration: underline;
 }
 
-/* Main Chat Area */
 .chat-area {
   flex: 1;
   display: flex;
@@ -334,12 +333,10 @@ th {
   padding: 1.5rem;
   background-color: #fff;
 }
-
 .chat-area h2 {
   font-size: 1.4rem;
   margin-bottom: 1rem;
 }
-
 /* Chat History */
 .chat-history {
   flex-grow: 1;
@@ -352,9 +349,7 @@ th {
   display: flex;
   flex-direction: column;
   padding-bottom: 8rem;
-  
 }
-
 /* Chat Bubbles */
 .chat-bubble {
   padding: 0.75rem 1rem;
@@ -363,17 +358,83 @@ th {
   max-width: 80%;
   white-space: pre-wrap;
 }
-
 .chat-bubble.student {
   background-color: #e0e7ff;
   align-self: flex-end;
   margin-left: auto;      /* ensures it stays on the right */
   margin-right: 0;
 }
-
 .chat-bubble.ai {
   background-color: #dcfce7;
   align-self: flex-start;
+}
+
+/* Enhanced AI response styling */
+.chat-bubble.ai p {
+  margin: 6px 0;
+  line-height: 1.4;
+}
+
+/* First paragraph (greeting) */
+.chat-bubble.ai p:first-child {
+  font-style: italic;
+  margin-bottom: 10px;
+  opacity: 0.9;
+}
+
+/* Last paragraph (conclusion) */
+.chat-bubble.ai p:last-child:not(:first-child) {
+  font-style: italic;
+  margin-top: 10px;
+  opacity: 0.9;
+}
+
+/* Numbered lists */
+.chat-bubble.ai ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.chat-bubble.ai ol li {
+  margin-bottom: 8px;
+  padding-left: 6px;
+}
+
+/* Bullet points */
+.chat-bubble.ai ul {
+  list-style-type: none;
+  padding-left: 5px;
+  margin: 8px 0;
+}
+
+.chat-bubble.ai ul li {
+  position: relative;
+  padding-left: 18px;
+  margin-bottom: 8px;
+}
+
+.chat-bubble.ai ul li:before {
+  content: "•";
+  color: #4ade80;
+  font-weight: bold;
+  position: absolute;
+  left: 0;
+  font-size: 1.2em;
+}
+
+/* Key points */
+.chat-bubble.ai .key-point {
+  background-color: rgba(74, 222, 128, 0.1);
+  padding: 6px 10px;
+  border-left: 3px solid #4ade80;
+  margin: 10px 0;
+  border-radius: 0 4px 4px 0;
+}
+
+/* Highlight important terms */
+.chat-bubble.ai strong, 
+.chat-bubble.ai b {
+  color: #166534;
 }
 
 /* Chat Input */
@@ -383,14 +444,12 @@ th {
   gap: 0.5rem;
   margin-top: 1rem;
 }
-
 .chat-form input[type="text"] {
   flex: 1;
   padding: 0.75rem;
   border: 1px solid #000000;
   border-radius: 6px;
 }
-
 .chat-form button {
   background-color: #6366f1;
   color: rgb(0, 0, 0);
@@ -402,12 +461,9 @@ th {
   cursor: pointer;
   max-width: 80px;
 }
-
-
 .chat-form button:hover {
   background-color: #4f46e5;
 }
-
 .chat-footer {
   position: relative;
   bottom: 0;
@@ -421,7 +477,6 @@ th {
   gap: 0.5rem;
   z-index: 100;
 }
-
 @media (max-width: 600px) {
   .card {
     padding: 1rem;
