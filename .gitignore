@@ -14,3 +14,4 @@ LMS/Lib/
 backend/model
 .env
 .env.*
+*.db
