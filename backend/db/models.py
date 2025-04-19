@@ -133,3 +133,14 @@ class ChatHistory(Base):
     sender = Column(Text)  # 'student' or 'ai'
     message = Column(Text)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class StudyGuide(Base):
+    __tablename__ = "study_guides"
+    id = Column(Integer, primary_key=True)
+    course_id = Column(Integer, ForeignKey("courses.id"))
+    title = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    course = relationship("Course", backref="study_guides")

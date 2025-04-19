@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flashcards</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/htmx.org@1.6.1"></script>
+</head>
+<body>
+    <nav class="container-fluid">
+        <ul>
+          <li><strong>Student Portal</strong></li>
+        </ul>
+        <ul>
+          <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+        </ul>
+      </nav>
+    <main class="container">
+        <h1>🃏 Flashcards</h1>
+        
+        <div class="auth-container">
+            <form action="/ai/study/flashcards/generate" method="post">
+                <label for="topic">🧠 What would you like to study?</label>
+                <input type="text" id="topic" name="topic" placeholder="Enter a topic or concept from your course" required value="{{ topic }}">
+                
+                <input type="hidden" name="course_id" id="course-id" value="{{ course_id }}">
+                <input type="hidden" name="student_id" id="student-id" value="{{ student_id }}">
+                
+                <button type="submit">Generate Flashcards</button>
+            </form>
+            
+            <div id="loading" class="toast">
+                <p>Generating your personalized flashcards...</p>
+            </div>
+        </div>
+        
+        <div id="materials-output" class="course-card-table">
+            {% if study_material_html %}
+                {{ study_material_html | safe }}
+            {% else %}
+                <div class="welcome-container">
+                    <h3>Enter a topic to get started</h3>
+                    <p>Lumi will create personalized flashcards based on your course content.</p>
+                </div>
+            {% endif %}
+        </div>
+        
+        <div class="action-buttons">
+            <a href="/ai/study?course_id={{ course_id }}" class="btn-secondary">⬅ Back to Study Tools</a>
+            <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
+        </div>
+    </main>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get or create student ID from localStorage
+            let studentId = localStorage.getItem('student_id');
+            if (!studentId) {
+                studentId = 'student_' + Math.random().toString(36).substring(2, 12);
+                localStorage.setItem('student_id', studentId);
+            }
+            document.getElementById('student-id').value = studentId;
+            
+            // Hide loading indicator initially
+            document.getElementById('loading').style.display = 'none';
+            
+            // Get URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const topicParam = urlParams.get('topic');
+            
+            // Fill topic if exists in URL and not already set
+            if (topicParam && !document.getElementById('topic').value) {
+                document.getElementById('topic').value = decodeURIComponent(topicParam);
+            }
+        });
+        
+        // Show/hide loading indicator
+        htmx.on('htmx:beforeRequest', function(event) {
+            document.getElementById('loading').style.display = 'block';
+        });
+        
+        htmx.on('htmx:afterRequest', function(event) {
+            document.getElementById('loading').style.display = 'none';
+        });
+    </script>
+</body>
+</html>

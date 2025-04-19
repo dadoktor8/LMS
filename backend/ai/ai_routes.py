@@ -1,13 +1,18 @@
 # backend/ai/ai_routes.py
 import html
+import json
 import logging
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request, BackgroundTasks
-from fastapi.responses import HTMLResponse
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Depends, Request, BackgroundTasks
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 import shutil
 import os
 from datetime import datetime
+
+import urllib
+from backend.ai.open_notes_system import generate_study_material, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
 from backend.db.models import ChatHistory, Course,CourseMaterial, ProcessedMaterial  # Make sure this is correct
@@ -17,13 +22,14 @@ from fastapi.templating import Jinja2Templates
 from .text_processing import extract_text_from_pdf, chunk_text, embed_chunks, get_answer_from_rag_langchain_openai, process_materials_in_background, save_embeddings_to_faiss,sanitize_filename
 from langchain.memory.chat_message_histories import SQLChatMessageHistory
 from langchain.schema import AIMessage, HumanMessage
+from fastapi import FastAPI
+from starlette.middleware.sessions import SessionMiddleware
 
 ai_router = APIRouter()
 
 UPLOAD_DIR = "uploaded_docs"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 templates = Jinja2Templates(directory="backend/templates")
 
@@ -168,19 +174,275 @@ def cleanup_or_reset_processed_materials(db: Session, action: str):
     except Exception as e:
         db.rollback()
         return {"status": "error", "message": str(e)}
+
+'''
+@ai_router.get("/study", response_class=HTMLResponse)
+async def study_page(
+    request: Request,
+    course_id: int = Query(...),
+    topic: Optional[str] = Query(None),
+    material_type: Optional[str] = Query(None)
+):
+
+    session_material_type = request.session.get("material_type")
+    materials_json = request.session.get("current_materials")
+
+    # Render the materials in Python
+    if session_material_type == "flashcards" and materials_json:
+        study_material_html = render_flashcards_htmx(materials_json)
+    elif session_material_type == "quiz" and materials_json:
+        study_material_html = render_quiz_htmx(materials_json)
+    elif session_material_type == "study_guide" and materials_json:
+        study_material_html = render_study_guide_htmx(materials_json)
+    else:
+        study_material_html = """
+            <div class="welcome-container">
+                <h3>Enter a topic and select a material type to get started</h3>
+                <p>Lumi will create personalized study materials based on your course content.</p>
+            </div>
+        """
+    print("SESSION (in study page):", request.session)
+    print("HTML to render:", study_material_html[:500])
+    return templates.TemplateResponse(
+        "study.html",
+        {
+            "request": request,
+            "course_id": course_id,
+            "study_material_html": study_material_html,
+        }
+    )
+
+
+@ai_router.post("/study/generate", response_class=HTMLResponse)
+async def generate_study_material(
+    request: Request,
+    topic: str = Form(...),
+    material_type: str = Form(...),
+    course_id: int = Form(...),
+    student_id: str = Form(...)
+):
+    materials_json = generate_study_materials(topic, material_type, course_id, student_id)
     
+    # Store in session for state persistence (add these lines)
+    request.session["material_type"] = material_type
+    request.session["current_materials"] = materials_json
+    
+    # Select renderer:
+    if material_type == "flashcards":
+        study_material_html = render_flashcards_htmx(materials_json)
+    elif material_type == "quiz":
+        study_material_html = render_quiz_htmx(materials_json)
+    elif material_type == "study_guide":
+        study_material_html = render_study_guide_htmx(materials_json)
+    else:
+        study_material_html = "<div>Unknown material type</div>"
+    return templates.TemplateResponse(
+        "study.html",
+        {
+            "request": request,
+            "course_id": course_id,
+            "topic": topic,
+            "material_type": material_type,
+            "study_material_html": study_material_html,
+            "student_id": student_id,
+        }
+    )
+
+
+@ai_router.get("/study/flip-card/{card_id}", response_class=HTMLResponse)
+async def flip_card(request: Request, card_id: int, show_answer: bool = False):
+    """
+    Flip a flashcard to show question or answer
+    """
+    print("DEBUG FLIP:", dict(request.session))
+    materials_json = request.session.get("current_materials")
+    material_type = request.session.get("material_type")
+    print(f"DEBUG FLIP - Card ID: {card_id}, Show Answer: {show_answer}")
+    print(f"DEBUG FLIP - Material Type: {material_type}")
+    print(f"DEBUG FLIP - Materials JSON exists: {'Yes' if materials_json else 'No'}")
+    if not materials_json or material_type != "flashcards":
+        return HTMLResponse('<div class="toast error">No flashcards available.</div>')
+    return HTMLResponse(render_flip_card_htmx(card_id, materials_json, show_answer))
+    
+@ai_router.post("/study/check-answer/{question_id}", response_class=HTMLResponse)
+async def check_answer(
+    request: Request,
+    question_id: int,
+    answer: int = Form(...),
+    correct_answer: int = Form(...),
+    explanation: str = Form(...)
+):
+        """
+        Check a quiz answer and return the result
+        """
+        return render_question_result_htmx(question_id, answer, correct_answer, explanation)
+'''
 
 @ai_router.delete("/ai/clear_history/{student_id}/{course_id}")
-def clear_chat_history(student_id: str, course_id: int):
+def clear_chat_history(student_id: str, course_id: int, db: Session = Depends(get_db)):
     session_id = f"{student_id}_{course_id}"
     try:
+        # 1. Delete from main app DB (ChatHistory table)
+        db.query(ChatHistory)\
+            .filter(ChatHistory.user_id == int(student_id), ChatHistory.course_id == int(course_id))\
+            .delete()
+        db.commit()
+
+        # 2. Delete from message_store in chat_history.db
         engine = create_engine("sqlite:///chat_history.db")
-        with engine.connect() as conn:
-            result = conn.execute(
+        with engine.begin() as conn:
+            conn.execute(
                 text("DELETE FROM message_store WHERE session_id = :sid"),
                 {"sid": session_id}
             )
-            conn.commit()
         return {"message": f"🧹 Cleared chat history for session '{session_id}'."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to clear chat history: {str(e)}")
+    
+
+# Main study landing page
+@ai_router.get("/study", response_class=HTMLResponse)
+async def study_landing_page(
+    request: Request,
+    course_id: int = Query(...),
+    topic: Optional[str] = Query(None),
+):
+    return templates.TemplateResponse(
+        "study_landing.html",
+        {
+            "request": request,
+            "course_id": course_id,
+            "topic": topic,
+            "student_id": request.session.get("student_id", "")
+        }
+    )
+
+# Flashcards specific page
+@ai_router.get("/study/flashcards", response_class=HTMLResponse)
+async def flashcards_page(
+    request: Request,
+    course_id: int = Query(...),
+    topic: Optional[str] = Query(None),
+):
+    materials_json = request.session.get("flashcards_materials")
+    study_material_html = render_flashcards_htmx(materials_json) if materials_json else ""
+    
+    return templates.TemplateResponse(
+        "flashcards.html",
+        {
+            "request": request,
+            "course_id": course_id,
+            "topic": topic,
+            "study_material_html": study_material_html,
+            "student_id": request.session.get("student_id", "")
+        }
+    )
+
+# Quiz specific page
+@ai_router.get("/study/quiz", response_class=HTMLResponse)
+async def quiz_page(
+    request: Request,
+    course_id: int = Query(...),
+    topic: Optional[str] = Query(None),
+):
+    materials_json = request.session.get("quiz_materials")
+    study_material_html = render_quiz_htmx(materials_json) if materials_json else ""
+    
+    return templates.TemplateResponse(
+        "quiz.html",
+        {
+            "request": request,
+            "course_id": course_id,
+            "topic": topic,
+            "study_material_html": study_material_html,
+            "student_id": request.session.get("student_id", "")
+        }
+    )
+
+# Study guide specific page
+@ai_router.get("/study/guide", response_class=HTMLResponse)
+async def study_guide_page(
+    request: Request,
+    course_id: int = Query(...),
+    topic: Optional[str] = Query(None),
+):
+    materials_json = request.session.get("study_guide_materials")
+    study_material_html = render_study_guide_htmx(materials_json) if materials_json else ""
+    
+    return templates.TemplateResponse(
+        "study_guide.html",
+        {
+            "request": request,
+            "course_id": course_id,
+            "topic": topic,
+            "study_material_html": study_material_html,
+            "student_id": request.session.get("student_id", "")
+        }
+    )
+
+# Separate endpoints for generating each type of material
+@ai_router.post("/study/flashcards/generate", response_class=HTMLResponse)
+async def generate_flashcards(
+    request: Request,
+    topic: str = Form(...),
+    course_id: int = Form(...),
+    student_id: str = Form(...)
+):
+    materials_json = generate_study_material(topic, "flashcards", course_id, student_id)
+    request.session["flashcards_materials"] = materials_json
+    study_material_html = render_flashcards_htmx(materials_json)
+    
+    return templates.TemplateResponse(
+        "flashcards.html",
+        {
+            "request": request,
+            "course_id": course_id,
+            "topic": topic,
+            "study_material_html": study_material_html,
+            "student_id": student_id,
+        }
+    )
+
+@ai_router.post("/study/quiz/generate", response_class=HTMLResponse)
+async def generate_quiz(
+    request: Request,
+    topic: str = Form(...),
+    course_id: int = Form(...),
+    student_id: str = Form(...)
+):
+    materials_json = generate_study_material(topic, "quiz", course_id, student_id)
+    request.session["quiz_materials"] = materials_json
+    study_material_html = render_quiz_htmx(materials_json)
+    
+    return templates.TemplateResponse(
+        "quiz.html",
+        {
+            "request": request,
+            "course_id": course_id,
+            "topic": topic,
+            "study_material_html": study_material_html,
+            "student_id": student_id,
+        }
+    )
+
+@ai_router.post("/study/guide/generate", response_class=HTMLResponse)
+async def generate_study_guide(
+    request: Request,
+    topic: str = Form(...),
+    course_id: int = Form(...),
+    student_id: str = Form(...)
+):
+    materials_json = generate_study_material(topic, "study_guide", course_id, student_id)
+    request.session["study_guide_materials"] = materials_json
+    study_material_html = render_study_guide_htmx(materials_json)
+    
+    return templates.TemplateResponse(
+        "study_guide.html",
+        {
+            "request": request,
+            "course_id": course_id,
+            "topic": topic,
+            "study_material_html": study_material_html,
+            "student_id": student_id,
+        }
+    )

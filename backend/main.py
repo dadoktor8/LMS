@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 import os
 import sys
 from pathlib import Path
-
+from starlette.middleware.sessions import SessionMiddleware
 from backend.db.database import Base
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[0] / '.env')
 print("Loaded SECRET_KEY:", os.getenv("SECRET_KEY"))
@@ -19,8 +19,9 @@ sys.path.append(str(Path(__file__).resolve().parent))
 import os
 from backend.auth.routes import auth_router
 from backend.db.init_db import init_db
-
+secret_key = os.getenv("SECRET_KEY")
 app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key=secret_key)
 templates = Jinja2Templates(directory="backend/templates")
 app.mount("/static", StaticFiles(directory="backend/static"), name="static")
 

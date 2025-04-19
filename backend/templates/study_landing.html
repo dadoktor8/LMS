@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Study Tools</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/htmx.org@1.6.1"></script>
+</head>
+<body>
+    <nav class="container-fluid">
+        <ul>
+          <li><strong>Student Portal</strong></li>
+        </ul>
+        <ul>
+          <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+        </ul>
+      </nav>
+    <main class="container">
+        <h1>📚 Study Tools</h1>
+        <p>🧠 Choose what type of study material you'd like to create</p>
+
+        <div class="study-options">
+            <div class="study-option-card">
+                <h2>🃏 Flashcards</h2>
+                <p>📝 Create interactive flashcards to test your knowledge on key concepts</p>
+                <a href="/ai/study/flashcards?course_id={{ course_id }}&topic={{ topic }}" class="btn-primary">Create Flashcards</a>
+            </div>
+
+            <div class="study-option-card">
+                <h2>❓ Quiz</h2>
+                <p>🧪 Generate multiple-choice quizzes to test your understanding</p>
+                <a href="/ai/study/quiz?course_id={{ course_id }}&topic={{ topic }}" class="btn-primary">Create Quiz</a>
+            </div>
+
+            <div class="study-option-card">
+                <h2>📖 Study Guide</h2>
+                <p>📌 Build comprehensive study guides with key information and examples</p>
+                <a href="/ai/study/guide?course_id={{ course_id }}&topic={{ topic }}" class="btn-primary">Create Study Guide</a>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 2rem;">
+            <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Get or create student ID from localStorage
+            let studentId = localStorage.getItem('student_id');
+            if (!studentId) {
+                studentId = 'student_' + Math.random().toString(36).substring(2, 12);
+                localStorage.setItem('student_id', studentId);
+            }
+        });
+    </script>
+</body>
+</html>

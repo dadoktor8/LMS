@@ -55,8 +55,10 @@
         <button 
           hx-post="/ai/courses/{{ course_id }}/process_materials" 
           hx-target="#process-status"
+          hx-indicator="#loader"
           class="button is-primary"
-          hx-swap="outerHTML">Process Materials</button>
+          hx-swap="outerHTML">⚙️ Process Materials</button>
+          <div id="loader" class="spinner" style="display: none;"></div>
       </div>
       
       <!-- Display status of the processing -->

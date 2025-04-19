@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+from typing import Optional
 import fitz  # PyMuPDF for PDF text extraction
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from nltk.tokenize import sent_tokenize
@@ -10,6 +11,7 @@ import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
+import urllib
 from backend.db.models import CourseMaterial, ProcessedMaterial, TextChunk
 from backend.db.database import SessionLocal  # if you're using a unified DB setup
 from langchain.vectorstores import FAISS
@@ -319,7 +321,88 @@ def get_answer_from_rag_langchain(query: str, course_id: int, student_id: str) -
     except Exception as e:
         logging.error(f"Error: {str(e)}")
         return f"❌ An error occurred: {str(e)}" '''
+
+def detect_study_request(query: str) -> tuple[bool, Optional[str], Optional[str]]:
+    query_lower = query.lower()
+    
+    # Check for study material type
+    material_type = None
+    if "flashcard" in query_lower or "flash card" in query_lower:
+        material_type = "flashcards"
+    elif "quiz" in query_lower or "test" in query_lower or "assess" in query_lower:
+        material_type = "quiz"
+    elif "study guide" in query_lower or "notes" in query_lower or "summary" in query_lower:
+        material_type = "study_guide"
+    
+    # Check for study intent keywords
+    study_intent_keywords = [
+        "help me study", "need to study", "studying for", "learn about",
+        "prepare for", "how do i", "can you explain", "what is", "help me understand"
+    ]
+    
+    has_study_intent = any(keyword in query_lower for keyword in study_intent_keywords)
+    
+    # If we have study intent but no material type specified, default to study guide
+    if has_study_intent and not material_type:
+        material_type = "study_guide"
+    
+    # If we have a material type but no clear study intent, assume study intent
+    is_study_request = material_type is not None or has_study_intent
+    
+    # Extract topic if this is a study request
+    topic = None
+    if is_study_request:
+        # Extract topic based on query structure
+        if "about" in query_lower:
+            topic = query_lower.split("about", 1)[1].strip()
+        elif "on" in query_lower:
+            topic = query_lower.split("on", 1)[1].strip()
+        elif "for" in query_lower:
+            topic = query_lower.split("for", 1)[1].strip()
+        else:
+            # Remove material type and study intent words to extract topic
+            topic = query_lower
+            for keyword in ["flashcard", "flash card", "quiz", "test", "study guide", 
+                           "notes", "summary", "help me study", "studying for"]:
+                topic = topic.replace(keyword, "")
+            topic = topic.strip()
+        
+        # Clean up the topic
+        for punct in ["?", ".", "!"]:
+            topic = topic.replace(punct, "")
+        
+        # If topic is too short or empty, use a general placeholder
+        if not topic or len(topic) < 3:
+            topic = "this subject"
+    
+    return is_study_request, material_type, topic
+
+
 def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id: str) -> str:
+    
+    
+    is_study_request, material_type, topic = detect_study_request(query)
+    
+    if is_study_request and material_type and topic:
+        # Redirect to specific study material page based on type
+        if material_type == "flashcards":
+            study_url = f"/ai/study/flashcards?course_id={course_id}&topic={topic}"
+        elif material_type == "quiz":
+            study_url = f"/ai/study/quiz?course_id={course_id}&topic={topic}"
+        elif material_type == "study_guide":
+            study_url = f"/ai/study/guide?course_id={course_id}&topic={topic}"
+        else:
+            # Default to main study page if unsure about material type
+            study_url = f"/ai/study?course_id={course_id}&topic={topic}"
+        
+        response = f"""
+        <div>
+            <p>I can help you study <strong>{topic}</strong> with <strong>{material_type.capitalize()}</strong>!</p>
+            <a href="{study_url}" class="btn btn-primary" style="margin-top:1em;">Open {material_type.capitalize()} Interface</a>
+        </div>
+        """
+        return response
+    
     try:
         # Input validation
         if not query or not query.strip():
@@ -440,7 +523,6 @@ def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id:
         import traceback
         traceback.print_exc()
         raise
-        #return "I'm sorry, but I'm having trouble connecting to my knowledge base right now. Please try again in a moment."
         
     except Exception as e:
         error_msg = f"Unexpected error in RAG system: {str(e)}"
@@ -574,6 +656,16 @@ def post_process_response(response):
     Enhance the response with additional HTML formatting if needed.
     Converts markdown-style lists to proper HTML if the AI didn't use HTML tags.
     """
+    response = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', response)  # Bold
+    response = re.sub(r'\*(.*?)\*', r'<em>\1</em>', response)  # Italic
+    
+    # Handle Markdown headings
+    response = re.sub(r'^# (.*?)$', r'<h1>\1</h1>', response, flags=re.MULTILINE)
+    response = re.sub(r'^## (.*?)$', r'<h2>\1</h2>', response, flags=re.MULTILINE)
+    response = re.sub(r'^### (.*?)$', r'<h3>\1</h3>', response, flags=re.MULTILINE)
+    
+    # Handle code blocks - important for showing code examples
+    response = re.sub(r'```(?:\w+)?\n(.*?)\n```', r'<pre><code>\1</code></pre>', response, flags=re.DOTALL)
     # Convert markdown-style numbered lists if HTML lists weren't used
     if "<ol>" not in response:
         response = re.sub(r'(\d+\.\s+[^\n]+)(?:\n|$)', r'<li>\1</li>', response)
