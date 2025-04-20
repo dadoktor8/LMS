@@ -15,3 +15,4 @@ backend/model
 .env
 .env.*
 *.db
+backend/uploads
