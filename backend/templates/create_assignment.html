@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Create Assignment</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+</head>
+<body>
+    <nav class="container-fluid">
+        <ul>
+          <li><strong>Teacher Portal</strong></li>
+        </ul>
+        <ul>
+          <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+        </ul>
+      </nav>
+  <div class="courses-grid">
+    <div class="course-card" style="max-width: 600px; margin: auto;">
+      <h2>📝 Create Assignment</h2>
+
+      <form 
+      form method="post" action="">
+        <label for="title">📌 Title</label>
+        <input type="text" id="title" name="title" required placeholder="Assignment title">
+
+        <label for="description">📄 Description</label>
+        <textarea id="description" name="description" required placeholder="Assignment details..."></textarea>
+
+        <label for="deadline">⏰ Deadline</label>
+        <input type="datetime-local" id="deadline" name="deadline" required>
+
+        <label>📎 Attach Files (optional):</label><br>
+        {% for m in materials %}
+          <input type="checkbox" name="material_ids" value="{{ m.id }}"> {{ m.title or m.filename }}<br>
+        {% endfor %}
+        <a href="/ai/courses/{{ course_id }}/upload_materials" target="_blank" style="margin-top:10px; display: inline-block;">+ Upload New Material</a>
+
+        <button type="submit" class="btn-secondary" style="margin-top: 1rem;">Create Assignment</button>
+      </form>
+      <div style="text-align: center; margin-top: 2rem;">
+        <a href="/ai/teacher/{{course.id}}/assignments" class="btn-secondary">⬅ Back to Assignments</a>
+      </div>
+    </div>
+    <div id="toast" style="margin-top: 1rem;"></div>
+</div>
+</body>
+</html>

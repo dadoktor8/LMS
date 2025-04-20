@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Submissions for {{ assignment.title }}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<nav class="container-fluid">
+  <!-- nav as usual -->
+</nav>
+<div class="courses-grid">
+  <div class="course-card-table">
+    <h2>📥 Submissions for "{{ assignment.title }}"</h2>
+    {% if assignment.materials %}
+      <div>
+        <strong>📎 Attached Files:</strong><br>
+        {% for m in assignment.materials %}
+          <a href="/{{ m.filepath }}" target="_blank">📄 {{ m.title or m.filename }}</a><br>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% if submissions %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Student</th>
+            <th>Submitted File</th>
+            <th>Submitted At</th>
+            <th>AI Score</th>
+            <th>Teacher Score</th>
+            <th>Comment</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for submission in submissions %}
+          <tr>
+            <td>{{ submission.student.f_name }} {{ submission.student.l_name }}</td>
+            <td><a href="/{{ submission.filepath }}" target="_blank">📄 View</a></td>
+            <td>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>{{ submission.ai_score if submission.ai_score is not none else "Pending" }}</td>
+            <td>
+              <form method="post" action="/ai/assignments/{{ assignment.id }}/grade/{{ submission.id }}">
+                <input type="number" name="teacher_score" value="{{ submission.teacher_score or '' }}" min="0" max="100" style="width: 60px;">
+            </td>
+            <td>
+                <input type="text" name="comment" value="{{ submission.comment or '' }}" placeholder="Add a comment" style="width: 150px;">
+            </td>
+            <td>
+                <button type="submit" class="btn-secondary">💾 Save</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div style="text-align: center; margin-top: 2rem;">
+        <a href="/ai/assignments/{{ assignment.id }}/export" class="btn-primary">⬇️ Export to Excel</a>
+      </div>
+    {% else %}
+      <p>No submissions yet.</p>
+    {% endif %}
+  </div>
+</div>
+<div style="text-align: center; margin-top: 2rem;">
+  <a href="/ai/teacher/{{ assignment.course_id }}/assignments" class="card-link">⬅ Back to Assignments</a>
+</div>
+</body>
+</html>

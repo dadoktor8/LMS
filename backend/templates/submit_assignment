@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Submit Assignment</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+</head>
+<body>
+  <main class="courses-grid">
+    <div class="course-card" style="max-width: 600px; margin: auto;">
+      <h2>📤 Submit Assignment</h2>
+
+      <div style="margin-bottom: 1rem;">
+        <p><strong>📝 Title:</strong> {{ assignment.title }}</p>
+        <p><strong>📄 Description:</strong> {{ assignment.description }}</p>
+        <p><strong>⏳ Deadline:</strong> {{ assignment.deadline.strftime('%Y-%m-%d %H:%M') }}</p>
+      </div>
+
+      <form 
+        method="post" 
+        enctype="multipart/form-data" 
+        hx-post="{{ request.url.path }}" 
+        hx-target="#toast" 
+        hx-swap="innerHTML"
+      >
+        <label for="file">📎 Upload your work</label>
+        <input type="file" name="file" id="file" required />
+
+        <button type="submit" class="btn-secondary" style="margin-top: 1rem;">Submit</button>
+      </form>
+
+      <div id="toast" style="margin-top: 1rem;"></div>
+    </div>
+  </main>
+</body>
+</html>

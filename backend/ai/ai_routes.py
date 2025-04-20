@@ -2,9 +2,10 @@
 import html
 import json
 import logging
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Depends, Request, BackgroundTasks
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 import shutil
@@ -12,10 +13,11 @@ import os
 from datetime import datetime
 
 import urllib
+from backend.ai.ai_grader import evaluate_assignment_text
 from backend.ai.open_notes_system import generate_study_material, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import ChatHistory, Course,CourseMaterial, ProcessedMaterial  # Make sure this is correct
+from backend.db.models import Assignment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, ProcessedMaterial  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
@@ -29,6 +31,12 @@ ai_router = APIRouter()
 
 UPLOAD_DIR = "uploaded_docs"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+UPLOAD_DIR = "backend/uploads/assignments"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 templates = Jinja2Templates(directory="backend/templates")
@@ -446,3 +454,188 @@ async def generate_study_guide(
             "student_id": student_id,
         }
     )
+
+@ai_router.get("/courses/{course_id}/create-assignment", response_class=HTMLResponse)
+async def show_create_assignment_form(request: Request, course_id: int, db: Session = Depends(get_db)):
+    materials = db.query(CourseMaterial).filter(CourseMaterial.course_id == course_id).order_by(CourseMaterial.uploaded_at.desc()).all()
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        return HTMLResponse("❌ Course not found", status_code=404)
+    return templates.TemplateResponse("create_assignment.html", {"request": request, "course_id": course_id, "course":course, "materials": materials})
+
+@ai_router.post("/courses/{course_id}/create-assignment", response_class=HTMLResponse)
+async def create_assignment(
+    request: Request,
+    course_id: int,
+    title: str = Form(...),
+    description: str = Form(...),
+    deadline: str = Form(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta()),
+    material_ids: List[int] = Form(None)
+):
+    deadline_dt = datetime.fromisoformat(deadline)
+    assignment = Assignment(
+        course_id=course_id,
+        title=title,
+        description=description,
+        deadline=deadline_dt,
+        teacher_id=user["user_id"]
+    )
+    if material_ids:
+        assignment.materials = db.query(CourseMaterial).filter(CourseMaterial.id.in_(material_ids)).all()
+    db.add(assignment)
+    db.commit()
+    return RedirectResponse(f"/ai/teacher/{course_id}/assignments", status_code=303)
+
+@ai_router.get("/assignments/{assignment_id}/submit", response_class=HTMLResponse)
+async def show_submit_assignment_form(request: Request, assignment_id: int, db: Session = Depends(get_db)):
+    assignment = db.query(Assignment).filter_by(id=assignment_id).first()
+    return templates.TemplateResponse("submit_assignment.html", {"request": request, "assignment": assignment})
+
+@ai_router.post("/assignments/{assignment_id}/submit", response_class=HTMLResponse)
+async def submit_assignment(
+    assignment_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    student_id = user["user_id"]
+    assignment = db.query(Assignment).filter_by(id=assignment_id).first()
+    if not assignment:
+        return HTMLResponse("❌ Assignment not found", status_code=404)
+
+    # Save file
+    filename = f"{datetime.utcnow().timestamp()}_{file.filename}"
+    file_location = f"uploads/assignments/{assignment_id}_{filename}"
+    os.makedirs("uploads/assignments", exist_ok=True)
+    with open(f"backend/{file_location}", "wb") as f:
+        f.write(await file.read())
+
+    # Extract and evaluate
+    try:
+        raw_text = extract_text_from_pdf(f"backend/{file_location}")
+        ai_score = evaluate_assignment_text(raw_text)
+    except Exception as e:
+        logging.error(f"AI Evaluation failed: {e}")
+        ai_score = None
+
+    submission = AssignmentSubmission(
+        assignment_id=assignment_id,
+        student_id=student_id,
+        filepath=file_location,
+        ai_score=ai_score
+    )
+    db.add(submission)
+    db.commit()
+
+    return HTMLResponse(
+        "<div class='toast success'>✅ Submitted! AI Score: {}</div>".format(ai_score or "Pending"),
+        status_code=200
+    )
+
+
+@ai_router.post("/assignments/{assignment_id}/grade/{submission_id}")
+async def grade_submission(
+    assignment_id: int,
+    submission_id: int,
+    teacher_score: Optional[int] = Form(None),
+    comment: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    submission = db.query(AssignmentSubmission).join(Assignment).filter(
+        Assignment.id == assignment_id,
+        Assignment.teacher_id == user["user_id"],
+        AssignmentSubmission.id == submission_id
+    ).first()
+
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    submission.teacher_score = teacher_score
+    submission.comment = comment
+    db.commit()
+
+    return RedirectResponse(
+        url=f"/auth/assignments/{assignment_id}/submissions",
+        status_code=303
+    )
+
+@ai_router.get("/assignments/{assignment_id}/submissions", response_class=HTMLResponse)
+async def view_submissions(
+    assignment_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    assignment = db.query(Assignment).filter_by(id=assignment_id, teacher_id=user["user_id"]).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    submissions = db.query(AssignmentSubmission).filter_by(assignment_id=assignment.id).all()
+
+    return templates.TemplateResponse("teacher_assignment_submissions.html", {
+        "request": request,
+        "assignment": assignment,
+        "submissions": submissions
+    })
+
+@ai_router.get("/assignments/{assignment_id}/export")
+async def export_submissions_to_excel(
+    assignment_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    assignment = db.query(Assignment).filter_by(id=assignment_id, teacher_id=user["user_id"]).first()
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    submissions = db.query(AssignmentSubmission).filter_by(assignment_id=assignment.id).all()
+
+    data = [{
+        "Student": f"{s.student.f_name} {s.student.l_name}",
+        "Email": s.student.email,
+        "Submitted At": s.submitted_at,
+        "AI Score": s.ai_score,
+        "Teacher Score": s.teacher_score,
+        "Comment": s.comment,
+        "File": s.filename
+    } for s in submissions]
+
+    df = pd.DataFrame(data)
+    path = f"exports/assignment_{assignment_id}_submissions.xlsx"
+    os.makedirs("exports", exist_ok=True)
+    df.to_excel(path, index=False)
+
+    return FileResponse(path, filename=f"submissions_assignment_{assignment_id}.xlsx")
+
+
+@ai_router.get("/student/assignments", response_class=HTMLResponse)
+async def student_assignments(request: Request, db: Session = Depends(get_db), user: dict = Depends(require_role("student"))):
+    assignments = db.query(Assignment).all()
+    submissions = db.query(AssignmentSubmission).filter_by(student_id=user["user_id"]).all()
+    return templates.TemplateResponse("student_assignments.html", {
+        "request": request,
+        "assignments": assignments,
+        "submissions": submissions
+    })
+
+
+@ai_router.get("/teacher/{course_id}/assignments", response_class=HTMLResponse)
+async def teacher_assignments(request: Request, course_id: int,db: Session = Depends(get_db), user: dict = Depends(require_role("teacher"))):
+    assignments = (
+    db.query(Assignment)
+    .filter_by(teacher_id=user["user_id"], course_id=course_id)
+    .order_by(Assignment.deadline.desc())
+    .all()
+        )
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        return HTMLResponse("❌ Course not found", status_code=404)
+    return templates.TemplateResponse("teacher_assignments.html", {
+        "request": request,
+        "assignments": assignments,
+        "course":course
+    })
+

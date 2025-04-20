@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Assignment Submissions</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<main class="courses-grid">
+  <div class="course-card-table">
+    <h2>📥 Submissions for "{{ assignment.title }}"</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Student</th>
+          <th>File</th>
+          <th>Submitted At</th>
+          <th>AI Score</th>
+          <th>Teacher Score</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for submission in submissions %}
+        <tr>
+          <td>{{ submission.student.f_name }} {{ submission.student.l_name }}</td>
+          <td><a href="/{{ submission.filepath }}" target="_blank">📎 View</a></td>
+          <td>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ submission.ai_score or "🔄 Pending" }}</td>
+          <td>
+            <form 
+              hx-post="/ai/assignments/{{ assignment.id }}/grade/{{ submission.id }}"
+              hx-target="#toast"
+              hx-swap="innerHTML"
+            >
+              <input type="number" name="teacher_score" min="0" max="100" value="{{ submission.teacher_score or '' }}" required style="width: 70px;" />
+              <button type="submit">💾 Save</button>
+            </form>
+          </td>
+          <td>
+            <a href="/{{ submission.filepath }}" class="btn-secondary">Download</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div style="text-align: center; margin-top: 2rem;">
+      <a href="/ai/assignments/{{ assignment.id }}/export" class="btn-secondary">⬇️ Export to Excel</a>
+    </div>
+    
+    <div id="toast" style="margin-top: 1rem;"></div>
+  </div>
+</main>
+</body>
+</html>

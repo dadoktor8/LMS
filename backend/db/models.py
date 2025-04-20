@@ -1,7 +1,7 @@
 # backend/db/models.py
 from datetime import datetime
 import traceback
-from sqlalchemy import Column, DateTime, Integer, String, Boolean, ForeignKey, Text
+from sqlalchemy import Column, DateTime, Integer, String, Boolean, ForeignKey, Table, Text
 from backend.db.database import Base
 from sqlalchemy.orm import relationship
 
@@ -18,7 +18,7 @@ class User(Base):
     l_name = Column(String, nullable=True)
     courses = relationship("Course",back_populates="teacher")
     attendance = relationship("AttendanceRecord", backref="student")
-
+    assignment_submissions = relationship("AssignmentSubmission", back_populates="student", cascade="all, delete-orphan")
 
 class Course(Base):
     __tablename__ = "courses"
@@ -35,6 +35,7 @@ class Course(Base):
     materials = relationship("CourseMaterial", back_populates="course", cascade="all, delete-orphan")
     processed_materials = relationship("ProcessedMaterial", back_populates="course")
     text_chunks = relationship("TextChunk", back_populates="course")
+    assignments = relationship("Assignment", back_populates="course", cascade="all, delete-orphan")
 
 
 class Enrollment(Base):
@@ -144,3 +145,61 @@ class StudyGuide(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     course = relationship("Course", backref="study_guides")
+
+
+assignment_materials = Table(
+    "assignment_materials",
+    Base.metadata,
+    Column("assignment_id", ForeignKey("assignments.id"), primary_key=True),
+    Column("material_id", ForeignKey("course_materials.id"), primary_key=True),
+)
+
+class Assignment(Base):
+    __tablename__ = "assignments"
+
+    id = Column(Integer, primary_key=True)
+    course_id = Column(Integer, ForeignKey("courses.id"))
+    teacher_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String, nullable=False)
+    description = Column(Text)
+    deadline = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    course = relationship("Course", back_populates="assignments")
+    submissions = relationship("AssignmentSubmission", back_populates="assignment", cascade="all, delete-orphan")
+    teacher = relationship("User")
+    materials = relationship("CourseMaterial", secondary=assignment_materials, backref="assignments")
+
+
+class AssignmentSubmission(Base):
+    __tablename__ = "assignment_submissions"
+
+    id = Column(Integer, primary_key=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id"))
+    student_id = Column(Integer, ForeignKey("users.id"))
+    file_path = Column(String, nullable=False)
+    submitted_at = Column(DateTime, default=datetime.utcnow)
+    ai_score = Column(Integer, nullable=True)
+    teacher_score = Column(Integer, nullable=True)
+
+    # Relationships
+    student = relationship("User")
+    assignment = relationship("Assignment", back_populates="submissions")
+    comments = relationship("AssignmentComment", back_populates="submission", cascade="all, delete-orphan")
+
+
+class AssignmentComment(Base):
+    __tablename__ = "assignment_comments"
+
+    id = Column(Integer, primary_key=True)
+    submission_id = Column(Integer, ForeignKey("assignment_submissions.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    message = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User")
+    submission = relationship("AssignmentSubmission", back_populates="comments")
+
+

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Submissions for {{ assignments.title }}</title>
+    <!-- You can add any global CSS here or link to a CSS file -->
+    <link rel="stylesheet" href="/static/styles.css"> <!-- Example link -->
+    <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+</head>
+<body>
+    <nav class="container-fluid">
+        <ul>
+          <li><strong>Teacher Portal</strong></li>
+        </ul>
+        <ul>
+          <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+        </ul>
+      </nav>
+
+    <div class="courses-grid">
+        <div class="course-card-table">
+            <h2>📄 Assignments for "{{ course.title }}"</h2>
+            {% if assignments %}
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Description</th>
+                    <th>Deadline</th>
+                    <th>Created At</th>
+                    <th>Submissions</th>
+                    <th>View Submissions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                {% for a in assignments %}
+                  <tr>
+                    <td>{{ a.title }}</td>
+                    <td>{{ a.description|truncate(40) }}</td>
+                    <td>{{ a.deadline.strftime('%Y-%m-%d %H:%M') if a.deadline else '-' }}</td>
+                    <td>{{ a.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td>{{ a.submissions|length }}</td>
+                    <td>
+                      <a href="/ai/assignments/{{ a.id }}/submissions" class="btn-secondary">View</a>
+                    </td>
+                  </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p>No assignments yet.</p>
+            {% endif %}
+          </div>
+          <div class="course-card" style="display: flex; align-items: center; justify-content: center; flex-direction: column;">
+            <h2>➕ Create New Assignment</h2>
+            <a href="/ai/courses/{{ course.id }}/create-assignment" class="btn-primary" style="margin-top: 1rem;">Create Assignment</a>
+          </div>
+          </div>
+        <div style="text-align: center; margin-top: 2rem;">
+            <a href="/auth/teacher/dashboard" class="card-link">⬅ Back to Dashboard</a>
+        </div>
+    </main>
+
+    <footer>
+        <!-- Add footer content here if needed -->
+    </footer>
+</body>
+</html>
