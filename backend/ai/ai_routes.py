@@ -17,7 +17,7 @@ from backend.ai.ai_grader import evaluate_assignment_text
 from backend.ai.open_notes_system import generate_study_material, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import Assignment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, ProcessedMaterial  # Make sure this is correct
+from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, ProcessedMaterial  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
@@ -26,6 +26,7 @@ from langchain.memory.chat_message_histories import SQLChatMessageHistory
 from langchain.schema import AIMessage, HumanMessage
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
+from sqlalchemy.orm import joinedload
 
 ai_router = APIRouter()
 
@@ -504,14 +505,14 @@ async def submit_assignment(
     assignment = db.query(Assignment).filter_by(id=assignment_id).first()
     if not assignment:
         return HTMLResponse("❌ Assignment not found", status_code=404)
-
+    
     # Save file
     filename = f"{datetime.utcnow().timestamp()}_{file.filename}"
     file_location = f"uploads/assignments/{assignment_id}_{filename}"
     os.makedirs("uploads/assignments", exist_ok=True)
     with open(f"backend/{file_location}", "wb") as f:
         f.write(await file.read())
-
+    
     # Extract and evaluate
     try:
         raw_text = extract_text_from_pdf(f"backend/{file_location}")
@@ -519,22 +520,116 @@ async def submit_assignment(
     except Exception as e:
         logging.error(f"AI Evaluation failed: {e}")
         ai_score = None
-
-    submission = AssignmentSubmission(
-        assignment_id=assignment_id,
-        student_id=student_id,
-        filepath=file_location,
-        ai_score=ai_score
+    
+    # Debug: Log what we're about to insert
+    logging.info(f"Inserting submission for assignment {assignment_id}, student {student_id}")
+    
+    # Check if a previous submission exists
+    existing_submission = (
+        db.query(AssignmentSubmission)
+        .filter_by(assignment_id=assignment_id, student_id=student_id)
+        .first()
     )
-    db.add(submission)
+    
+    if existing_submission:
+        # If resubmission, update the existing record
+        logging.info(f"Updating existing submission ID: {existing_submission.id}")
+        existing_submission.file_path = file_location
+        existing_submission.ai_score = ai_score
+        existing_submission.submitted_at = datetime.utcnow()  # Update submission time
+    else:
+        # Create new submission
+        submission = AssignmentSubmission(
+            assignment_id=assignment_id,
+            student_id=student_id,
+            file_path=file_location,
+            ai_score=ai_score,
+            submitted_at=datetime.utcnow()  # Explicitly set submission time
+        )
+        db.add(submission)
+    
     db.commit()
-
+    
+    # Debug: Verify the submission was saved
+    verification = (
+        db.query(AssignmentSubmission)
+        .filter_by(assignment_id=assignment_id, student_id=student_id)
+        .first()
+    )
+    
+    if verification:
+        logging.info(f"Verified submission saved: ID={verification.id}, Assignment={verification.assignment_id}")
+    else:
+        logging.error("Failed to save submission!")
+    
     return HTMLResponse(
         "<div class='toast success'>✅ Submitted! AI Score: {}</div>".format(ai_score or "Pending"),
         status_code=200
     )
 
-
+#Function to get into student assignment page
+@ai_router.get("/student/courses/{course_id}/assignments", response_class=HTMLResponse)
+async def student_course_assignments(
+    request: Request,
+    course_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    student_id = user["user_id"]
+    # Ensure student is enrolled & accepted in this course
+    enrollment = (
+        db.query(Enrollment)
+        .filter_by(student_id=student_id, course_id=course_id, is_accepted=True)
+        .first()
+    )
+    if not enrollment:
+        return HTMLResponse("❌ You are not enrolled in this course", status_code=403)
+    
+    # Get the course info
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        return HTMLResponse("❌ Course not found", status_code=404)
+    
+    # Get all assignments for this course
+    assignments = (
+        db.query(Assignment)
+        .filter_by(course_id=course_id)
+        .order_by(Assignment.deadline)
+        .all()
+    )
+    
+    assignment_ids = [a.id for a in assignments]
+    
+    # Get submissions with eager loading of comments and user info
+    submissions = (
+        db.query(AssignmentSubmission)
+        .filter(AssignmentSubmission.assignment_id.in_(assignment_ids))
+        .filter_by(student_id=student_id)
+        .options(
+            joinedload(AssignmentSubmission.comments).joinedload(AssignmentComment.user)
+        )
+        .all()
+    )
+    
+    # Debug log to check for comments
+    for s in submissions:
+        logging.info(f"Submission ID: {s.id}, Assignment ID: {s.assignment_id}, Comments: {len(s.comments)}")
+        for comment in s.comments:
+            logging.info(f"Comment: {comment.message} by User: {comment.user.id if comment.user else 'Unknown'}")
+    
+    # Create a dictionary for easier lookup in template
+    submission_dict = {s.assignment_id: s for s in submissions}
+    
+    return templates.TemplateResponse(
+        "student_assignments.html",
+        {
+            "request": request,
+            "assignments": assignments,
+            "submissions": submissions,
+            "submission_dict": submission_dict,
+            "course": course,
+        },
+    )
 @ai_router.post("/assignments/{assignment_id}/grade/{submission_id}")
 async def grade_submission(
     assignment_id: int,
@@ -549,16 +644,35 @@ async def grade_submission(
         Assignment.teacher_id == user["user_id"],
         AssignmentSubmission.id == submission_id
     ).first()
-
+    
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
-
-    submission.teacher_score = teacher_score
-    submission.comment = comment
+    
+    # Update the teacher's score
+    if teacher_score is not None:
+        submission.teacher_score = teacher_score
+    
+    # Add a comment if provided
+    if comment and comment.strip():
+        # Log the comment being added
+        logging.info(f"Adding comment to submission {submission_id}: '{comment}' by user {user['user_id']}")
+        
+        new_comment = AssignmentComment(
+            submission_id=submission_id,
+            user_id=user["user_id"],
+            message=comment
+        )
+        db.add(new_comment)
+    
     db.commit()
-
+    
+    # Verify comment was added
+    comments = db.query(AssignmentComment).filter_by(submission_id=submission_id).all()
+    logging.info(f"After commit, submission {submission_id} has {len(comments)} comments")
+    
+    # Use the correct prefix for your routes
     return RedirectResponse(
-        url=f"/auth/assignments/{assignment_id}/submissions",
+        url=f"/ai/assignments/{assignment_id}/submissions",
         status_code=303
     )
 
@@ -599,8 +713,8 @@ async def export_submissions_to_excel(
         "Submitted At": s.submitted_at,
         "AI Score": s.ai_score,
         "Teacher Score": s.teacher_score,
-        "Comment": s.comment,
-        "File": s.filename
+        "Comment": s.comments,
+        "File": s.file_path
     } for s in submissions]
 
     df = pd.DataFrame(data)

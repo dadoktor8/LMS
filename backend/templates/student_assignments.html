@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assignments for {{ course.title }}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+</head>
+<body>
+    <nav class="container-fluid">
+        <ul>
+            <li><strong>Student Portal</strong></li>
+        </ul>
+        <ul>
+            <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+        </ul>
+    </nav>
+    <div class="courses-grid">
+        <div class="course-card-table">
+            <h2>📄 Assignments for "{{ course.title }}"</h2>
+            {% if assignments %}
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Description</th>
+                        <th>Deadline</th>
+                        <th>Status</th>
+                        <th>Submitted At</th>
+                        <th>Late?</th>
+                        <th>AI Score</th>
+                        <th>Teacher Score</th>
+                        <th>Comments</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for assignment in assignments %}
+                    <tr>
+                        <td>{{ assignment.title }}</td>
+                        <td>{{ assignment.description|truncate(40) }}</td>
+                        <td>{{ assignment.deadline.strftime('%Y-%m-%d %H:%M') if assignment.deadline else '-' }}</td>
+                        <td>
+                            {% if submission_dict.get(assignment.id) %}
+                                <span style="color:green;">Submitted</span>
+                            {% else %}
+                                <span style="color:red;">Not Submitted</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if submission_dict.get(assignment.id) %}
+                                {{ submission_dict[assignment.id].submitted_at.strftime('%Y-%m-%d %H:%M') }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if submission_dict.get(assignment.id) and assignment.deadline and submission_dict[assignment.id].submitted_at > assignment.deadline %}
+                                <span style="color: orange;">Late</span>
+                            {% elif submission_dict.get(assignment.id) %}
+                                <span style="color: green;">On Time</span>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if submission_dict.get(assignment.id) %}
+                                {{ submission_dict[assignment.id].ai_score if submission_dict[assignment.id].ai_score is not none else "Pending" }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if submission_dict.get(assignment.id) %}
+                                {{ submission_dict[assignment.id].teacher_score if submission_dict[assignment.id].teacher_score is not none else "Pending" }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if submission_dict.get(assignment.id) %}
+                                {% if submission_dict[assignment.id].comments %}
+                                    {% for comment in submission_dict[assignment.id].comments %}
+                                        <div><b>{{ comment.user.f_name if comment.user else 'Teacher' }}:</b> {{ comment.message }}</div>
+                                    {% endfor %}
+                                {% else %}
+                                    <span>No comment</span>
+                                {% endif %}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if not submission_dict.get(assignment.id) %}
+                                <a href="/ai/assignments/{{ assignment.id }}/submit" class="btn-primary">Submit</a>
+                            {% else %}
+                                <a href="/{{ submission_dict[assignment.id].file_path }}" target="_blank" title="View your submission">📄</a>
+                                <a href="/ai/assignments/{{ assignment.id }}/submit" class="btn-secondary">Resubmit</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+                <div style="padding: 1rem;">No assignments yet.</div>
+            {% endif %}
+        </div>
+    </div>
+    <div style="text-align: center; margin-top: 2rem;">
+        <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
+    </div>
+    <footer>
+        <!-- Optional footer -->
+    </footer>
+</body>
+</html>

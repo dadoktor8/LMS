@@ -65,9 +65,9 @@
         <div class="course-card" id="course-{{ course.id }}">
           <h4>{{ course.title }}</h4>
           <p>{{ course.description }}</p>
-          <a href="/auth/courses/{{ course.id }}/student-attendance" class="button">🎯 Check Attendance</a>
+          <a href="/auth/courses/{{ course.id }}/student-attendance" class="card-link">🎯 Check Attendance</a>
           <a href="/ai/courses/{{ course.id }}/tutor" class="card-link">🧠 Ask AI Tutor</a>
-          <a href="/ai/student/assignments" class="card-link">📄 Go to Assignments</a>
+          <a href="/ai/student/courses/{{ course.id }}/assignments" class="card-link">📄 Go to Assignments</a>
         </div>
       {% else %}
         <p style="text-align:center; width: 100%;">You haven't joined any courses yet.</p>

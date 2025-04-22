@@ -7,6 +7,14 @@
   <script src="https://unpkg.com/htmx.org@1.9.2"></script>
 </head>
 <body>
+  <nav class="container-fluid">
+    <ul>
+      <li><strong>Student Portal</strong></li>
+    </ul>
+    <ul>
+      <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+    </ul>
+  </nav>
   <main class="courses-grid">
     <div class="course-card" style="max-width: 600px; margin: auto;">
       <h2>📤 Submit Assignment</h2>
@@ -30,8 +38,13 @@
         <button type="submit" class="btn-secondary" style="margin-top: 1rem;">Submit</button>
       </form>
 
-      <div id="toast" style="margin-top: 1rem;"></div>
+      <div style="margin-top: 2rem; text-align: center;">
+        <a href="/ai/student/courses/{{ assignment.course_id }}/assignments" class="btn-primary">
+          ⬅ Back to Assignments
+        </a>
+      </div>
     </div>
   </main>
+  <div id="toast" style="margin-top: 1rem;"></div>
 </body>
 </html>
