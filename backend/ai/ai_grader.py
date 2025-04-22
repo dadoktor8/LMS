@@ -14,26 +14,45 @@ llm = ChatOpenAI(
 )
 
 grade_prompt = PromptTemplate(
-    input_variables=["text"],
+    input_variables=["text", "assignment_title", "assignment_description"],
     template="""
-    You're an experienced professor. Read the student's assignment text below, and assign a score from 0 to 100 based on clarity, depth, and relevance.
-
-    Return ONLY the number. No extra commentary.
-
+    You're an experienced professor evaluating a student assignment.
+    
+    Assignment Title: {assignment_title}
+    Assignment Description: {assignment_description}
+    
+    Read the student's assignment text below, and evaluate it based on clarity, depth, and relevance.
+    
     ---
     {text}
     ---
-    Score:
+    
+    Provide your evaluation in the following format:
+    SCORE: [number between 0-100]
+    FEEDBACK: [2-3 sentences of constructive feedback]
     """
 )
 
-def evaluate_assignment_text(text: str) -> int:
+def evaluate_assignment_text(text: str, assignment_title: str, assignment_description: str) -> tuple:
     try:
-        prompt = grade_prompt.format(text=text)
+        prompt = grade_prompt.format(
+            text=text,
+            assignment_title=assignment_title,
+            assignment_description=assignment_description
+        )
         result = llm.predict(prompt).strip()
-
-        score = int("".join([c for c in result if c.isdigit()]))
-        return max(0, min(score, 100))  # Clamp between 0-100
+        
+        # Parse the result to extract score and feedback
+        lines = result.split('\n')
+        score_line = next((line for line in lines if line.startswith("SCORE:")), "SCORE: 0")
+        score = int("".join([c for c in score_line if c.isdigit()]))
+        score = max(0, min(score, 100))  # Clamp between 0-100
+        
+        # Get feedback (everything after FEEDBACK:)
+        feedback_index = result.find("FEEDBACK:")
+        feedback = result[feedback_index + 9:].strip() if feedback_index != -1 else "No feedback provided."
+        
+        return score, feedback
     except Exception as e:
         logging.error(f"AI grading failed: {e}")
-        return None
+        return None, "AI evaluation failed. Please review manually."

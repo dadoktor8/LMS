@@ -24,6 +24,8 @@ app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key=secret_key)
 templates = Jinja2Templates(directory="backend/templates")
 app.mount("/static", StaticFiles(directory="backend/static"), name="static")
+app.mount("/uploads", StaticFiles(directory="backend/uploads"), name="uploads")
+
 
 init_db()
 

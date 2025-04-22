@@ -5,9 +5,14 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-<nav class="container-fluid">
-  <!-- nav as usual -->
-</nav>
+  <nav class="container-fluid">
+    <ul>
+      <li><strong>Teacher Portal</strong></li>
+    </ul>
+    <ul>
+      <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
+    </ul>
+  </nav>
 <div class="courses-grid">
   <div class="course-card-table">
     <h2>📥 Submissions for "{{ assignment.title }}"</h2>
@@ -20,40 +25,72 @@
       </div>
     {% endif %}
     {% if submissions %}
-      <table class="table">
-        <thead>
+    <table class="table">
+      <thead>
           <tr>
-            <th>Student</th>
-            <th>Submitted File</th>
-            <th>Submitted At</th>
-            <th>AI Score</th>
-            <th>Teacher Score</th>
-            <th>Comment</th>
-            <th>Action</th>
+              <th>Student</th>
+              <th>Submitted File</th>
+              <th>Submitted At</th>
+              <th>AI Score</th>
+              <th>AI Feedback</th>
+              <th>Teacher Score</th>
+              <th>Teacher Comment</th>
+              <th>Action</th>
           </tr>
-        </thead>
-        <tbody>
-        {% for submission in submissions %}
+      </thead>
+      <tbody>
+      {% for submission in submissions %}
           <tr>
-            <td>{{ submission.student.f_name }} {{ submission.student.l_name }}</td>
-            <td><a href="/{{ submission.filepath }}" target="_blank">📄 View</a></td>
-            <td>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
-            <td>{{ submission.ai_score if submission.ai_score is not none else "Pending" }}</td>
-            <td>
-              <form method="post" action="/ai/assignments/{{ assignment.id }}/grade/{{ submission.id }}">
-                <input type="number" name="teacher_score" value="{{ submission.teacher_score or '' }}" min="0" max="100" style="width: 60px;">
-            </td>
-            <td>
-                <input type="text" name="comment" value="{{ submission.comment or '' }}" placeholder="Add a comment" style="width: 150px;">
-            </td>
-            <td>
-                <button type="submit" class="btn-secondary">💾 Save</button>
-              </form>
-            </td>
+              <td>{{ submission.student.f_name }} {{ submission.student.l_name }}</td>
+              <td><a href="/{{ submission.file_path }}" target="_blank">📄 View</a></td>
+              <td>{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
+              <td>{{ submission.ai_score if submission.ai_score is not none else "Pending" }}</td>
+              <td>
+                  {% if submission.ai_feedback %}
+                      <button type="button" onclick="showModal({{ submission.id }})" class="btn-secondary">View</button>
+                      <div id="modal-{{submission.id}}" class="modal" style="display:none; position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.5);z-index:999;">
+                          <div class="modal-content" style="background:#fff;padding:1.5em;max-width:500px;margin:10vh auto;position:relative;">
+                              <span class="close" onclick="hideModal({{submission.id}})" style="position:absolute;top:8px;right:12px;cursor:pointer;font-size:2em;">&times;</span>
+                              <h4>AI Feedback</h4>
+                              <pre style="white-space:pre-wrap">{{ submission.ai_feedback }}</pre>
+                          </div>
+                      </div>
+                  {% else %}
+                      <span style="color: #aaa;">No Feedback</span>
+                  {% endif %}
+              </td>
+              <td>
+                  <form method="post" action="/ai/assignments/{{ assignment.id }}/grade/{{ submission.id }}">
+                      <input type="number" name="teacher_score" value="{{ submission.teacher_score or '' }}" min="0" max="100" style="width:60px;">
+              </td>
+              <td>
+                  <input type="text" name="comment" value="" placeholder="Add a comment" style="width:150px;">
+                  <br>
+                  {% if submission.comments %}
+                      <div style="margin-top:2px;color: #444;">
+                      {% for com in submission.comments %}
+                          <small><b>{{ com.user.f_name }}:</b> {{ com.message }}</small><br>
+                      {% endfor %}
+                      </div>
+                  {% endif %}
+              </td>
+              <td>
+                  <button type="submit" class="btn-secondary">💾 Save</button>
+                  </form>
+              </td>
           </tr>
-        {% endfor %}
-        </tbody>
-      </table>
+      {% endfor %}
+      </tbody>
+  </table>
+  
+  <script>
+  function showModal(id) {
+      document.getElementById('modal-' + id).style.display = 'block';
+  }
+  function hideModal(id) {
+      document.getElementById('modal-' + id).style.display = 'none';
+  }
+  </script>
       <div style="text-align: center; margin-top: 2rem;">
         <a href="/ai/assignments/{{ assignment.id }}/export" class="btn-primary">⬇️ Export to Excel</a>
       </div>

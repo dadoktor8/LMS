@@ -174,15 +174,14 @@ class Assignment(Base):
 
 class AssignmentSubmission(Base):
     __tablename__ = "assignment_submissions"
-
     id = Column(Integer, primary_key=True)
     assignment_id = Column(Integer, ForeignKey("assignments.id"))
     student_id = Column(Integer, ForeignKey("users.id"))
     file_path = Column(String, nullable=False)
     submitted_at = Column(DateTime, default=datetime.utcnow)
     ai_score = Column(Integer, nullable=True)
+    ai_feedback = Column(Text, nullable=True)  # New column for AI feedback
     teacher_score = Column(Integer, nullable=True)
-
     # Relationships
     student = relationship("User")
     assignment = relationship("Assignment", back_populates="submissions")

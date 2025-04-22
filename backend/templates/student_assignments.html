@@ -6,6 +6,53 @@
     <title>Assignments for {{ course.title }}</title>
     <link rel="stylesheet" href="/static/styles.css">
     <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+    <style>
+        .feedback-dialog {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.25);
+            z-index: 1000;
+            max-width: 80%;
+            max-height: 80%;
+            overflow-y: auto;
+        }
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+        }
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
+            font-size: 20px;
+        }
+        .feedback-section {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .ai-feedback {
+            background-color: #e6f7ff;
+            border-left: 4px solid #1890ff;
+        }
+        .teacher-feedback {
+            background-color: #f6ffed;
+            border-left: 4px solid #52c41a;
+        }
+    </style>
 </head>
 <body>
     <nav class="container-fluid">
@@ -31,7 +78,6 @@
                         <th>Late?</th>
                         <th>AI Score</th>
                         <th>Teacher Score</th>
-                        <th>Comments</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -79,23 +125,11 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if submission_dict.get(assignment.id) %}
-                                {% if submission_dict[assignment.id].comments %}
-                                    {% for comment in submission_dict[assignment.id].comments %}
-                                        <div><b>{{ comment.user.f_name if comment.user else 'Teacher' }}:</b> {{ comment.message }}</div>
-                                    {% endfor %}
-                                {% else %}
-                                    <span>No comment</span>
-                                {% endif %}
-                            {% else %}
-                                -
-                            {% endif %}
-                        </td>
-                        <td>
                             {% if not submission_dict.get(assignment.id) %}
                                 <a href="/ai/assignments/{{ assignment.id }}/submit" class="btn-primary">Submit</a>
                             {% else %}
                                 <a href="/{{ submission_dict[assignment.id].file_path }}" target="_blank" title="View your submission">📄</a>
+                                <a href="#" onclick="showFeedback('{{ assignment.id }}')" class="btn-info">View Feedback</a>
                                 <a href="/ai/assignments/{{ assignment.id }}/submit" class="btn-secondary">Resubmit</a>
                             {% endif %}
                         </td>
@@ -108,11 +142,70 @@
             {% endif %}
         </div>
     </div>
+    
+    <!-- Feedback Dialog Overlays -->
+    <div class="overlay" id="overlay"></div>
+    {% for assignment in assignments %}
+        {% if submission_dict.get(assignment.id) %}
+        <div class="feedback-dialog" id="feedback-{{ assignment.id }}">
+            <span class="close-btn" onclick="closeFeedback('{{ assignment.id }}')">&times;</span>
+            <h3>Feedback for "{{ assignment.title }}"</h3>
+            
+            <!-- AI Feedback Section -->
+            <div class="feedback-section ai-feedback">
+                <h4>AI Assessment (Score: {{ submission_dict[assignment.id].ai_score if submission_dict[assignment.id].ai_score is not none else "Pending" }})</h4>
+                <p>{{ submission_dict[assignment.id].ai_feedback if submission_dict[assignment.id].ai_feedback else "No AI feedback available yet." }}</p>
+            </div>
+            
+            <!-- Teacher Feedback Section -->
+            <div class="feedback-section teacher-feedback">
+                <h4>Teacher Assessment (Score: {{ submission_dict[assignment.id].teacher_score if submission_dict[assignment.id].teacher_score is not none else "Pending" }})</h4>
+                {% set teacher_comments = [] %}
+                
+                {% for comment in submission_dict[assignment.id].comments %}
+                    {% if not comment.message.startswith('AI Feedback:') %}
+                        {% set _ = teacher_comments.append(comment) %}
+                    {% endif %}
+                {% endfor %}
+                
+                {% if teacher_comments %}
+                    {% for comment in teacher_comments %}
+                        <div class="comment">
+                            <p><strong>{{ comment.user.f_name if comment.user else 'Teacher' }}:</strong> {{ comment.message }}</p>
+                            <small>{{ comment.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p>No teacher feedback available yet.</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    {% endfor %}
+    
     <div style="text-align: center; margin-top: 2rem;">
         <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
     </div>
-    <footer>
-        <!-- Optional footer -->
-    </footer>
+    
+    <script>
+        function showFeedback(assignmentId) {
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('feedback-' + assignmentId).style.display = 'block';
+        }
+        
+        function closeFeedback(assignmentId) {
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('feedback-' + assignmentId).style.display = 'none';
+        }
+        
+        // Close when clicking outside the dialog
+        document.getElementById('overlay').addEventListener('click', function() {
+            const dialogs = document.getElementsByClassName('feedback-dialog');
+            for (let i = 0; i < dialogs.length; i++) {
+                dialogs[i].style.display = 'none';
+            }
+            this.style.display = 'none';
+        });
+    </script>
 </body>
 </html>

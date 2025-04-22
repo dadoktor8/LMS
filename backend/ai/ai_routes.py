@@ -508,21 +508,28 @@ async def submit_assignment(
     
     # Save file
     filename = f"{datetime.utcnow().timestamp()}_{file.filename}"
-    file_location = f"uploads/assignments/{assignment_id}_{filename}"
-    os.makedirs("uploads/assignments", exist_ok=True)
-    with open(f"backend/{file_location}", "wb") as f:
+    file_location = f"uploads/assignments/{assignment_id}_{filename}"  # no leading slash
+    save_path = f"backend/{file_location}"  # actual filesystem path
+
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # Save the file
+    with open(save_path, "wb") as f:
         f.write(await file.read())
+
     
     # Extract and evaluate
     try:
         raw_text = extract_text_from_pdf(f"backend/{file_location}")
-        ai_score = evaluate_assignment_text(raw_text)
+        ai_score, ai_feedback = evaluate_assignment_text(
+            raw_text, 
+            assignment.title, 
+            assignment.description
+        )
     except Exception as e:
         logging.error(f"AI Evaluation failed: {e}")
-        ai_score = None
-    
-    # Debug: Log what we're about to insert
-    logging.info(f"Inserting submission for assignment {assignment_id}, student {student_id}")
+        ai_score, ai_feedback = None, None
     
     # Check if a previous submission exists
     existing_submission = (
@@ -533,37 +540,30 @@ async def submit_assignment(
     
     if existing_submission:
         # If resubmission, update the existing record
-        logging.info(f"Updating existing submission ID: {existing_submission.id}")
         existing_submission.file_path = file_location
         existing_submission.ai_score = ai_score
-        existing_submission.submitted_at = datetime.utcnow()  # Update submission time
+        existing_submission.ai_feedback = ai_feedback
+        existing_submission.submitted_at = datetime.utcnow()
     else:
         # Create new submission
         submission = AssignmentSubmission(
             assignment_id=assignment_id,
             student_id=student_id,
-            file_path=file_location,
+            file_path=save_path,
             ai_score=ai_score,
-            submitted_at=datetime.utcnow()  # Explicitly set submission time
+            ai_feedback=ai_feedback,
+            submitted_at=datetime.utcnow()
         )
         db.add(submission)
     
     db.commit()
     
-    # Debug: Verify the submission was saved
-    verification = (
-        db.query(AssignmentSubmission)
-        .filter_by(assignment_id=assignment_id, student_id=student_id)
-        .first()
-    )
-    
-    if verification:
-        logging.info(f"Verified submission saved: ID={verification.id}, Assignment={verification.assignment_id}")
-    else:
-        logging.error("Failed to save submission!")
-    
     return HTMLResponse(
-        "<div class='toast success'>✅ Submitted! AI Score: {}</div>".format(ai_score or "Pending"),
+        f"""<div class='toast success'>
+                ✅ Submitted! AI Score: {ai_score or "Pending"}
+                <br>
+                <small>{ai_feedback or "AI feedback pending"}</small>
+            </div>""",
         status_code=200
     )
 
@@ -707,15 +707,20 @@ async def export_submissions_to_excel(
 
     submissions = db.query(AssignmentSubmission).filter_by(assignment_id=assignment.id).all()
 
-    data = [{
-        "Student": f"{s.student.f_name} {s.student.l_name}",
-        "Email": s.student.email,
-        "Submitted At": s.submitted_at,
-        "AI Score": s.ai_score,
-        "Teacher Score": s.teacher_score,
-        "Comment": s.comments,
-        "File": s.file_path
-    } for s in submissions]
+    data = []
+    for s in submissions:
+        # Get the latest teacher comment, or join all comments if you prefer
+        latest_comment = s.comments[-1].message if s.comments else ""
+        data.append({
+            "Student": f"{s.student.f_name} {s.student.l_name}",
+            "Email": getattr(s.student, "email", ""),
+            "Submitted At": s.submitted_at,
+            "AI Score": s.ai_score,
+            "AI Feedback": s.ai_feedback,
+            "Teacher Score": s.teacher_score,
+            "Teacher Comment": latest_comment,
+            "File": s.file_path
+        })
 
     df = pd.DataFrame(data)
     path = f"exports/assignment_{assignment_id}_submissions.xlsx"
