@@ -1,211 +1,183 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Assignments for {{ course.title }}</title>
-    <link rel="stylesheet" href="/static/styles.css">
-    <script src="https://unpkg.com/htmx.org@1.9.2"></script>
-    <style>
-        .feedback-dialog {
-            display: none;
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: white;
-            padding: 20px;
-            border-radius: 5px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.25);
-            z-index: 1000;
-            max-width: 80%;
-            max-height: 80%;
-            overflow-y: auto;
-        }
-        .overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 999;
-        }
-        .close-btn {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            cursor: pointer;
-            font-size: 20px;
-        }
-        .feedback-section {
-            margin-bottom: 15px;
-            padding: 10px;
-            border-radius: 5px;
-        }
-        .ai-feedback {
-            background-color: #e6f7ff;
-            border-left: 4px solid #1890ff;
-        }
-        .teacher-feedback {
-            background-color: #f6ffed;
-            border-left: 4px solid #52c41a;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assignments for {{ course.title }} | Intellaica</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.2"></script>
 </head>
-<body>
-    <nav class="container-fluid">
-        <ul>
-            <li><strong>Student Portal</strong></li>
-        </ul>
-        <ul>
-            <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
-        </ul>
-    </nav>
-    <div class="courses-grid">
-        <div class="course-card-table">
-            <h2>📄 Assignments for "{{ course.title }}"</h2>
-            {% if assignments %}
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Title</th>
-                        <th>Description</th>
-                        <th>Deadline</th>
-                        <th>Status</th>
-                        <th>Submitted At</th>
-                        <th>Late?</th>
-                        <th>AI Score</th>
-                        <th>Teacher Score</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for assignment in assignments %}
-                    <tr>
-                        <td>{{ assignment.title }}</td>
-                        <td>{{ assignment.description|truncate(40) }}</td>
-                        <td>{{ assignment.deadline.strftime('%Y-%m-%d %H:%M') if assignment.deadline else '-' }}</td>
-                        <td>
-                            {% if submission_dict.get(assignment.id) %}
-                                <span style="color:green;">Submitted</span>
-                            {% else %}
-                                <span style="color:red;">Not Submitted</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if submission_dict.get(assignment.id) %}
-                                {{ submission_dict[assignment.id].submitted_at.strftime('%Y-%m-%d %H:%M') }}
-                            {% else %}
-                                -
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if submission_dict.get(assignment.id) and assignment.deadline and submission_dict[assignment.id].submitted_at > assignment.deadline %}
-                                <span style="color: orange;">Late</span>
-                            {% elif submission_dict.get(assignment.id) %}
-                                <span style="color: green;">On Time</span>
-                            {% else %}
-                                -
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if submission_dict.get(assignment.id) %}
-                                {{ submission_dict[assignment.id].ai_score if submission_dict[assignment.id].ai_score is not none else "Pending" }}
-                            {% else %}
-                                -
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if submission_dict.get(assignment.id) %}
-                                {{ submission_dict[assignment.id].teacher_score if submission_dict[assignment.id].teacher_score is not none else "Pending" }}
-                            {% else %}
-                                -
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if not submission_dict.get(assignment.id) %}
-                                <a href="/ai/assignments/{{ assignment.id }}/submit" class="btn-primary">Submit</a>
-                            {% else %}
-                                <a href="/{{ submission_dict[assignment.id].file_path }}" target="_blank" title="View your submission">📄</a>
-                                <a href="#" onclick="showFeedback('{{ assignment.id }}')" class="btn-info">View Feedback</a>
-                                <a href="/ai/assignments/{{ assignment.id }}/submit" class="btn-secondary">Resubmit</a>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-                <div style="padding: 1rem;">No assignments yet.</div>
-            {% endif %}
-        </div>
+<body class="bg-gray-100 min-h-screen">
+
+  <nav class="bg-white px-6 py-4 shadow flex justify-between items-center mb-8">
+    <div class="font-bold text-xl text-blue-700">
+      Intellaica
+      <span class="hidden sm:inline text-gray-400 text-lg mx-2">|</span>
+      <span class="hidden md:inline text-gray-700 font-semibold">Student Portal</span>
     </div>
-    
-    <!-- Feedback Dialog Overlays -->
-    <div class="overlay" id="overlay"></div>
-    {% for assignment in assignments %}
-        {% if submission_dict.get(assignment.id) %}
-        <div class="feedback-dialog" id="feedback-{{ assignment.id }}">
-            <span class="close-btn" onclick="closeFeedback('{{ assignment.id }}')">&times;</span>
-            <h3>Feedback for "{{ assignment.title }}"</h3>
-            
-            <!-- AI Feedback Section -->
-            <div class="feedback-section ai-feedback">
-                <h4>AI Assessment (Score: {{ submission_dict[assignment.id].ai_score if submission_dict[assignment.id].ai_score is not none else "Pending" }})</h4>
-                <p>{{ submission_dict[assignment.id].ai_feedback if submission_dict[assignment.id].ai_feedback else "No AI feedback available yet." }}</p>
+    <a href="/auth/logout"
+       class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition flex items-center">
+      🚪 Logout
+    </a>
+  </nav>
+
+  <main class="max-w-5xl mx-auto px-4">
+    <div class="bg-white rounded-xl shadow p-7 border border-gray-100">
+      <h2 class="text-2xl font-bold mb-6 text-blue-700">📄 Assignments for "{{ course.title }}"</h2>
+      {% if assignments %}
+      <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead>
+          <tr class="bg-gray-50">
+            <th class="px-4 py-2">Title</th>
+            <th class="px-4 py-2">Description</th>
+            <th class="px-4 py-2">Deadline</th>
+            <th class="px-4 py-2">Status</th>
+            <th class="px-4 py-2">Submitted At</th>
+            <th class="px-4 py-2">Late?</th>
+            <th class="px-4 py-2">AI Score</th>
+            <th class="px-4 py-2">Teacher Score</th>
+            <th class="px-4 py-2">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for assignment in assignments %}
+          <tr class="border-t">
+            <td class="px-4 py-2 font-semibold text-blue-900">{{ assignment.title }}</td>
+            <td class="px-4 py-2 text-gray-600">{{ assignment.description|truncate(40) }}</td>
+            <td class="px-4 py-2">
+              {{ assignment.deadline.strftime('%Y-%m-%d %H:%M') if assignment.deadline else '-' }}
+            </td>
+            <td class="px-4 py-2">
+              {% if submission_dict.get(assignment.id) %}
+                <span class="text-green-700 font-semibold">Submitted</span>
+              {% else %}
+                <span class="text-red-600 font-semibold">Not Submitted</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-2">
+              {% if submission_dict.get(assignment.id) %}
+                {{ submission_dict[assignment.id].submitted_at.strftime('%Y-%m-%d %H:%M') }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td class="px-4 py-2">
+              {% if submission_dict.get(assignment.id) and assignment.deadline and submission_dict[assignment.id].submitted_at > assignment.deadline %}
+                <span class="text-orange-500 font-semibold">Late</span>
+              {% elif submission_dict.get(assignment.id) %}
+                <span class="text-green-700 font-semibold">On Time</span>
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td class="px-4 py-2">
+              {% if submission_dict.get(assignment.id) %}
+                {{ submission_dict[assignment.id].ai_score if submission_dict[assignment.id].ai_score is not none else "Pending" }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td class="px-4 py-2">
+              {% if submission_dict.get(assignment.id) %}
+                {{ submission_dict[assignment.id].teacher_score if submission_dict[assignment.id].teacher_score is not none else "Pending" }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+            <td class="px-4 py-2 flex gap-2">
+              {% if not submission_dict.get(assignment.id) %}
+                <a href="/ai/assignments/{{ assignment.id }}/submit"
+                   class="inline-block px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium">Submit</a>
+              {% else %}
+                <a href="/{{ submission_dict[assignment.id].file_path }}" target="_blank" title="View your submission"
+                   class="inline-block text-blue-700 text-xl hover:text-blue-900">📄</a>
+                <a href="#" onclick="showFeedback('{{ assignment.id }}');return false;" class="inline-block px-3 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-200 font-medium">View Feedback</a>
+                <a href="/ai/assignments/{{ assignment.id }}/submit"
+                   class="inline-block px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 font-medium">Resubmit</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}
+      <div class="py-8 text-center text-gray-500">No assignments yet.</div>
+      {% endif %}
+    </div>
+  </main>
+
+  <!-- Feedback Dialog Overlays (Tailwind modals) -->
+  <div class="fixed inset-0 bg-black bg-opacity-30 z-40 hidden" id="overlay"></div>
+  {% for assignment in assignments %}
+    {% if submission_dict.get(assignment.id) %}
+    <div id="feedback-{{ assignment.id }}"
+         class="fixed z-50 left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white shadow-xl border border-gray-100 rounded-2xl px-8 py-8 w-full max-w-lg hidden">
+      <button class="absolute top-2 right-3 text-3xl text-gray-400 hover:text-gray-700 focus:outline-none"
+              onclick="closeFeedback('{{ assignment.id }}')" aria-label="Close Modal">&times;</button>
+      <h3 class="text-xl font-bold text-blue-700 mb-4">Feedback for "{{ assignment.title }}"</h3>
+
+      <!-- AI Feedback Section -->
+      <div class="feedback-section mb-4 rounded-lg px-4 py-3 bg-blue-50 border-l-4 border-blue-400">
+        <h4 class="font-semibold text-blue-800 mb-2">AI Assessment (Score: {{ submission_dict[assignment.id].ai_score if submission_dict[assignment.id].ai_score is not none else "Pending" }})</h4>
+        <p class="text-sm text-gray-800">{{ submission_dict[assignment.id].ai_feedback if submission_dict[assignment.id].ai_feedback else "No AI feedback available yet." }}</p>
+      </div>
+
+      <!-- Teacher Feedback Section -->
+      <div class="feedback-section mb-2 rounded-lg px-4 py-3 bg-green-50 border-l-4 border-green-500">
+        <h4 class="font-semibold text-green-800 mb-2">Teacher Assessment (Score: {{ submission_dict[assignment.id].teacher_score if submission_dict[assignment.id].teacher_score is not none else "Pending" }})</h4>
+        {% set teacher_comments = [] %}
+        {% for comment in submission_dict[assignment.id].comments %}
+          {% if not comment.message.startswith('AI Feedback:') %}
+            {% set _ = teacher_comments.append(comment) %}
+          {% endif %}
+        {% endfor %}
+        {% if teacher_comments %}
+          {% for comment in teacher_comments %}
+            <div class="mb-2">
+              <p><span class="font-semibold">{{ comment.user.f_name if comment.user else 'Teacher' }}:</span>
+                <span class="text-gray-700">{{ comment.message }}</span></p>
+              <small class="text-gray-500">{{ comment.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
             </div>
-            
-            <!-- Teacher Feedback Section -->
-            <div class="feedback-section teacher-feedback">
-                <h4>Teacher Assessment (Score: {{ submission_dict[assignment.id].teacher_score if submission_dict[assignment.id].teacher_score is not none else "Pending" }})</h4>
-                {% set teacher_comments = [] %}
-                
-                {% for comment in submission_dict[assignment.id].comments %}
-                    {% if not comment.message.startswith('AI Feedback:') %}
-                        {% set _ = teacher_comments.append(comment) %}
-                    {% endif %}
-                {% endfor %}
-                
-                {% if teacher_comments %}
-                    {% for comment in teacher_comments %}
-                        <div class="comment">
-                            <p><strong>{{ comment.user.f_name if comment.user else 'Teacher' }}:</strong> {{ comment.message }}</p>
-                            <small>{{ comment.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
-                        </div>
-                    {% endfor %}
-                {% else %}
-                    <p>No teacher feedback available yet.</p>
-                {% endif %}
-            </div>
-        </div>
+          {% endfor %}
+        {% else %}
+          <p class="text-gray-700">No teacher feedback available yet.</p>
         {% endif %}
-    {% endfor %}
-    
-    <div style="text-align: center; margin-top: 2rem;">
-        <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
+      </div>
     </div>
-    
-    <script>
-        function showFeedback(assignmentId) {
-            document.getElementById('overlay').style.display = 'block';
-            document.getElementById('feedback-' + assignmentId).style.display = 'block';
-        }
-        
-        function closeFeedback(assignmentId) {
-            document.getElementById('overlay').style.display = 'none';
-            document.getElementById('feedback-' + assignmentId).style.display = 'none';
-        }
-        
-        // Close when clicking outside the dialog
-        document.getElementById('overlay').addEventListener('click', function() {
-            const dialogs = document.getElementsByClassName('feedback-dialog');
-            for (let i = 0; i < dialogs.length; i++) {
-                dialogs[i].style.display = 'none';
-            }
-            this.style.display = 'none';
+    {% endif %}
+  {% endfor %}
+
+  <div class="text-center mt-12">
+    <a href="/auth/student/courses" class="inline-block px-5 py-2 bg-gray-200 text-blue-700 font-semibold rounded-lg hover:bg-gray-300 transition">
+      ⬅ Back to Dashboard
+    </a>
+  </div>
+
+  <script>
+    function showFeedback(assignmentId) {
+      document.getElementById('overlay').classList.remove('hidden');
+      document.getElementById('feedback-' + assignmentId).classList.remove('hidden');
+    }
+    function closeFeedback(assignmentId) {
+      document.getElementById('overlay').classList.add('hidden');
+      document.getElementById('feedback-' + assignmentId).classList.add('hidden');
+    }
+    // Close all dialogs if clicking overlay
+    document.getElementById('overlay').addEventListener('click', function() {
+      document.querySelectorAll('[id^="feedback-"]').forEach(function(dialog) {
+        dialog.classList.add('hidden');
+      });
+      this.classList.add('hidden');
+    });
+    // Optional: ESC to close
+    document.addEventListener('keydown', function(e) {
+      if(e.key === "Escape") {
+        document.getElementById('overlay').classList.add('hidden');
+        document.querySelectorAll('[id^="feedback-"]').forEach(function(dialog) {
+          dialog.classList.add('hidden');
         });
-    </script>
-</body>
-</html>
+      }
+    });
+  </script>

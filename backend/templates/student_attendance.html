@@ -2,61 +2,82 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>📌 Student Attendance</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <title>Student Attendance | Intellaica</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.2"></script>
 </head>
-<body>
-    <nav class="container-fluid">
-        <ul>
-          <li><strong>Student Portal</strong></li>
-        </ul>
-        <ul>
-          <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
-        </ul>
-      </nav>
-  <main class="container">
-    <h2>📘 {{ course.title }} – Attendance</h2>
+<body class="bg-gray-100 min-h-screen">
+  <!-- Navbar -->
+  <nav class="bg-white px-6 py-4 shadow flex justify-between items-center mb-8">
+    <div class="font-bold text-xl text-blue-700">
+      Intellaica
+      <span class="hidden sm:inline text-gray-400 text-lg mx-2">|</span>
+      <span class="hidden md:inline text-gray-700 font-semibold">Student Portal</span>
+    </div>
+    <a href="/auth/logout"
+       class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 flex items-center">
+      🚪 Logout
+    </a>
+  </nav>
 
-    <form 
-      method="post" 
-      action="/auth/courses/{{ course.id }}/submit-attendance" 
+  <main class="max-w-xl mx-auto px-4 py-10">
+    <h2 class="text-2xl font-bold mb-4 text-blue-700 text-center">
+      📘 {{ course.title }} – Attendance
+    </h2>
+
+    <form
+      method="post"
+      action="/auth/courses/{{ course.id }}/submit-attendance"
       hx-post="/auth/courses/{{ course.id }}/submit-attendance"
-      hx-target="#attendance-response" 
+      hx-target="#attendance-response"
       hx-swap="innerHTML"
-      style="margin-top: 1.5rem;"
+      class="flex flex-col sm:flex-row gap-3 items-center justify-center mt-6 bg-white rounded-xl p-6 shadow border border-gray-100"
     >
-      <input type="text" name="code" placeholder="Enter attendance code..." required>
-      <button type="submit">✅ Submit Code</button>
+      <input
+        type="text"
+        name="code"
+        placeholder="Enter attendance code..."
+        required
+        class="w-full sm:w-64 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+      >
+      <button
+        type="submit"
+        class="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition"
+      >✅ Submit Code</button>
     </form>
-    <div id="attendance-response" style="margin-top: 1rem;"></div>
+    <div id="attendance-response" class="mt-4 text-center"></div>
 
-    <h3 style="margin-top: 2rem;">📅 Attendance History</h3>
+    <h3 class="mt-10 text-lg font-semibold text-gray-800 flex items-center gap-2">
+      📅 Attendance History
+    </h3>
     {% if records %}
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Status</th>
-            <th>Code Used</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for record in records %}
-          <tr>
-            <td>{{ record.attended_at.strftime('%Y-%m-%d %H:%M') }}</td>
-            <td>✅ Present</td>
-            <td>{{ record.code_used }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <p>No attendance records found.</p>
-    {% endif %}
-    <div style="text-align: center; margin-top: 2rem;">
-        <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
+      <div class="overflow-x-auto bg-white mt-3 rounded-xl shadow p-4 border border-gray-100">
+        <table class="min-w-full text-sm text-center">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-4 py-2 font-semibold">Date</th>
+              <th class="px-4 py-2 font-semibold">Status</th>
+              <th class="px-4 py-2 font-semibold">Code Used</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for record in records %}
+            <tr class="border-t">
+              <td class="px-4 py-2">{{ record.attended_at.strftime('%Y-%m-%d %H:%M') }}</td>
+              <td class="px-4 py-2 text-green-700 font-bold">✅ Present</td>
+              <td class="px-4 py-2">{{ record.code_used }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
+    {% else %}
+      <p class="text-gray-500 mt-6">No attendance records found.</p>
+    {% endif %}
+    <div class="text-center mt-10">
+      <a href="/auth/student/courses" class="text-blue-700 hover:underline flex items-center gap-1">⬅ Back to Dashboard</a>
+    </div>
   </main>
 </body>
 </html>

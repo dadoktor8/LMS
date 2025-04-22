@@ -3,49 +3,68 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Teacher Dashboard</title>
-  <link rel="stylesheet" href="/static/styles.css">   
+  <title>Intellaica Teacher Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-  <nav class="container-fluid">
-    <ul>
-      <li><strong>Teacher Portal</strong></li>
-    </ul>
-    <ul>
-      <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
-    </ul>
-  </nav>
-  
-  <div class="welcome-container">
-      <h2 class="text-center">Welcome, {{ teacher_name }} 👋</h2>
-      <p>What would you like to do today?</p>
+<body class="bg-gray-100 min-h-screen">
+  <!-- Navbar -->
+  <nav class="bg-white px-6 py-4 shadow flex justify-between items-center">
+    <div class="font-bold text-xl text-blue-700 flex items-center space-x-2">
+      <span>Intellaica</span>
+      <span class="text-gray-400 text-lg hidden sm:inline">|</span>
+      <span class="text-gray-700 hidden md:inline font-semibold">Teacher Portal</span>
     </div>
-    
-    <!-- Course Cards Section -->
-    <h3 class="section-title">📚 Your Created Courses</h3>
-    <div class="courses-grid">
-      <div class="course-card create-course-card">
-        <h4>➕ Create New Course</h4>
-        <p>Start a new course and invite students.</p>
-        <a href="/auth/courses/new" class="card-link">Create</a>
+    <a href="/auth/logout"
+       class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition flex items-center">
+      🚪 Logout
+    </a>
+  </nav>
+
+  <main class="max-w-5xl mx-auto px-4 py-10">
+    <div class="text-center mb-9">
+      <h2 class="text-3xl font-bold text-gray-900">Welcome, {{ teacher_name }} 👋</h2>
+      <p class="mt-2 text-gray-600 text-lg">What would you like to do today?</p>
+    </div>
+
+    <!-- Courses Section -->
+    <h3 class="text-xl font-semibold text-gray-800 mb-3 flex items-center gap-2">
+      <span>📚 Your Created Courses</span>
+      <span class="w-2 h-2 bg-blue-600 rounded-full inline-block"></span>
+    </h3>
+
+    <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+      <!-- Create Course Card -->
+      <div class="flex flex-col p-6 bg-white rounded-xl shadow border border-transparent hover:border-blue-500 transition">
+        <h4 class="text-lg font-semibold mb-1">➕ Create New Course</h4>
+        <p class="text-gray-500 mb-3">Start a new course and invite students.</p>
+        <a href="/auth/courses/new"
+           class="inline-block mt-auto px-4 py-2 text-white bg-blue-600 font-medium rounded-lg hover:bg-blue-700 transition text-center"
+        >Create</a>
       </div>
+      <!-- Courses Cards -->
       {% for course in courses %}
-      <div class="course-card">
-        <h4>{{ course.title }}</h4>
-        <p>{{ course.description }}</p>
-        
-        <a href="/auth/courses/{{ course.id }}/enroll" class="card-link">👥 Enroll Students</a>
-        <a href="/auth/courses/{{ course.id }}/attendance" class="card-link">📝 Mark/View Attendance</a>
-        <a href="/ai/teacher/{{course.id}}/assignments" class="card-link">✏️ Manage Assignments</a>
-        <a href="/ai/courses/{{course.id}}/upload_materials" class="card-link">📤 Upload Materials</a>
-        <a href="/auth/courses/{{ course.id }}/invite-ta" class="card-link">🎓 Invite TA</a>
+      <div class="flex flex-col p-6 bg-white rounded-xl shadow border border-gray-100 hover:border-blue-500 transition">
+        <h4 class="text-lg font-semibold mb-1 break-words">{{ course.title }}</h4>
+        <p class="text-gray-500 mb-4 break-words">{{ course.description }}</p>
+        <div class="flex flex-col gap-2 mt-auto">
+          <a href="/auth/courses/{{ course.id }}/enroll"
+             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">👥 Enroll Students</a>
+          <a href="/auth/courses/{{ course.id }}/attendance"
+             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">📝 Mark/View Attendance</a>
+          <a href="/ai/teacher/{{course.id}}/assignments"
+             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">✏️ Manage Assignments</a>
+          <a href="/ai/courses/{{course.id}}/upload_materials"
+             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">📤 Upload Materials</a>
+          <a href="/auth/courses/{{ course.id }}/invite-ta"
+             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">🎓 Invite TA</a>
+        </div>
       </div>
       {% endfor %}
     </div>
 
-
-    <div class="footer-text">
-      <p>✨ Built with ❤️ for dedicated teachers</p>
+    <div class="mt-12 text-center text-gray-400 text-sm">
+      ✨ Built with <span class="text-pink-500">❤️</span> for dedicated teachers — Intellaica
     </div>
+  </main>
 </body>
 </html>

@@ -1,27 +1,46 @@
-{% extends "base.html" %}
-{% block content %}
-<h2>Create your account</h2>
-
-<form id="signup-form"
-      hx-post="/auth/signup-form"
-      hx-target="#signup-result"
-      hx-swap="innerHTML"
-      onsubmit="this.querySelector('button').disabled = true;">
-  
-  <input name="f_name" type="f_name" placeholder="First Name" required>
-  <input name="l_name" type="l_name" placeholder="Last Name">
-  <input name="email" type="email" placeholder="Email" required>
-  <input name="password" type="password" placeholder="Password" required>
-  <select name="role" required>
-    <option value="" disabled selected>Select role</option>
-    <option value="student">Student</option>
-    <option value="admin">Admin</option>
-    <option value="teacher">Teacher</option>
-  </select>
-  
-  <button type="submit">Sign Up</button>
-</form>
-
-<div id="signup-result" class="response-message"></div>
-<p class="switch-link">Already have an account? <a href="/">Log in</a></p>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sign Up Intellaica</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+  <div class="w-full max-w-md mx-auto bg-white shadow-md rounded-xl py-8 px-6 border border-gray-200">
+    <h2 class="text-2xl font-bold mb-6 text-gray-800 text-center">Create your account</h2>
+    <form id="signup-form"
+          hx-post="/auth/signup-form"
+          hx-target="#signup-result"
+          hx-swap="innerHTML"
+          onsubmit="this.querySelector('button').disabled = true;"
+          class="space-y-4"
+    >
+      <input name="f_name" type="text" placeholder="First Name" required
+        class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      <input name="l_name" type="text" placeholder="Last Name"
+        class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      <input name="email" type="email" placeholder="Email" required
+        class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      <input name="password" type="password" placeholder="Password" required
+        class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+      <select name="role" required
+        class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <option value="" disabled selected>Select role</option>
+        <option value="student">Student</option>
+        <option value="admin">Admin</option>
+        <option value="teacher">Teacher</option>
+      </select>
+      <button type="submit"
+        class="w-full py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition"
+      >Sign Up</button>
+    </form>
+    <div id="signup-result" class="mt-3"></div>
+    <p class="text-center text-sm mt-4 text-gray-700">
+      Already have an account?
+      <a href="/" class="text-blue-600 hover:underline">Log in</a>
+    </p>
+  </div>
+</body>
+</html>

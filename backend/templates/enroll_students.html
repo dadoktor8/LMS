@@ -1,56 +1,86 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Enroll Students</title>
-    <link rel="stylesheet" href="/static/styles.css">
-    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+  <meta charset="UTF-8">
+  <title>Enroll Students | Intellaica</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
 </head>
-<body>
-    <nav class="container-fluid">
-        <ul>
-          <li><strong>Teacher Portal</strong></li>
-        </ul>
-        <ul>
-          <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
-        </ul>
-      </nav>
-    <main class="container">
-        <h2>👥 Enroll Students to <strong>{{ course.title }}</strong></h2>
+<body class="bg-gray-100 min-h-screen">
+  <!-- Navbar -->
+  <nav class="bg-white px-6 py-4 shadow flex justify-between items-center mb-8">
+    <div class="font-bold text-xl text-blue-700 flex items-center space-x-2">
+      <span>Intellaica</span>
+      <span class="text-gray-400 text-lg hidden sm:inline">|</span>
+      <span class="text-gray-700 hidden md:inline font-semibold">Teacher Portal</span>
+    </div>
+    <a href="/auth/logout"
+       class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition flex items-center">
+      🚪 Logout
+    </a>
+  </nav>
 
-        <!-- Individual Student Invite Form -->
-        <section class="card">
-            <form hx-post="/auth/courses/{{ course.id }}/invite-student" hx-target="#invite-status" hx-swap="innerHTML">
-                <label for="student_email">Student Email:</label>
-                <input type="email" name="email" id="student_email" required>
-                <button type="submit">Invite Student</button>
-            </form>
-            <div id="invite-status" style="margin-top: 1rem;"></div>
-        </section>
+  <main class="max-w-xl mx-auto bg-white shadow-md rounded-xl px-8 py-8 border border-gray-100">
+    <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">
+      👥 Enroll Students to <span class="text-blue-600">{{ course.title }}</span>
+    </h2>
 
-        <hr>
+    <!-- Individual Student Invite Form -->
+    <section class="bg-gray-50 rounded-lg p-6 mb-8 border border-gray-200 shadow-sm">
+      <h3 class="text-lg font-semibold mb-3 text-gray-800">Invite Individual Student</h3>
+      <form
+        hx-post="/auth/courses/{{ course.id }}/invite-student"
+        hx-target="#invite-status"
+        hx-swap="innerHTML"
+        class="flex flex-col sm:flex-row gap-2 sm:gap-4 items-start"
+      >
+        <input
+          type="email"
+          name="email"
+          id="student_email"
+          required
+          placeholder="Student Email"
+          class="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+        <button type="submit"
+          class="py-2 px-5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
+        >Invite Student</button>
+      </form>
+      <div id="invite-status" class="mt-3"></div>
+    </section>
 
-        <!-- Excel Upload Form -->
-        <section class="card">
-        <form 
+    <!-- Excel Upload Form -->
+    <section class="bg-gray-50 rounded-lg p-6 border border-gray-200 shadow-sm">
+      <h3 class="text-lg font-semibold mb-3 text-gray-800">Bulk Upload via Excel</h3>
+      <form
         hx-post="/auth/courses/{{ course.id }}/upload-students"
         enctype="multipart/form-data"
         hx-target="#invite-status"
         hx-swap="innerHTML"
-        >
-        <input type="file" name="file" accept=".xlsx" required />
-        <button type="submit">📤 Upload Students</button>
-        </form>
-        <div id="invite-status" style="margin-top: 1rem;"></div>
-        </section>
-        <div style="text-align: center; margin-top: 2rem;">
-          {% if role == "teacher" %}
-            <a href="/auth/teacher/dashboard" class="btn-secondary">⬅ Back to Dashboard</a>
-          {% else %}
-            <a href="/auth/student/courses" class="btn-secondary">⬅ Back to Dashboard</a>
-          {% endif %}
-        </div>
-        
-    </main>
+        class="flex flex-col sm:flex-row gap-2 sm:gap-4 items-start"
+      >
+        <input
+          type="file"
+          name="file"
+          accept=".xlsx"
+          required
+          class="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button type="submit"
+          class="py-2 px-5 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition"
+        >📤 Upload Students</button>
+      </form>
+      <div id="invite-status" class="mt-3"></div>
+    </section>
+
+    <div class="text-center mt-8">
+      {% if role == "teacher" %}
+        <a href="/auth/teacher/dashboard" class="text-blue-700 hover:underline inline-flex items-center gap-1">⬅ Back to Dashboard</a>
+      {% else %}
+        <a href="/auth/student/courses" class="text-blue-700 hover:underline inline-flex items-center gap-1">⬅ Back to Dashboard</a>
+      {% endif %}
+    </div>
+  </main>
 </body>
 </html>

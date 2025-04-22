@@ -2,49 +2,62 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Submit Assignment</title>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <title>Submit Assignment | Intellaica</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.2"></script>
 </head>
-<body>
-  <nav class="container-fluid">
-    <ul>
-      <li><strong>Student Portal</strong></li>
-    </ul>
-    <ul>
-      <li><a href="/auth/logout" role="button" class="secondary">🚪 Logout</a></li>
-    </ul>
+<body class="bg-gray-100 min-h-screen">
+  <!-- Navbar -->
+  <nav class="bg-white px-6 py-4 shadow flex justify-between items-center mb-10">
+    <div class="font-bold text-xl text-blue-700">
+      Intellaica
+      <span class="hidden sm:inline text-gray-400 mx-2">|</span>
+      <span class="hidden md:inline text-gray-700 font-semibold">Student Portal</span>
+    </div>
+    <a href="/auth/logout"
+       class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition flex items-center">
+      🚪 Logout
+    </a>
   </nav>
-  <main class="courses-grid">
-    <div class="course-card" style="max-width: 600px; margin: auto;">
-      <h2>📤 Submit Assignment</h2>
 
-      <div style="margin-bottom: 1rem;">
-        <p><strong>📝 Title:</strong> {{ assignment.title }}</p>
-        <p><strong>📄 Description:</strong> {{ assignment.description }}</p>
-        <p><strong>⏳ Deadline:</strong> {{ assignment.deadline.strftime('%Y-%m-%d %H:%M') }}</p>
+  <main class="flex items-center justify-center min-h-[60vh]">
+    <div class="w-full max-w-lg mx-auto bg-white shadow rounded-2xl py-8 px-8 border border-gray-100">
+      <h2 class="text-2xl font-bold mb-6 text-gray-800 text-center">📤 Submit Assignment</h2>
+      <div class="mb-6 text-base">
+        <p><strong>📝 Title:</strong> <span class="text-blue-900">{{ assignment.title }}</span></p>
+        <p><strong>📄 Description:</strong> <span class="text-gray-700">{{ assignment.description }}</span></p>
+        <p><strong>⏳ Deadline:</strong> <span class="text-red-700">{{ assignment.deadline.strftime('%Y-%m-%d %H:%M') }}</span></p>
       </div>
-
-      <form 
-        method="post" 
-        enctype="multipart/form-data" 
-        hx-post="{{ request.url.path }}" 
-        hx-target="#toast" 
+      <form
+        method="post"
+        enctype="multipart/form-data"
+        hx-post="{{ request.url.path }}"
+        hx-target="#toast"
         hx-swap="innerHTML"
+        class="flex flex-col gap-5"
       >
-        <label for="file">📎 Upload your work</label>
-        <input type="file" name="file" id="file" required />
-
-        <button type="submit" class="btn-secondary" style="margin-top: 1rem;">Submit</button>
+        <label for="file" class="font-semibold text-gray-700 leading-tight">📎 Upload your work</label>
+        <input
+          type="file"
+          name="file"
+          id="file"
+          required
+          class="block w-full text-sm px-3 py-2 rounded-lg bg-gray-50 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          type="submit"
+          class="w-full mt-1 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-lg"
+        >Submit</button>
       </form>
-
-      <div style="margin-top: 2rem; text-align: center;">
-        <a href="/ai/student/courses/{{ assignment.course_id }}/assignments" class="btn-primary">
+      <div class="mt-8 text-center">
+        <a href="/ai/student/courses/{{ assignment.course_id }}/assignments"
+           class="inline-block text-blue-700 bg-blue-50 px-5 py-2 rounded-lg font-medium hover:bg-blue-100 transition">
           ⬅ Back to Assignments
         </a>
       </div>
     </div>
   </main>
-  <div id="toast" style="margin-top: 1rem;"></div>
+  <div id="toast" class="mt-6"></div>
 </body>
 </html>

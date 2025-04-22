@@ -465,162 +465,193 @@ def log_generation_event(student_id: str, course_id: int, material_type: str, qu
     except Exception as e:
         print(f"Error logging generation event: {e}")
 
-
 def render_flashcards_htmx(materials_json):
-    """Render flashcards in HTMX format"""
+    """Render responsive, animated, Tailwind-styled flashcards in HTMX format with all content INSIDE the card."""
     try:
         materials = json.loads(materials_json)
-        html = '<div class="flashcards-container">'
-        
+        html = '''
+        <div class="flex flex-wrap justify-center gap-6 mb-8">
+        '''
         for i, card in enumerate(materials):
             html += f'''
-            <div class="flashcard" id="card-{i}">
-                <div class="flashcard-inner">
-                    <div class="flashcard-front">
-                        <h3>{card["question"]}</h3>
-                        <div class="flashcard-footer">
-                            <button onclick="flipCard({i})">Show Answer</button>
-                        </div>
+              <div class="relative w-80 h-60 perspective" id="card-{i}">
+                <div class="flashcard-inner w-full h-full" id="inner-{i}">
+                  <!-- Front -->
+                  <div class="flashcard-front absolute inset-0 bg-white border border-blue-200 shadow-xl rounded-2xl flex flex-col h-full justify-between items-center px-6 py-4 [backface-visibility:hidden]">
+                    <div class="w-full flex-1 flex flex-col justify-center items-center">
+                      <h3 class="text-xl font-bold text-blue-800 text-center">{card["question"]}</h3>
                     </div>
-                    <div class="flashcard-back">
-                        <div class="answer">{card["answer"]}</div>
-                        <div class="tags">
-                            {" ".join([f'<span class="tag">{tag}</span>' for tag in card["tags"]])}
-                        </div>
-                        <div class="flashcard-footer">
-                            <button onclick="flipCard({i})">Show Question</button>
-                        </div>
+                    <div class="pt-2 w-full flex justify-center">
+                      <button type="button"
+                        onclick="flipCard({i})"
+                        class="px-4 py-1 rounded-lg bg-blue-50 text-blue-700 font-semibold hover:bg-blue-200 transition text-sm">
+                        Show Answer
+                      </button>
                     </div>
+                  </div>
+                  <!-- Back -->
+                  <div class="flashcard-back absolute inset-0 bg-blue-50 border border-blue-200 shadow-xl rounded-2xl flex flex-col h-full justify-between items-center px-6 py-4 [backface-visibility:hidden]" style="transform: rotateY(180deg);">
+                    <div class="w-full flex-1 flex flex-col justify-center items-center">
+                      <div class="text-lg font-semibold text-green-800 text-center">{card["answer"]}</div>
+                      <div class="mb-2 flex flex-wrap justify-center gap-2">
+                        {''.join([f'<span class="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded">{tag}</span>' for tag in card.get("tags", [])])}
+                      </div>
+                    </div>
+                    <div class="pt-2 w-full flex justify-center">
+                      <button type="button"
+                        onclick="flipCard({i})"
+                        class="px-4 py-1 rounded-lg bg-blue-100 text-blue-700 font-semibold hover:bg-blue-200 transition text-sm">
+                        Show Question
+                      </button>
+                    </div>
+                  </div>
                 </div>
-            </div>
+              </div>
             '''
-        
         html += '''
         </div>
         <script>
         function flipCard(index) {
-            const card = document.getElementById(`card-${index}`);
-            card.querySelector('.flashcard-inner').classList.toggle('flipped');
+          const inner = document.getElementById(`inner-${index}`);
+          inner.classList.toggle('flipped');
+        }
+        </script>
+        <style>
+        .perspective { perspective: 1200px; }
+        .flashcard-inner {
+          position: relative;
+          width: 100%;
+          height: 100%;
+          transition: transform 0.5s;
+          transform-style: preserve-3d;
+        }
+        .flashcard-front, .flashcard-back {
+          backface-visibility: hidden;
+          width: 100%;
+          height: 100%;
+          position: absolute;
+          top: 0; left: 0;
+        }
+        .flashcard-back {
+          transform: rotateY(180deg);
+        }
+        .flashcard-inner.flipped {
+          transform: rotateY(180deg);
+        }
+        </style>
+        '''
+        return html
+    except Exception as e:
+        return f"<div class='text-red-600 font-bold'>Error rendering flashcards: {str(e)}</div>"
+
+def render_quiz_htmx(materials_json):
+    """Render quiz in HTMX format with Tailwind CSS classes"""
+    try:
+        materials = json.loads(materials_json)
+        html = f'''
+        <div class="max-w-2xl mx-auto">
+          <h2 class="text-2xl font-bold text-blue-800 mb-2">{materials["title"]}</h2>
+          <p class="text-gray-700 mb-8 text-lg">{materials["description"]}</p>
+          <form id="quiz-form" class="space-y-8">
+        '''
+        for i, question in enumerate(materials["questions"]):
+            html += f'''
+            <div class="mb-8 p-5 rounded-xl bg-gray-50 border border-gray-200 shadow">
+              <h3 class="text-lg mb-4 font-semibold text-gray-800">Question {i+1}: {question["question"]}</h3>
+              <div class="flex flex-col gap-3">
+            '''
+            for j, option in enumerate(question["options"]):
+                html += f'''
+                <label class="flex items-center gap-3 cursor-pointer text-gray-700 text-base">
+                  <input type="radio"
+                         id="q{i}-o{j}"
+                         name="q{i}"
+                         value="{j}"
+                         class="form-radio h-4 w-4 text-blue-600 transition"
+                  >
+                  {option}
+                </label>
+                '''
+            html += f'''
+              </div>
+              <div class="explanation hidden mt-4 rounded-lg px-4 py-3 text-base" id="explanation-{i}"></div>
+            </div>
+            '''
+        html += '''
+          <div class="flex justify-center pt-2">
+            <button type="button"
+              onclick="checkAnswers()"
+              class="py-3 px-8 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-lg"
+            >
+              Check Answers
+            </button>
+          </div>
+          </form>
+        </div>
+        <script>
+        function checkAnswers() {
+          const quizData = JSON.parse(`''' + materials_json.replace('`', '\\`') + '''`);
+          let score = 0;
+          quizData.questions.forEach((question, i) => {
+            const selectedOption = document.querySelector(`input[name="q${i}"]:checked`);
+            const explanationDiv = document.getElementById(`explanation-${i}`);
+            if (!selectedOption) {
+              explanationDiv.innerHTML = "Please select an answer";
+              explanationDiv.className = "explanation warning mt-4 bg-yellow-100 border border-yellow-300 text-yellow-900";
+              explanationDiv.classList.remove("hidden");
+              return;
+            }
+            const selectedIndex = parseInt(selectedOption.value);
+            if (selectedIndex === question.correct_answer_index) {
+              score++;
+              explanationDiv.innerHTML = "✅ <b>Correct!</b> " + question.explanation;
+              explanationDiv.className = "explanation correct mt-4 bg-green-100 border border-green-300 text-green-900";
+            } else {
+              explanationDiv.innerHTML = "❌ <b>Incorrect.</b> " + question.explanation;
+              explanationDiv.className = "explanation incorrect mt-4 bg-red-100 border border-red-300 text-red-900";
+            }
+            explanationDiv.classList.remove("hidden");
+          });
+          // Remove previous score if any
+          document.querySelectorAll('.quiz-score').forEach(div=>div.remove());
+          // Show score at the end of the form
+          const scoreDiv = document.createElement("div");
+          scoreDiv.className = "quiz-score mt-6 py-4 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-center text-lg font-bold";
+          scoreDiv.innerHTML = `Your score: <span class='text-blue-700 font-extrabold'>${score}</span> / <span class="text-blue-700">${quizData.questions.length}</span>`;
+          document.getElementById('quiz-form').appendChild(scoreDiv);
         }
         </script>
         '''
         return html
     except Exception as e:
-        return f"<div>Error rendering flashcards: {str(e)}</div>"
-
-def render_quiz_htmx(materials_json):
-    """Render quiz in HTMX format"""
-    try:
-        materials = json.loads(materials_json)
-        html = f'''
-        <div class="quiz-container">
-            <h2>{materials["title"]}</h2>
-            <p class="quiz-description">{materials["description"]}</p>
-            
-            <form id="quiz-form">
-        '''
-        
-        for i, question in enumerate(materials["questions"]):
-            html += f'''
-            <div class="quiz-question" id="question-{i}">
-                <h3>Question {i+1}: {question["question"]}</h3>
-                <div class="options">
-            '''
-            
-            for j, option in enumerate(question["options"]):
-                html += f'''
-                <div class="option">
-                    <input type="radio" id="q{i}-o{j}" name="q{i}" value="{j}">
-                    <label for="q{i}-o{j}">{option}</label>
-                </div>
-                '''
-            
-            html += f'''
-                </div>
-                <div class="explanation hidden" id="explanation-{i}"></div>
-            </div>
-            '''
-        
-        html += f"""
-    <div class="quiz-controls">
-        <button type="button" onclick="checkAnswers()">Check Answers</button>
-    </div>
-    </form>
-</div>
-<script>
-function checkAnswers() {{
-    const quizData = JSON.parse(`{materials_json.replace('`', '\\`')}`);
-    let score = 0;
-
-    quizData.questions.forEach((question, i) => {{
-        const selectedOption = document.querySelector(`input[name="q${{i}}"]:checked`);
-        const explanationDiv = document.getElementById(`explanation-${{i}}`);
-
-        if (!selectedOption) {{
-            explanationDiv.innerHTML = "Please select an answer";
-            explanationDiv.className = "explanation warning";
-            return;
-        }}
-
-        const selectedIndex = parseInt(selectedOption.value);
-
-        if (selectedIndex === question.correct_answer_index) {{
-            score++;
-            explanationDiv.innerHTML = "Correct! " + question.explanation;
-            explanationDiv.className = "explanation correct";
-        }} else {{
-            explanationDiv.innerHTML = "Incorrect. " + question.explanation;
-            explanationDiv.className = "explanation incorrect";
-        }}
-
-        explanationDiv.classList.remove("hidden");
-    }});
-
-    const scoreDiv = document.createElement("div");
-    scoreDiv.className = "quiz-score";
-    scoreDiv.innerHTML = `Your score: ${{score}}/${{quizData.questions.length}}`;
-
-    const quizControls = document.querySelector(".quiz-controls");
-    quizControls.appendChild(scoreDiv);
-}}
-</script>
-"""
-
-        
-        return html
-    except Exception as e:
-        return f"<div>Error rendering quiz: {str(e)}</div>"
+        return f"<div class='text-red-600 font-bold'>Error rendering quiz: {str(e)}</div>"
 
 def render_study_guide_htmx(materials_json):
-    """Render study guide in HTMX format using new point-based structure"""
+    """Render study guide HTML (Tailwind-friendly) ready for drop-in into your studyguide.html template."""
     try:
         materials = json.loads(materials_json)
         html = f'''
-        <div class="study-guide-container">
-            <h2>{materials["title"]}</h2>
-            
-            <div class="toc">
-                <h3>📘 Table of Contents</h3>
-                <ul>
+        <div>
+            <h2 class="text-2xl font-bold text-blue-800 mb-6">{materials["title"]}</h2>
+            <!-- Table of Contents -->
+            <div class="mb-8">
+                <h3 class="text-lg font-semibold mb-3 flex items-center gap-2">📘 Table of Contents</h3>
+                <ul class="list-disc pl-6 space-y-1">
         '''
-
         # Table of Contents
         for i, section in enumerate(materials["sections"]):
-            html += f'<li><a href="#section-{i}">{section["heading"]}</a></li>'
-
+            html += f'<li><a href="#section-{i}" class="text-blue-600 hover:underline">{section["heading"]}</a></li>'
         html += '''
                 </ul>
             </div>
-            
-            <div class="study-guide-content">
+            <!-- Study Guide Content -->
+            <div>
         '''
-
-        # Render Sections
         for i, section in enumerate(materials["sections"]):
             html += f'''
-            <div class="study-guide-section" id="section-{i}">
-                <h3>{section["heading"]}</h3>
-                <ul class="section-points">
+            <div class="mb-8" id="section-{i}">
+                <h3 class="text-xl font-semibold text-gray-800 mb-2">{section["heading"]}</h3>
+                <ul class="list-inside list-disc text-base space-y-2 pl-4">
             '''
             for point in section["points"]:
                 html += f'<li>{point}</li>'
@@ -628,22 +659,20 @@ def render_study_guide_htmx(materials_json):
                 </ul>
             </div>
             '''
-
         # Summary Section
         html += f'''
-            <div class="study-guide-summary">
-                <h3>📝 Summary</h3>
-                <p>{materials["summary"]}</p>
+            <div class="mt-10">
+                <h3 class="text-xl font-semibold mb-2 flex items-center gap-2">📝 Summary</h3>
+                <p class="text-base text-gray-700">{materials["summary"]}</p>
+            </div>
+            </div>
+            <div class="flex justify-center mt-8">
+                <button onclick="window.print()" class="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition flex items-center gap-2 text-lg">
+                    🖨️ Print Study Guide
+                </button>
             </div>
         </div>
-
-        <div class="study-guide-controls" style="text-align: center; margin-top: 1.5rem;">
-            <button onclick="window.print()" class="btn">🖨️ Print Study Guide</button>
-        </div>
         '''
-
         return html
-
     except Exception as e:
-        return f"<div>Error rendering study guide: {str(e)}</div>"
-
+        return f"<div class='text-red-600 font-bold'>Error rendering study guide: {str(e)}</div>"

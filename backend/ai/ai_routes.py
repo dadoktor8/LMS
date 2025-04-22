@@ -135,8 +135,12 @@ async def ask_tutor(
         history.add_ai_message(answer)
 
         return HTMLResponse(content=f"""
-            <div class="chat-bubble student">🧑‍🎓 {safe_query}</div>
-            <div class="chat-bubble ai">💡 {answer}</div>
+        <div class="chat-bubble bg-blue-600 text-white px-6 py-4 rounded-2xl self-end max-w-2xl ml-auto shadow text-lg font-semibold whitespace-pre-line">
+            🧑‍🎓 {safe_query}
+        </div>
+        <div class="chat-bubble bg-indigo-50 border border-indigo-200 text-indigo-900 px-6 py-4 rounded-2xl self-start max-w-2xl shadow text-lg font-medium leading-relaxed whitespace-pre-line">
+            💡 {answer}
+        </div>
         """, status_code=200)
         
     except HTTPException as e:
