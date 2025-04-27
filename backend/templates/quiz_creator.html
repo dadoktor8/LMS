@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz Creator | Intellaica</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.6.1"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <input id="sidebar-toggle" type="checkbox" class="hidden peer" />
+
+  <!-- Sidebar (fixed to the left, slides over, X to close) -->
+  <aside class="fixed top-0 left-0 h-full w-64 z-40 bg-white border-r border-gray-100 shadow-lg
+              transform transition-transform duration-200
+              -translate-x-full peer-checked:translate-x-0">
+    <div class="px-6 pt-6 pb-2 flex items-center justify-between border-b">
+      <span class="font-bold text-blue-700 text-lg">Intellaica LMS</span>
+      <label for="sidebar-toggle" class="block cursor-pointer ml-3">
+        <svg class="w-6 h-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </label>
+    </div>
+    <!-- Sidebar nav (same as in quiz.html) -->
+    <nav class="mt-2">
+      <!-- Same sidebar navigation as in quiz.html -->
+    </nav>
+    <div class="mt-12 text-xs text-gray-400 px-6 text-center">✨ Teacher Tools</div>
+  </aside>
+
+  <!-- Main content wrapper, shifts right -->
+  <div class="transition-all duration-200 ml-0 peer-checked:ml-64">
+
+    <!-- Navbar (hamburger is left, then logo/title, then nav items right) -->
+    <nav class="bg-white px-6 py-4 shadow flex flex-row items-center gap-3">
+      <!-- Hamburger: always inline, hides when sidebar is open -->
+      <label for="sidebar-toggle" class="block cursor-pointer z-50 peer-checked:hidden">
+        <svg class="w-7 h-7 text-blue-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </label>
+
+      <!-- Logo/title left -->
+      <div class="font-bold text-xl text-blue-700 flex items-center">
+        Intellaica
+        <span class="hidden sm:inline text-gray-400 text-lg mx-2">|</span>
+        <span class="hidden md:inline text-gray-700 font-semibold">Teacher Portal</span>
+      </div>
+
+      <!-- Nav items right -->
+      <ul class="flex gap-6 items-center text-base ml-auto">
+        <!-- Same nav items as in quiz.html -->
+        <li><a href="/auth/logout" class="text-red-600 hover:underline">Logout</a></li>
+      </ul>
+    </nav>
+
+  <main class="max-w-2xl mx-auto px-4 py-10">
+    <h1 class="text-3xl font-bold text-blue-700 mb-4 text-center">📝 Quiz Creator</h1>
+    <div class="bg-white rounded-xl shadow p-8 border border-gray-100 mb-8">
+      <form action="/ai/courses/{{course_id}}/quiz/generate" method="post" class="flex flex-col gap-5">
+        <label for="topic" class="font-semibold text-gray-800 text-lg">
+          🧪 What topic should the quiz cover?
+        </label>
+        <input type="text"
+               id="topic"
+               name="topic"
+               placeholder="Enter a topic or concept from your course"
+               required
+               value="{{ topic }}"
+               class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+        >
+        
+        <div class="mt-3">
+          <label class="font-semibold text-gray-800 text-lg">
+            📊 Question Types
+          </label>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer">
+              <input type="checkbox" name="question_types" value="mcq" checked 
+                class="form-checkbox h-5 w-5 text-blue-600" 
+              >
+              <span class="text-gray-800">Multiple Choice (Single Answer)</span>
+            </label>
+            
+            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer">
+              <input type="checkbox" name="question_types" value="msq" 
+                class="form-checkbox h-5 w-5 text-blue-600" 
+              >
+              <span class="text-gray-800">Multiple Select (Multiple Answers)</span>
+            </label>
+            
+            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer">
+              <input type="checkbox" name="question_types" value="short_answer" 
+                class="form-checkbox h-5 w-5 text-blue-600" 
+              >
+              <span class="text-gray-800">Short Answer Questions</span>
+            </label>
+            
+            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer">
+              <input type="checkbox" name="question_types" value="essay" 
+                class="form-checkbox h-5 w-5 text-blue-600" 
+              >
+              <span class="text-gray-800">Essay Questions</span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="mt-2">
+          <label for="num_questions" class="font-semibold text-gray-800 text-lg">
+            🔢 Number of Questions
+          </label>
+          <input type="number"
+                 id="num_questions"
+                 name="num_questions"
+                 min="1"
+                 max="20"
+                 value="{{ num_questions }}"
+                 class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base w-full mt-2"
+          >
+        </div>
+        
+        <input type="hidden" name="course_id" id="course-id" value="{{ course_id }}">
+        <input type="hidden" name="teacher_id" id="teacher-id" value="{{ teacher_id }}">
+        
+        <button
+          type="submit"
+          class="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-lg"
+        >Generate Quiz</button>
+      </form>
+      <div id="loading" class="mt-5 hidden text-center">
+        <div class="inline-flex items-center gap-2 px-3 py-2 rounded bg-blue-100 text-blue-700 font-medium shadow animate-pulse">
+          <svg class="w-4 h-4 animate-spin mr-2" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+          Generating quiz...
+        </div>
+      </div>
+    </div>
+
+    <div id="materials-output" class="bg-white rounded-xl shadow p-7 border border-gray-100 mb-8">
+      {% if study_material_html %}
+        <div class="prose lg:prose-lg max-w-none">
+          {{ study_material_html | safe }}
+        </div>
+      {% else %}
+        <div class="text-center py-8 text-gray-600">
+          <h3 class="text-xl font-semibold mb-2">Create a quiz to get started</h3>
+          <p>AI will generate a customized quiz based on your specifications.</p>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="flex flex-col sm:flex-row gap-4 items-center justify-center mt-8">
+      <a href="/auth/teacher/courses"
+         class="px-5 py-2 bg-gray-200 text-blue-700 font-semibold rounded-lg hover:bg-gray-300 transition">
+        ⬅ Back to Teacher Dashboard
+      </a>
+    </div>
+  </main>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Get or create teacher ID from localStorage or session
+      let teacherId = localStorage.getItem('teacher_id');
+      if (!teacherId) {
+        teacherId = 'teacher_' + Math.random().toString(36).substring(2, 12);
+        localStorage.setItem('teacher_id', teacherId);
+      }
+      document.getElementById('teacher-id').value = teacherId;
+
+      // Hide loading indicator initially
+      document.getElementById('loading').style.display = 'none';
+
+      // Get URL parameters
+      const urlParams = new URLSearchParams(window.location.search);
+      const topicParam = urlParams.get('topic');
+      if (topicParam && !document.getElementById('topic').value) {
+        document.getElementById('topic').value = decodeURIComponent(topicParam);
+      }
+      
+      // Form validation
+      document.querySelector('form').addEventListener('submit', function(e) {
+        const checkboxes = document.querySelectorAll('input[name="question_types"]:checked');
+        if (checkboxes.length === 0) {
+          e.preventDefault();
+          alert("Please select at least one question type.");
+          return false;
+        }
+        return true;
+      });
+    });
+
+    // Show/hide loading indicator
+    htmx.on('htmx:beforeRequest', function(event) {
+      document.getElementById('loading').classList.remove('hidden');
+    });
+    htmx.on('htmx:afterRequest', function(event) {
+      document.getElementById('loading').classList.add('hidden');
+    });
+  </script>
+</body>
+</html>

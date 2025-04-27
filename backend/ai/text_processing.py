@@ -329,8 +329,8 @@ def detect_study_request(query: str) -> tuple[bool, Optional[str], Optional[str]
     material_type = None
     if "flashcard" in query_lower or "flash card" in query_lower:
         material_type = "flashcards"
-    elif "quiz" in query_lower or "test" in query_lower or "assess" in query_lower:
-        material_type = "quiz"
+    #elif "quiz" in query_lower or "test" in query_lower or "assess" in query_lower:
+        #material_type = "quiz"
     elif "study guide" in query_lower or "notes" in query_lower or "summary" in query_lower:
         material_type = "study_guide"
     
@@ -387,8 +387,8 @@ def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id:
         # Redirect to specific study material page based on type
         if material_type == "flashcards":
             study_url = f"/ai/study/flashcards?course_id={course_id}&topic={topic}"
-        elif material_type == "quiz":
-            study_url = f"/ai/study/quiz?course_id={course_id}&topic={topic}"
+        #elif material_type == "quiz":
+            #study_url = f"/ai/study/quiz?course_id={course_id}&topic={topic}"
         elif material_type == "study_guide":
             study_url = f"/ai/study/guide?course_id={course_id}&topic={topic}"
         else:
@@ -461,6 +461,7 @@ def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id:
             6. For general points, use bullet points with the <ul> and <li> HTML tags
             7. For especially important information, wrap it in <div class="key-point">Important information here</div>
             8. Conclude with a brief encouraging note
+            9. Let them know that can type "Make Flash-Cards 'Topic'" or "Make Study Guide 'Topic' and you will make one for them"
             
             If the answer is not in the provided materials, let them know gently.
             

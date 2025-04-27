@@ -1,7 +1,7 @@
 # backend/db/models.py
 from datetime import datetime
 import traceback
-from sqlalchemy import Column, DateTime, Integer, String, Boolean, ForeignKey, Table, Text
+from sqlalchemy import Column, DateTime, Integer, String, Boolean, ForeignKey, Table, Text, func
 from backend.db.database import Base
 from sqlalchemy.orm import relationship
 
@@ -202,3 +202,12 @@ class AssignmentComment(Base):
     submission = relationship("AssignmentSubmission", back_populates="comments")
 
 
+class Quiz(Base):
+    __tablename__ = "quizzes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    course_id = Column(Integer, nullable=False, index=True)
+    teacher_id = Column(String, nullable=False, index=True)
+    topic = Column(String, nullable=False)
+    json_data = Column(Text, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())

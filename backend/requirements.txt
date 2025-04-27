@@ -20,3 +20,4 @@ faiss-cpu
 sentence-transformers
 langchain
 langchain-community
+reportlab

@@ -415,8 +415,10 @@ def upload_students(course_id: int, file: UploadFile = File(...), db: Session = 
 
 
 @auth_router.get("/courses/new", response_class=HTMLResponse)
-def new_course_form(request: Request):
-    return templates.TemplateResponse("create_course.html", {"request": request})
+def new_course_form(request: Request,    db: Session = Depends(get_db),user=Depends(require_role("teacher"))):
+    teacher_id = user["user_id"]
+    courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
+    return templates.TemplateResponse("create_course.html", {"request": request, "courses":courses})
 
 
 @auth_router.get("/courses/{course_id}/enroll", response_class=HTMLResponse)
@@ -425,14 +427,19 @@ def enroll_students_page(request: Request, course_id: int, db: Session = Depends
     if not course:
         return HTMLResponse("❌ Course not found", status_code=404)
     
+    teacher_id = user["user_id"]
+    courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
+    
     return templates.TemplateResponse("enroll_students.html", {
         "request": request,
         "course": course,
-        "role": user["role"]
+        "role": user["role"],
+        "courses": courses
     })
 
 @auth_router.get("/courses/{course_id}/invite-student", response_class=HTMLResponse)
-def invite_student_page(request: Request, course_id: int, user=Depends(require_teacher_or_ta())):
+def invite_student_page(request: Request, course_id: int,user=Depends(require_teacher_or_ta())):
+
     return templates.TemplateResponse("invite_student.html", {
         "request": request,
         "course_id": course_id
@@ -671,6 +678,8 @@ def view_attendance_page(
     if not course:
         return HTMLResponse(content="❌ Course not found", status_code=404)
 
+    teacher_id = user["user_id"]
+    courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
 
     selected_date = None
     query = db.query(AttendanceRecord).filter(AttendanceRecord.course_id == course_id)
@@ -699,6 +708,7 @@ def view_attendance_page(
     return templates.TemplateResponse("teacher_attendance.html", {
         "request": request,
         "course": course,
+        "courses":courses,
         "students": students,
         "attendance_records": formatted_records,
         "selected_date": selected_date.strftime("%Y-%m-%d") if selected_date else "",
@@ -828,12 +838,15 @@ def view_student_attendance(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         return HTMLResponse("❌ Course not found", status_code=404)
+    enrollments = db.query(Enrollment).filter_by(student_id=student_id, is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
 
     records = db.query(AttendanceRecord).filter_by(course_id=course_id, student_id=student_id).all()
     return templates.TemplateResponse("student_attendance.html", {
         "request": request,
         "course": course,
-        "records": records
+        "records": records,
+        "courses":courses
     })
 
 @auth_router.get("/courses/{course_id}/invite-ta", response_class=HTMLResponse)
@@ -843,13 +856,16 @@ def invite_ta_page(
     db: Session = Depends(get_db),
     user=Depends(require_role("teacher"))
 ):
+    teacher_id = user["user_id"]
+    courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
     course = db.query(Course).filter_by(id=course_id, teacher_id=user["user_id"]).first()
     if not course:
         return HTMLResponse(content="❌ Unauthorized", status_code=403)
 
     return templates.TemplateResponse("invite_ta.html", {
         "request": request,
-        "course": course
+        "course": course,
+        "courses":courses
     })
 
 

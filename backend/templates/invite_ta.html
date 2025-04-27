@@ -9,17 +9,82 @@
 </head>
 <body class="bg-gray-100 min-h-screen">
   <!-- Navbar -->
-  <nav class="bg-white px-6 py-4 shadow flex justify-between items-center mb-8">
-    <div class="font-bold text-xl text-blue-700">
-      Intellaica
-      <span class="hidden sm:inline text-gray-400 text-lg mx-2">|</span>
-      <span class="hidden md:inline text-gray-700 font-semibold">Teacher Portal</span>
+  <input id="sidebar-toggle" type="checkbox" class="hidden peer" />
+
+  <!-- Sidebar (fixed to the left, slides over, X to close) -->
+  <aside class="fixed top-0 left-0 h-full w-64 z-40 bg-white border-r border-gray-100 shadow-lg
+                transform transition-transform duration-200
+                -translate-x-full peer-checked:translate-x-0">
+    <div class="px-6 pt-6 pb-2 flex items-center justify-between border-b">
+      <span class="font-bold text-blue-700 text-lg">Intellaica LMS</span>
+      <label for="sidebar-toggle" class="block cursor-pointer ml-3">
+        <svg class="w-6 h-6 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </label>
     </div>
-    <a href="/auth/logout"
-       class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 flex items-center">
-      🚪 Logout
-    </a>
-  </nav>
+    <!-- Sidebar nav -->
+    <nav class="mt-2">
+      <ul class="space-y-2">
+        <li>
+          <div class="font-semibold text-gray-600 ml-6 mt-3 text-xs uppercase">Your Courses</div>
+          <ul>
+            {% for course in courses %}
+            <li class="ml-6">
+              <details class="group">
+                <summary class="cursor-pointer flex items-center py-2 rounded hover:bg-blue-50 text-blue-900 font-normal">
+                  <span>📖 {{ course.title }}</span>
+                  <svg class="h-4 w-4 ml-2 text-gray-400 group-open:rotate-90 transition-transform" fill="none" viewBox="0 0 20 20"><path stroke="currentColor" d="M7 7l3-3 3 3"/><path stroke="currentColor" d="M7 13l3 3 3-3"/></svg>
+                </summary>
+                <ul class="ml-3">
+                  <li><a href="/auth/courses/{{ course.id }}/enroll" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">👥 Enroll Students</a></li>
+                  <li><a href="/auth/courses/{{ course.id }}/attendance" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">📝 Attendance</a></li>
+                  <li><a href="/ai/teacher/{{ course.id }}/assignments" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">✏️ Manage Assignments</a></li>
+                  <li><a href="/ai/courses/{{ course.id }}/upload_materials" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">📤 Upload Materials</a></li>
+                  <li><a href="/auth/courses/{{ course.id }}/invite-ta" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">🎓 Invite TA</a></li>
+                </ul>
+              </details>
+            </li>
+            {% else %}
+            <li class="ml-8 text-xs text-gray-400">No courses</li>
+            {% endfor %}
+          </ul>
+        </li>
+        <li>
+          <a href="/auth/logout" class="flex items-center px-6 py-2 hover:bg-red-100 text-red-600 font-semibold">
+            🚪 <span class="ml-2">Logout</span>
+          </a>
+        </li>
+      </ul>
+    </nav>
+    <div class="mt-12 text-xs text-gray-400 px-6 text-center">✨ Inspire, teach, repeat!</div>
+  </aside>
+
+  <!-- Main content wrapper, shifts right -->
+  <div class="transition-all duration-200 ml-0 peer-checked:ml-64">
+    <!-- Navbar (hamburger is left, then logo/title, then nav items right) -->
+    <nav class="bg-white px-6 py-4 shadow flex flex-row items-center gap-3">
+      <!-- Hamburger: always inline, hides when sidebar is open -->
+      <label for="sidebar-toggle" class="block cursor-pointer z-50 peer-checked:hidden">
+        <svg class="w-7 h-7 text-blue-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </label>
+      <!-- Logo/title left -->
+      <div class="font-bold text-xl text-blue-700 flex items-center">
+        Intellaica
+        <span class="hidden sm:inline text-gray-400 text-lg mx-2">|</span>
+        <span class="hidden md:inline text-gray-700 font-semibold">Teacher Portal</span>
+      </div>
+      <!-- Nav items right -->
+      <ul class="flex gap-6 items-center text-base ml-auto">
+        <li>
+          <a href="/auth/logout" class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition flex items-center">
+            🚪 Logout
+          </a>
+        </li>
+      </ul>
+    </nav>
   <main class="max-w-lg mx-auto mt-12 bg-white rounded-xl shadow p-8 border border-gray-100">
     <h2 class="text-2xl font-bold mb-2 text-center text-indigo-800">🎓 Invite Teaching Assistant</h2>
     <p class="mb-6 text-center text-gray-700">

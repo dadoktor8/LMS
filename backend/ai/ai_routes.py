@@ -14,7 +14,7 @@ from datetime import datetime
 
 import urllib
 from backend.ai.ai_grader import evaluate_assignment_text
-from backend.ai.open_notes_system import generate_study_material, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
+from backend.ai.open_notes_system import Quiz, generate_quiz_export, generate_study_material, generate_study_material_quiz, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
 from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, ProcessedMaterial  # Make sure this is correct
@@ -79,11 +79,14 @@ async def upload_course_material(
 @ai_router.get("/courses/{course_id}/upload_materials", response_class=HTMLResponse)
 async def show_upload_form(request: Request, course_id: int, user : dict = Depends(require_teacher_or_ta()), db : Session = Depends(get_db)):
     materials = db.query(CourseMaterial).filter(CourseMaterial.course_id == course_id).order_by(CourseMaterial.uploaded_at.desc()).all()
+    teacher_id = user["user_id"]
+    courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
     return templates.TemplateResponse("upload_materials.html", {
         "request": request,
         "course_id": course_id,
         "role": user["role"],
-        "materials":materials
+        "materials":materials,
+        "courses":courses
     })
 
 @ai_router.post("/courses/{course_id}/process_materials")
@@ -158,12 +161,14 @@ async def show_student_tutor(request: Request, course_id: int, db: Session = Dep
     course = db.query(Course).filter(Course.id == course_id).first()
     materials = db.query(CourseMaterial).filter_by(course_id=course_id).order_by(CourseMaterial.uploaded_at.desc()).all()
     messages = db.query(ChatHistory).filter_by(user_id=user["user_id"], course_id=course_id).order_by(ChatHistory.timestamp).all()
-
+    enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
     return templates.TemplateResponse("student_ai_tutor.html", {
         "request": request,
         "course": course,
         "materials": materials,
-        "messages": messages
+        "messages": messages,
+        "courses":courses
     })
 
 @ai_router.post("/process_materials")
@@ -319,14 +324,19 @@ async def study_landing_page(
     request: Request,
     course_id: int = Query(...),
     topic: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
 ):
+    enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
     return templates.TemplateResponse(
         "study_landing.html",
         {
             "request": request,
             "course_id": course_id,
             "topic": topic,
-            "student_id": request.session.get("student_id", "")
+            "student_id": request.session.get("student_id", ""),
+            "courses":courses
         }
     )
 
@@ -336,9 +346,13 @@ async def flashcards_page(
     request: Request,
     course_id: int = Query(...),
     topic: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
 ):
     materials_json = request.session.get("flashcards_materials")
     study_material_html = render_flashcards_htmx(materials_json) if materials_json else ""
+    enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
     
     return templates.TemplateResponse(
         "flashcards.html",
@@ -347,7 +361,8 @@ async def flashcards_page(
             "course_id": course_id,
             "topic": topic,
             "study_material_html": study_material_html,
-            "student_id": request.session.get("student_id", "")
+            "student_id": request.session.get("student_id", ""),
+            "courses":courses
         }
     )
 
@@ -378,9 +393,13 @@ async def study_guide_page(
     request: Request,
     course_id: int = Query(...),
     topic: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
 ):
     materials_json = request.session.get("study_guide_materials")
     study_material_html = render_study_guide_htmx(materials_json) if materials_json else ""
+    enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
     
     return templates.TemplateResponse(
         "study_guide.html",
@@ -389,7 +408,8 @@ async def study_guide_page(
             "course_id": course_id,
             "topic": topic,
             "study_material_html": study_material_html,
-            "student_id": request.session.get("student_id", "")
+            "student_id": request.session.get("student_id", ""),
+            "courses":courses
         }
     )
 
@@ -461,12 +481,14 @@ async def generate_study_guide(
     )
 
 @ai_router.get("/courses/{course_id}/create-assignment", response_class=HTMLResponse)
-async def show_create_assignment_form(request: Request, course_id: int, db: Session = Depends(get_db)):
+async def show_create_assignment_form(request: Request, course_id: int, db: Session = Depends(get_db), user=Depends(require_role("teacher")) ):
     materials = db.query(CourseMaterial).filter(CourseMaterial.course_id == course_id).order_by(CourseMaterial.uploaded_at.desc()).all()
     course = db.query(Course).filter(Course.id == course_id).first()
+    teacher_id = user["user_id"]
+    courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
     if not course:
         return HTMLResponse("❌ Course not found", status_code=404)
-    return templates.TemplateResponse("create_assignment.html", {"request": request, "course_id": course_id, "course":course, "materials": materials})
+    return templates.TemplateResponse("create_assignment.html", {"request": request, "course_id": course_id, "course":course, "materials": materials, "courses" : courses})
 
 @ai_router.post("/courses/{course_id}/create-assignment", response_class=HTMLResponse)
 async def create_assignment(
@@ -494,9 +516,11 @@ async def create_assignment(
     return RedirectResponse(f"/ai/teacher/{course_id}/assignments", status_code=303)
 
 @ai_router.get("/assignments/{assignment_id}/submit", response_class=HTMLResponse)
-async def show_submit_assignment_form(request: Request, assignment_id: int, db: Session = Depends(get_db)):
+async def show_submit_assignment_form(request: Request, assignment_id: int, db: Session = Depends(get_db),user: dict = Depends(require_role("student"))):
     assignment = db.query(Assignment).filter_by(id=assignment_id).first()
-    return templates.TemplateResponse("submit_assignment.html", {"request": request, "assignment": assignment})
+    enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
+    return templates.TemplateResponse("submit_assignment.html", {"request": request, "assignment": assignment, "courses":courses})
 
 @ai_router.post("/assignments/{assignment_id}/submit", response_class=HTMLResponse)
 async def submit_assignment(
@@ -514,6 +538,8 @@ async def submit_assignment(
     filename = f"{datetime.utcnow().timestamp()}_{file.filename}"
     file_location = f"uploads/assignments/{assignment_id}_{filename}"  # no leading slash
     save_path = f"backend/{file_location}"  # actual filesystem path
+
+
 
     # Ensure the directory exists
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -593,7 +619,8 @@ async def student_course_assignments(
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         return HTMLResponse("❌ Course not found", status_code=404)
-    
+    enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
     # Get all assignments for this course
     assignments = (
         db.query(Assignment)
@@ -632,6 +659,7 @@ async def student_course_assignments(
             "submissions": submissions,
             "submission_dict": submission_dict,
             "course": course,
+            "courses":courses
         },
     )
 @ai_router.post("/assignments/{assignment_id}/grade/{submission_id}")
@@ -692,11 +720,14 @@ async def view_submissions(
         raise HTTPException(status_code=404, detail="Assignment not found")
 
     submissions = db.query(AssignmentSubmission).filter_by(assignment_id=assignment.id).all()
+    teacher_id = user["user_id"]
+    courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
 
     return templates.TemplateResponse("teacher_assignment_submissions.html", {
         "request": request,
         "assignment": assignment,
-        "submissions": submissions
+        "submissions": submissions,
+        "courses":courses
     })
 
 @ai_router.get("/assignments/{assignment_id}/export")
@@ -738,10 +769,14 @@ async def export_submissions_to_excel(
 async def student_assignments(request: Request, db: Session = Depends(get_db), user: dict = Depends(require_role("student"))):
     assignments = db.query(Assignment).all()
     submissions = db.query(AssignmentSubmission).filter_by(student_id=user["user_id"]).all()
+    enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
+    print("courses list:", courses)
     return templates.TemplateResponse("student_assignments.html", {
         "request": request,
         "assignments": assignments,
-        "submissions": submissions
+        "submissions": submissions,
+        "courses":courses
     })
 
 
@@ -754,11 +789,146 @@ async def teacher_assignments(request: Request, course_id: int,db: Session = Dep
     .all()
         )
     course = db.query(Course).filter(Course.id == course_id).first()
+    teacher_id = user["user_id"]
+    courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
     if not course:
         return HTMLResponse("❌ Course not found", status_code=404)
     return templates.TemplateResponse("teacher_assignments.html", {
         "request": request,
         "assignments": assignments,
-        "course":course
+        "course":course,
+        "courses":courses
     })
 
+@ai_router.get("/courses/{course_id}/quiz/create", response_class=HTMLResponse)
+async def quiz_creation_page(
+    request: Request,
+    course_id: int,
+    user: dict = Depends(require_role("teacher"))
+):
+    # Render form to create a quiz for this specific course
+    return templates.TemplateResponse(
+        "quiz_creator.html",
+        {
+            "request": request,
+            "course_id": course_id,
+            "topic": "",
+            "study_material_html": "",
+            "teacher_id": user.get("user_id", ""),
+            "question_types": ["mcq"],  # Default
+            "num_questions": 10
+        }
+    )
+
+@ai_router.post("/courses/{course_id}/quiz/generate", response_class=HTMLResponse)
+async def generate_quiz(
+    request: Request,
+    course_id: int,
+    topic: str = Form(...),
+    question_types: List[str] = Form(...),
+    num_questions: int = Form(10),
+    user: dict = Depends(require_role("teacher")),
+    db: Session = Depends(get_db),   # ⏩ Add this!
+):
+    try:
+        # ... your input validation as before ...
+
+        materials_json = generate_study_material_quiz(
+            query=topic,
+            material_type="quiz",
+            course_id=course_id,
+            teacher_id=user.get("user_id", ""),
+            question_types=question_types,
+            num_questions=num_questions
+        )
+
+        request.session["quiz_materials"] = materials_json
+
+        quiz = Quiz(
+            course_id=course_id,
+            teacher_id=user.get("user_id",""),
+            topic=topic,
+            json_data=materials_json
+        )
+        db.add(quiz)
+        db.commit()
+
+        study_material_html = render_quiz_htmx(materials_json)
+
+        return templates.TemplateResponse(
+            "quiz_creator.html",
+            {
+                "request": request,
+                "course_id": course_id,
+                "topic": topic,
+                "study_material_html": study_material_html,
+                "teacher_id": user.get("user_id", ""),
+                "question_types": question_types,
+                "num_questions": num_questions,
+            }
+        )
+    except Exception as e:
+        error_message = f"An unexpected error occurred: {str(e)}"
+        return templates.TemplateResponse(
+            "quiz_creator.html",
+            {
+                "request": request,
+                "course_id": course_id,
+                "topic": topic if 'topic' in locals() else "",
+                "error": error_message,
+                "teacher_id": user.get("user_id", ""),
+            }
+        )
+
+
+@ai_router.get("/courses/{course_id}/quiz/export", response_class=HTMLResponse)
+async def export_quiz(
+    request: Request,
+    course_id: int,
+    format: str = Query("pdf"),
+    include_answers: bool = Query(False),
+    user: dict = Depends(require_role("teacher")),
+    db: Session = Depends(get_db)      # ⏩ DB!
+):
+    materials_json = request.session.get("quiz_materials")
+    if not materials_json:
+        quiz = (db.query(Quiz)
+            .filter_by(course_id=course_id, teacher_id=user.get("user_id", ""))
+            .order_by(Quiz.created_at.desc())
+            .first())
+        if not quiz:
+            return HTMLResponse("<div>No quiz found. Please generate a quiz first.</div>")
+        materials_json = quiz.json_data
+
+    # continue with your export logic!
+    export_url = generate_quiz_export(materials_json, format, include_answers)
+    filename = export_url.split("/")[-1]
+    download_url = f"/courses/{course_id}/quiz/download/{filename}"
+    return templates.TemplateResponse(
+        "quiz_export.html",
+        {
+            "request": request,
+            "course_id": course_id,
+            "export_url": download_url,
+            "format": format
+        }
+    )
+
+@ai_router.get("/courses/{course_id}/quiz/download/{filename}", response_class=FileResponse)
+async def download_quiz_file(
+    course_id: int,
+    filename: str,
+    user: dict = Depends(require_role("teacher"))
+):
+    export_dir = "static/exports"
+    file_path = os.path.join(export_dir, filename)
+    if not os.path.exists(file_path):
+        return HTMLResponse(
+            "<div class='bg-red-100 text-red-700 p-4 rounded-lg'>File not found.</div>",
+            status_code=404
+        )
+    return FileResponse(
+        file_path,
+        filename=filename,
+        media_type="application/octet-stream"
+    )

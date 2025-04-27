@@ -1,4 +1,5 @@
 from typing import List, Dict, Union, Optional
+import uuid
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.memory import SQLChatMessageHistory
@@ -384,37 +385,6 @@ def get_prompt_for_material_type(material_type: str) -> PromptTemplate:
             Flashcards (JSON format):
             """
         )
-    elif material_type == "quiz":
-        return PromptTemplate(
-            input_variables=["context", "question"],
-            template="""
-            You are creating a quiz for a student on a specific topic using their course materials.
-            
-            Based on the course materials below, create a quiz of 5 multiple-choice questions on the topic: {question}
-            
-            Format your output as a JSON object with the following structure:
-            {{
-              "title": "Quiz title here",
-              "description": "Brief description of the quiz",
-              "questions": [
-                {{
-                  "question": "Question text here",
-                  "options": ["Option A", "Option B", "Option C", "Option D"],
-                  "correct_answer_index": 0,  // Index of the correct answer (0-based)
-                  "explanation": "Explanation of why the answer is correct"
-                }},
-                ...more questions...
-              ]
-            }}
-            
-            Course Materials:
-            {context}
-            
-            Topic: {question}
-            
-            Quiz (JSON format):
-            """
-        )
     else:  # study_guide
         return PromptTemplate(
         input_variables=["context", "question"],
@@ -545,46 +515,157 @@ def render_flashcards_htmx(materials_json):
         return f"<div class='text-red-600 font-bold'>Error rendering flashcards: {str(e)}</div>"
 
 def render_quiz_htmx(materials_json):
-    """Render quiz in HTMX format with Tailwind CSS classes"""
+    """
+    Render quiz in HTMX format with Tailwind CSS classes, supporting multiple question types.
+    Includes robust error handling and validation.
+    """
     try:
-        materials = json.loads(materials_json)
+        # Basic validation
+        if not materials_json or not materials_json.strip():
+            return "<div class='p-4 bg-red-100 text-red-700 rounded-lg'>Error: No quiz data provided</div>"
+        
+        # Parse the JSON with error handling
+        try:
+            materials = json.loads(materials_json)
+        except json.JSONDecodeError as e:
+            return f"<div class='p-4 bg-red-100 text-red-700 rounded-lg'>Error parsing quiz data: {str(e)}</div>"
+        
+        # Check if there's an error message in the materials
+        if isinstance(materials, dict) and "error" in materials:
+            return f"<div class='p-4 bg-red-100 text-red-700 rounded-lg'>Error: {materials['error']}</div>"
+        
+        # Validate required fields
+        required_fields = ["title", "description", "questions"]
+        missing_fields = [field for field in required_fields if field not in materials]
+        
+        if missing_fields:
+            missing_list = ", ".join(missing_fields)
+            return f"<div class='p-4 bg-red-100 text-red-700 rounded-lg'>Error: Missing required fields: {missing_list}</div>"
+        
+        # Validate questions structure
+        if not isinstance(materials["questions"], list):
+            return "<div class='p-4 bg-red-100 text-red-700 rounded-lg'>Error: 'questions' must be a list</div>"
+        
+        # If we have an empty quiz, show a message instead of an error
+        if len(materials["questions"]) == 0:
+            return "<div class='p-4 bg-yellow-100 text-yellow-700 rounded-lg'>No questions available in this quiz.</div>"
+            
+        # Begin rendering the quiz HTML
         html = f'''
         <div class="max-w-2xl mx-auto">
-          <h2 class="text-2xl font-bold text-blue-800 mb-2">{materials["title"]}</h2>
-          <p class="text-gray-700 mb-8 text-lg">{materials["description"]}</p>
+          <h2 class="text-2xl font-bold text-blue-800 mb-2">{html_escape(materials["title"])}</h2>
+          <p class="text-gray-700 mb-8 text-lg">{html_escape(materials["description"])}</p>
           <form id="quiz-form" class="space-y-8">
         '''
+        
+        # Render questions
         for i, question in enumerate(materials["questions"]):
+            # Validate each question has the minimum required fields
+            if "question" not in question:
+                continue
+                
+            question_type = question.get("type", "mcq")
+            
             html += f'''
             <div class="mb-8 p-5 rounded-xl bg-gray-50 border border-gray-200 shadow">
-              <h3 class="text-lg mb-4 font-semibold text-gray-800">Question {i+1}: {question["question"]}</h3>
+              <h3 class="text-lg mb-4 font-semibold text-gray-800">Question {i+1}: {html_escape(question["question"])}</h3>
               <div class="flex flex-col gap-3">
             '''
-            for j, option in enumerate(question["options"]):
+            
+            # Render different question types
+            if question_type == "mcq":
+                # Validate options exist
+                if "options" not in question or not isinstance(question["options"], list) or len(question["options"]) == 0:
+                    html += "<p class='text-red-600'>Error: Missing options for multiple choice question</p>"
+                else:
+                    # Multiple Choice Question (Single Answer)
+                    for j, option in enumerate(question["options"]):
+                        html += f'''
+                        <label class="flex items-center gap-3 cursor-pointer text-gray-700 text-base">
+                          <input type="radio"
+                                 id="q{i}-o{j}"
+                                 name="q{i}"
+                                 value="{j}"
+                                 class="form-radio h-4 w-4 text-blue-600 transition"
+                          >
+                          {html_escape(option)}
+                        </label>
+                        '''
+            elif question_type == "msq":
+                # Validate options exist
+                if "options" not in question or not isinstance(question["options"], list) or len(question["options"]) == 0:
+                    html += "<p class='text-red-600'>Error: Missing options for multiple select question</p>"
+                else:
+                    # Multiple Select Question (Multiple Answers)
+                    for j, option in enumerate(question["options"]):
+                        html += f'''
+                        <label class="flex items-center gap-3 cursor-pointer text-gray-700 text-base">
+                          <input type="checkbox"
+                                 id="q{i}-o{j}"
+                                 name="q{i}[]"
+                                 value="{j}"
+                                 class="form-checkbox h-4 w-4 text-blue-600 transition"
+                          >
+                          {html_escape(option)}
+                        </label>
+                        '''
+            elif question_type == "essay":
+                # Essay/Open-ended Question
                 html += f'''
-                <label class="flex items-center gap-3 cursor-pointer text-gray-700 text-base">
-                  <input type="radio"
-                         id="q{i}-o{j}"
-                         name="q{i}"
-                         value="{j}"
-                         class="form-radio h-4 w-4 text-blue-600 transition"
-                  >
-                  {option}
-                </label>
+                <textarea
+                    id="q{i}-essay"
+                    name="q{i}-essay"
+                    rows="5"
+                    placeholder="Type your answer here..."
+                    class="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                ></textarea>
                 '''
+            elif question_type == "short_answer":
+                # Short Answer Question
+                html += f'''
+                <input type="text"
+                    id="q{i}-short"
+                    name="q{i}-short"
+                    placeholder="Enter your answer"
+                    class="w-full border border-gray-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                '''
+            else:
+                # Unrecognized question type
+                html += f"<p class='text-red-600'>Error: Unrecognized question type '{html_escape(question_type)}'</p>"
+            
             html += f'''
               </div>
               <div class="explanation hidden mt-4 rounded-lg px-4 py-3 text-base" id="explanation-{i}"></div>
             </div>
             '''
+            
         html += '''
-          <div class="flex justify-center pt-2">
+          <div class="flex justify-between pt-2">
             <button type="button"
               onclick="checkAnswers()"
               class="py-3 px-8 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-lg"
             >
               Check Answers
             </button>
+        '''
+        
+        # Add export buttons for teachers
+        html += '''
+            <div class="flex gap-2">
+              <button type="button"
+                onclick="exportQuiz('pdf', false)"
+                class="py-3 px-6 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700 transition"
+              >
+                Export Question Paper
+              </button>
+              <button type="button"
+                onclick="exportQuiz('pdf', true)"
+                class="py-3 px-6 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition"
+              >
+                Export with Answer Key
+              </button>
+            </div>
           </div>
           </form>
         </div>
@@ -592,39 +673,131 @@ def render_quiz_htmx(materials_json):
         function checkAnswers() {
           const quizData = JSON.parse(`''' + materials_json.replace('`', '\\`') + '''`);
           let score = 0;
+          let totalAnswerable = 0;
+          
           quizData.questions.forEach((question, i) => {
-            const selectedOption = document.querySelector(`input[name="q${i}"]:checked`);
+            const questionType = question.type || "mcq";
             const explanationDiv = document.getElementById(`explanation-${i}`);
-            if (!selectedOption) {
-              explanationDiv.innerHTML = "Please select an answer";
-              explanationDiv.className = "explanation warning mt-4 bg-yellow-100 border border-yellow-300 text-yellow-900";
+            
+            if (!explanationDiv) return; // Skip if explanation div doesn't exist
+            
+            if (questionType === "mcq") {
+              totalAnswerable++;
+              const selectedOption = document.querySelector(`input[name="q${i}"]:checked`);
+              
+              if (!selectedOption) {
+                explanationDiv.innerHTML = "Please select an answer";
+                explanationDiv.className = "explanation warning mt-4 bg-yellow-100 border border-yellow-300 text-yellow-900";
+                explanationDiv.classList.remove("hidden");
+                return;
+              }
+              
+              const selectedIndex = parseInt(selectedOption.value);
+              const correctIndex = question.correct_answer_index || 0;
+              
+              if (selectedIndex === correctIndex) {
+                score++;
+                explanationDiv.innerHTML = "✅ <b>Correct!</b> " + (question.explanation || "");
+                explanationDiv.className = "explanation correct mt-4 bg-green-100 border border-green-300 text-green-900";
+              } else {
+                explanationDiv.innerHTML = "❌ <b>Incorrect.</b> " + (question.explanation || "");
+                explanationDiv.className = "explanation incorrect mt-4 bg-red-100 border border-red-300 text-red-900";
+              }
               explanationDiv.classList.remove("hidden");
-              return;
             }
-            const selectedIndex = parseInt(selectedOption.value);
-            if (selectedIndex === question.correct_answer_index) {
-              score++;
-              explanationDiv.innerHTML = "✅ <b>Correct!</b> " + question.explanation;
-              explanationDiv.className = "explanation correct mt-4 bg-green-100 border border-green-300 text-green-900";
-            } else {
-              explanationDiv.innerHTML = "❌ <b>Incorrect.</b> " + question.explanation;
-              explanationDiv.className = "explanation incorrect mt-4 bg-red-100 border border-red-300 text-red-900";
+            else if (questionType === "msq") {
+              totalAnswerable++;
+              const selectedOptions = Array.from(document.querySelectorAll(`input[name="q${i}[]"]:checked`))
+                                         .map(input => parseInt(input.value));
+              
+              if (selectedOptions.length === 0) {
+                explanationDiv.innerHTML = "Please select at least one answer";
+                explanationDiv.className = "explanation warning mt-4 bg-yellow-100 border border-yellow-300 text-yellow-900";
+                explanationDiv.classList.remove("hidden");
+                return;
+              }
+              
+              // Check if selected options match correct answers
+              const correctAnswers = question.correct_answer_indices || [];
+              const isCorrect = 
+                selectedOptions.length === correctAnswers.length && 
+                selectedOptions.every(opt => correctAnswers.includes(opt));
+              
+              if (isCorrect) {
+                score++;
+                explanationDiv.innerHTML = "✅ <b>Correct!</b> " + (question.explanation || "");
+                explanationDiv.className = "explanation correct mt-4 bg-green-100 border border-green-300 text-green-900";
+              } else {
+                explanationDiv.innerHTML = "❌ <b>Incorrect.</b> " + (question.explanation || "");
+                explanationDiv.className = "explanation incorrect mt-4 bg-red-100 border border-red-300 text-red-900";
+              }
+              explanationDiv.classList.remove("hidden");
             }
-            explanationDiv.classList.remove("hidden");
+            else if (questionType === "essay" || questionType === "short_answer") {
+              // For essay and short answer, just show the model answer
+              const answerField = questionType === "essay" 
+                ? document.getElementById(`q${i}-essay`)
+                : document.getElementById(`q${i}-short`);
+              
+              if (answerField && answerField.value.trim()) {
+                explanationDiv.innerHTML = "<b>Model Answer:</b> " + (question.model_answer || "");
+                explanationDiv.className = "explanation model mt-4 bg-blue-100 border border-blue-300 text-blue-900";
+                explanationDiv.classList.remove("hidden");
+              } else {
+                explanationDiv.innerHTML = "Please provide an answer";
+                explanationDiv.className = "explanation warning mt-4 bg-yellow-100 border border-yellow-300 text-yellow-900";
+                explanationDiv.classList.remove("hidden");
+              }
+            }
           });
-          // Remove previous score if any
-          document.querySelectorAll('.quiz-score').forEach(div=>div.remove());
-          // Show score at the end of the form
-          const scoreDiv = document.createElement("div");
-          scoreDiv.className = "quiz-score mt-6 py-4 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-center text-lg font-bold";
-          scoreDiv.innerHTML = `Your score: <span class='text-blue-700 font-extrabold'>${score}</span> / <span class="text-blue-700">${quizData.questions.length}</span>`;
-          document.getElementById('quiz-form').appendChild(scoreDiv);
+          
+          // Only show score if there are answerable questions
+          if (totalAnswerable > 0) {
+            // Remove previous score if any
+            document.querySelectorAll('.quiz-score').forEach(div=>div.remove());
+            
+            // Show score at the end of the form
+            const scoreDiv = document.createElement("div");
+            scoreDiv.className = "quiz-score mt-6 py-4 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-center text-lg font-bold";
+            scoreDiv.innerHTML = `Your score: <span class='text-blue-700 font-extrabold'>${score}</span> / <span class="text-blue-700">${totalAnswerable}</span>`;
+            document.getElementById('quiz-form').appendChild(scoreDiv);
+          }
+        }
+        
+        function exportQuiz(format, includeAnswers) {
+          try {
+          const course_id = getCourseIdFromPath();
+          if (!course_id) {
+            alert("Course ID not found!");
+            return;
+          }
+
+            //window.location.href = `/ai/courses/${course_id}/quiz/export?format=${format}&include_answers=${includeAnswers}`;
+            window.location.href = `/ai/courses/${course_id}/quiz/export`; 
+          } catch (error) {
+            console.error("Export failed:", error);
+            alert("Failed to export quiz. Please try again.");
+          }
+        }
+        function getCourseIdFromPath() {
+            const match = window.location.pathname.match(/courses\/(\d+)/);
+            return match ? match[1] : null;
+        }
+        function getUrlParam(param) {
+          const urlParams = new URLSearchParams(window.location.search);
+          return urlParams.get(param);
         }
         </script>
         '''
         return html
     except Exception as e:
-        return f"<div class='text-red-600 font-bold'>Error rendering quiz: {str(e)}</div>"
+        return f"<div class='p-4 bg-red-100 text-red-700 rounded-lg'>Error rendering quiz: {str(e)}</div>"
+
+def html_escape(text):
+    """Escape HTML special characters in text"""
+    if not isinstance(text, str):
+        text = str(text)
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
 
 def render_study_guide_htmx(materials_json):
     """Render study guide HTML (Tailwind-friendly) ready for drop-in into your studyguide.html template."""
@@ -676,3 +849,487 @@ def render_study_guide_htmx(materials_json):
         return html
     except Exception as e:
         return f"<div class='text-red-600 font-bold'>Error rendering study guide: {str(e)}</div>"
+
+def generate_study_material_quiz(
+    query: str,
+    material_type: str,
+    course_id: int,
+    student_id: str = None,   # For logging/student mode
+    teacher_id: str = None,   # For logging/teacher mode
+    question_types: list = None,  # For quizzes: ["mcq", ...]
+    num_questions: int = 10,      # For quizzes
+    use_dummy: bool = False       # If True, don't attempt LLM and always use dummy
+) -> str:
+    """
+    Unified study material generator.
+    - For quizzes: AI-backed, but falls back to dummy/example data if needed.
+    - For flashcards, study_guide: AI-backed.
+    
+    Returns a JSON string with the appropriate structure for the requested material type.
+    """
+    # --- Step 1: Validate inputs and set defaults ---
+    if not query or not query.strip():
+        return json.dumps({"error": "Query cannot be empty."})
+    if not isinstance(course_id, int) or course_id <= 0:
+        return json.dumps({"error": "Course ID must be a positive integer."})
+    if material_type not in {"flashcards", "quiz", "study_guide"}:
+        return json.dumps({"error": "Invalid material type."})
+    
+    # Set default question types if none provided
+    if material_type == "quiz" and (not question_types or len(question_types) == 0):
+        question_types = ["mcq"]
+
+    # --- Step 2: Fallback to dummy implementation if no OpenAI API key or use_dummy set ---
+    api_key = os.getenv("OPENAI_API_KEY")
+    if use_dummy or not api_key:
+        if material_type == "quiz":
+            return generate_dummy_quiz(query, question_types, num_questions)
+        else:
+            # Dummy fallback, just basic static content
+            materials = {
+                "title": f"{material_type.title()} on {query}",
+                "description": f"Study materials for {query}",
+                "content": [f"Sample content for {query}."]
+            }
+            return json.dumps(materials, indent=2)
+
+    # --- Step 3: Otherwise, use full-featured AI/LLM pipeline ---
+    try:
+        # Retrieve context from the course's knowledge base
+        context = retrieve_course_context(course_id, query)
+        if isinstance(context, dict) and "error" in context:
+            return json.dumps(context)  # Return any error from context retrieval
+    except Exception as e:
+        return json.dumps({"error": f"Error retrieving context: {str(e)}"})
+
+    try:
+        # Generate material using LLM
+        if material_type == "quiz":
+            return generate_llm_quiz(query, question_types, num_questions, context, api_key)
+        
+    except Exception as e:
+        return json.dumps({"error": f"LLM generation failed: {str(e)}"})
+    finally:
+        # Audit logging, prefer teacher_id, else student_id
+        responsible_id = teacher_id or student_id or "unknown"
+        log_generation_event(responsible_id, course_id, material_type, query)
+
+def retrieve_course_context(course_id, query):
+    """Helper function to retrieve context from course knowledge base"""
+    try:
+        index_path = f"faiss_index_{course_id}"
+        embeddings = OpenAIEmbeddings()
+        db = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+        retriever = db.as_retriever(search_kwargs={"k": 10})
+        retrieved_docs = retriever.get_relevant_documents(query)
+        context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+        if not context.strip():
+            return {"error": "Insufficient context found for your query."}
+        return context
+    except FileNotFoundError:
+        return {"error": f"No existing knowledge base found for course {course_id}"}
+    except Exception as e:
+        return {"error": f"Problem loading FAISS index: {str(e)}"}
+
+def generate_dummy_quiz(query, question_types, num_questions):
+    """Generate a dummy quiz when API is unavailable"""
+    questions_per_type = num_questions // len(question_types)
+    remainder = num_questions % len(question_types)
+    questions = []
+    
+    for qtype in question_types:
+        count = questions_per_type + (1 if remainder > 0 else 0)
+        if remainder > 0:
+            remainder -= 1
+        
+        for _ in range(count):
+            if qtype == "mcq":
+                questions.append({
+                    "type": "mcq",
+                    "question": f"Sample {query} multiple choice question",
+                    "options": ["Option A", "Option B", "Option C", "Option D"],
+                    "correct_answer_index": 0,
+                    "explanation": "This is the explanation for the correct answer."
+                })
+            elif qtype == "msq":
+                questions.append({
+                    "type": "msq",
+                    "question": f"Sample {query} multiple select question",
+                    "options": ["Option A", "Option B", "Option C", "Option D"],
+                    "correct_answer_indices": [0, 2],
+                    "explanation": "Options A and C are correct because..."
+                })
+            elif qtype == "essay":
+                questions.append({
+                    "type": "essay",
+                    "question": f"Write an essay about {query}",
+                    "model_answer": f"This is a model answer about {query} that demonstrates key points..."
+                })
+            elif qtype == "short_answer":
+                questions.append({
+                    "type": "short_answer",
+                    "question": f"Briefly explain {query}",
+                    "model_answer": f"A concise explanation of {query} is..."
+                })
+    
+    materials = {
+        "title": f"Quiz on {query}",
+        "description": f"Test your knowledge on {query}",
+        "questions": questions
+    }
+    return json.dumps(materials, indent=2)
+
+def generate_llm_quiz(query, question_types, num_questions, context, api_key):
+    """Generate a quiz using LLM"""
+    try:
+        chat = ChatOpenAI(
+            model="gpt-4.1-mini",
+            temperature=0.2,
+            openai_api_key=api_key
+        )
+
+        # Compose a dynamic prompt for quiz generation with explicit structure
+        q_types_str = ", ".join(question_types)
+        
+        instructions = (
+            f"Generate a quiz about '{query}' with {num_questions} questions using these types: {q_types_str}.\n\n"
+            "Your response must be a valid JSON object with exactly this structure:\n"
+            "{\n"
+            '  "title": "Quiz title here",\n'
+            '  "description": "Brief description of the quiz",\n'
+            '  "questions": [\n'
+            '    {"type": "mcq", "question": "Question text", "options": ["Option A", "Option B", "Option C", "Option D"], "correct_answer_index": 0, "explanation": "Why this is correct"},\n'
+            '    {"type": "msq", "question": "Question text", "options": ["Option A", "Option B", "Option C", "Option D"], "correct_answer_indices": [0, 2], "explanation": "Why these are correct"}\n'
+            '  ]\n'
+            "}\n\n"
+            "For 'essay' or 'short_answer' types, use this format in the questions array:\n"
+            '{"type": "essay", "question": "Question text", "model_answer": "Model answer text"}\n'
+            '{"type": "short_answer", "question": "Question text", "model_answer": "Brief model answer"}\n\n'
+            "Include appropriate explanations for all question types."
+        )
+        
+        full_prompt = f"{instructions}\nContext from course materials: {context}\n"
+        
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant that creates educational quizzes."},
+            {"role": "user", "content": full_prompt}
+        ]
+        
+        response = chat.invoke(messages)
+        
+        # Extract the content from the response
+        result = response.content.strip()
+        
+        if not result:
+            return json.dumps({
+                "error": "No response from LLM. Please retry with a different or more specific query."
+            })
+
+        # Process and validate the LLM response
+        return process_llm_quiz_response(result, query)
+        
+    except TimeoutError:
+        return json.dumps({"error": "OpenAI response timed out. Retry with simpler or shorter query."})
+    except Exception as e:
+        return json.dumps({"error": f"Error in LLM quiz generation: {str(e)}"})
+
+def process_llm_quiz_response(response, query):
+    """Process and validate the LLM response for a quiz"""
+    # Extract JSON from the response
+    parsed_json = extract_json_from_text(response)
+    
+    if parsed_json is None:
+        # Fallback to a basic structure if JSON parsing fails
+        return json.dumps({
+            "title": f"Quiz on {query}",
+            "description": f"Test your knowledge on {query}",
+            "questions": [],
+            "error": "Failed to parse LLM response into valid JSON."
+        })
+    
+    # Ensure the quiz has the required structure
+    quiz_json = ensure_quiz_structure(parsed_json, query)
+    return json.dumps(quiz_json, indent=2)
+
+def extract_json_from_text(text):
+    """Extract JSON from text that might contain additional content"""
+    # Try to find JSON in the response
+    json_patterns = [
+        ('{', '}'),  # For object
+        ('[', ']')   # For array
+    ]
+    
+    for start_char, end_char in json_patterns:
+        start_index = text.find(start_char)
+        if start_index == -1:
+            continue
+        
+        # Find the matching closing bracket/brace
+        bracket_count = 0
+        for i in range(start_index, len(text)):
+            if text[i] == start_char:
+                bracket_count += 1
+            elif text[i] == end_char:
+                bracket_count -= 1
+                if bracket_count == 0:
+                    end_index = i + 1
+                    try:
+                        return json.loads(text[start_index:end_index])
+                    except json.JSONDecodeError:
+                        pass
+    
+    # More aggressive approach - try to find the longest valid JSON substring
+    for i in range(len(text)):
+        if text[i] in ['{', '[']:
+            for j in range(len(text), i, -1):
+                try:
+                    return json.loads(text[i:j])
+                except json.JSONDecodeError:
+                    continue
+    
+    return None
+
+def ensure_quiz_structure(json_data, query):
+    """Ensure the quiz JSON has all required fields"""
+    result = {}
+    
+    # Handle case where parsed_json is just the questions array
+    if isinstance(json_data, list):
+        result = {
+            "title": f"Quiz on {query}",
+            "description": f"Test your knowledge on {query}",
+            "questions": json_data
+        }
+    else:
+        # Start with the parsed data
+        result = json_data
+        
+        # Ensure required top-level fields exist
+        if "title" not in result:
+            result["title"] = f"Quiz on {query}"
+        if "description" not in result:
+            result["description"] = f"Test your knowledge on {query}"
+        if "questions" not in result or not isinstance(result["questions"], list):
+            result["questions"] = []
+    
+    # Validate each question has the required fields based on its type
+    for i, question in enumerate(result["questions"]):
+        if "type" not in question:
+            question["type"] = "mcq"  # Default to MCQ
+            
+        if question["type"] in ["mcq", "msq"]:
+            if "options" not in question or not isinstance(question["options"], list):
+                question["options"] = ["Option A", "Option B", "Option C", "Option D"]
+            if question["type"] == "mcq" and "correct_answer_index" not in question:
+                question["correct_answer_index"] = 0
+            if question["type"] == "msq" and "correct_answer_indices" not in question:
+                question["correct_answer_indices"] = [0]
+            if "explanation" not in question:
+                question["explanation"] = "Explanation for the correct answer."
+        
+        elif question["type"] in ["essay", "short_answer"]:
+            if "model_answer" not in question:
+                question["model_answer"] = f"Sample model answer for this {question['type']} question."
+    
+    return result
+
+def generate_quiz_export(materials_json, format="pdf", include_answers=False):
+    """
+    Generate a PDF export of a quiz
+    
+    Args:
+        materials_json (str): JSON string containing quiz data
+        format (str): Format to export (currently only supports 'pdf')
+        include_answers (bool): Whether to include answers in the export
+        
+    Returns:
+        str: Path to the generated file
+    """
+    # Parse the provided materials JSON
+    quiz_data = json.loads(materials_json)
+    file_id = uuid.uuid4()
+    filename = f"quiz_{file_id}.{format}"
+    export_dir = "static/exports"
+    
+    # Make sure the export directory exists
+    os.makedirs(export_dir, exist_ok=True)
+    file_path = os.path.join(export_dir, filename)
+    
+    if format == "pdf":
+        # Import ReportLab modules
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem, Table, TableStyle
+        from reportlab.lib.units import inch
+        
+        # Create a PDF document
+        doc = SimpleDocTemplate(
+            file_path,
+            pagesize=A4,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72
+        )
+        
+        styles = getSampleStyleSheet()
+        
+        # Create custom styles
+        title_style = ParagraphStyle(
+            'Title',
+            parent=styles['Title'],
+            fontSize=18,
+            leading=22,
+            textColor=colors.HexColor('#1a56db'),
+            spaceAfter=12
+        )
+        
+        heading_style = ParagraphStyle(
+            'Heading',
+            parent=styles['Heading2'],
+            fontSize=14,
+            leading=18,
+            textColor=colors.HexColor('#1e429f'),
+            spaceAfter=8
+        )
+        
+        normal_style = ParagraphStyle(
+            'Normal',
+            parent=styles['Normal'],
+            fontSize=12,
+            leading=16,
+            spaceAfter=6
+        )
+        
+        question_style = ParagraphStyle(
+            'Question',
+            parent=styles['Normal'],
+            fontSize=12,
+            leading=16,
+            textColor=colors.HexColor('#2d3748'),
+            fontName='Helvetica-Bold',
+            spaceAfter=8
+        )
+        
+        option_style = ParagraphStyle(
+            'Option',
+            parent=styles['Normal'],
+            fontSize=12,
+            leading=16,
+            leftIndent=20,
+            spaceAfter=6
+        )
+        
+        answer_style = ParagraphStyle(
+            'Answer',
+            parent=styles['Normal'],
+            fontSize=12,
+            leading=16,
+            leftIndent=20,
+            textColor=colors.HexColor('#047857'),
+            spaceAfter=6
+        )
+        
+        explanation_style = ParagraphStyle(
+            'Explanation',
+            parent=styles['Normal'],
+            fontSize=12,
+            leading=16,
+            leftIndent=20,
+            textColor=colors.HexColor('#1e429f'),
+            spaceAfter=12,
+            borderWidth=1,
+            borderColor=colors.HexColor('#e5e7eb'),
+            borderPadding=8,
+            borderRadius=4
+        )
+        
+        # Build the PDF content
+        elements = []
+        
+        # Add title and description
+        elements.append(Paragraph(quiz_data.get("title", "Quiz"), title_style))
+        elements.append(Paragraph(quiz_data.get("description", ""), normal_style))
+        elements.append(Spacer(1, 0.25*inch))
+        
+        # Add questions
+        for i, question in enumerate(quiz_data.get("questions", [])):
+            # Question text
+            question_text = f"Question {i+1}: {question.get('question', '')}"
+            elements.append(Paragraph(question_text, question_style))
+            
+            # Options for MCQ/MSQ
+            question_type = question.get("type", "mcq")
+            
+            if question_type in ["mcq", "msq"]:
+                options = question.get("options", [])
+                
+                for j, option in enumerate(options):
+                    option_text = f"{chr(65+j)}. {option}"
+                    
+                    # For answer key, highlight correct options
+                    if include_answers:
+                        if question_type == "mcq" and j == question.get("correct_answer_index", 0):
+                            elements.append(Paragraph(f"<b>{option_text} ✓</b>", answer_style))
+                        elif question_type == "msq" and j in question.get("correct_answer_indices", []):
+                            elements.append(Paragraph(f"<b>{option_text} ✓</b>", answer_style))
+                        else:
+                            elements.append(Paragraph(option_text, option_style))
+                    else:
+                        elements.append(Paragraph(option_text, option_style))
+                
+                # Add explanation if include_answers is True
+                if include_answers and "explanation" in question:
+                    elements.append(Paragraph(f"<i>Explanation:</i> {question['explanation']}", explanation_style))
+            
+            elif question_type in ["essay", "short_answer"]:
+                # For essay or short answer questions
+                elements.append(Paragraph("Answer space: ______________________________", option_style))
+                
+                # Add model answer if include_answers is True
+                if include_answers and "model_answer" in question:
+                    elements.append(Paragraph(f"<i>Model Answer:</i> {question['model_answer']}", explanation_style))
+            
+            elements.append(Spacer(1, 0.25*inch))
+        
+        # Generate the PDF document
+        doc.build(elements)
+    else:
+        # If not PDF format, just save as JSON for now
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(quiz_data, indent=2))
+    
+    return f"/static/exports/{filename}"
+
+    '''elif material_type == "quiz":
+        return PromptTemplate(
+            input_variables=["context", "question"],
+            template="""
+            You are creating a quiz for a student on a specific topic using their course materials.
+            
+            Based on the course materials below, create a quiz of 5 multiple-choice questions on the topic: {question}
+            
+            Format your output as a JSON object with the following structure:
+            {{
+              "title": "Quiz title here",
+              "description": "Brief description of the quiz",
+              "questions": [
+                {{
+                  "question": "Question text here",
+                  "options": ["Option A", "Option B", "Option C", "Option D"],
+                  "correct_answer_index": 0,  // Index of the correct answer (0-based)
+                  "explanation": "Explanation of why the answer is correct"
+                }},
+                ...more questions...
+              ]
+            }}
+            
+            Course Materials:
+            {context}
+            
+            Topic: {question}
+            
+            Quiz (JSON format):
+            """
+        )'''
