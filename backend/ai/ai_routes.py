@@ -14,10 +14,10 @@ from datetime import datetime
 
 import urllib
 from backend.ai.ai_grader import evaluate_assignment_text
-from backend.ai.open_notes_system import Quiz, generate_quiz_export, generate_study_material, generate_study_material_quiz, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
+from backend.ai.open_notes_system import generate_quiz_export, generate_study_material, generate_study_material_quiz, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, ProcessedMaterial  # Make sure this is correct
+from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, ProcessedMaterial,Quiz  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
@@ -781,13 +781,14 @@ async def student_assignments(request: Request, db: Session = Depends(get_db), u
 
 
 @ai_router.get("/teacher/{course_id}/assignments", response_class=HTMLResponse)
-async def teacher_assignments(request: Request, course_id: int,db: Session = Depends(get_db), user: dict = Depends(require_role("teacher"))):
+async def teacher_assignments(request: Request, course_id: int, db: Session = Depends(get_db), user: dict = Depends(require_role("teacher"))):
+    # Changed the order to sort by created_at descending to show newest first
     assignments = (
-    db.query(Assignment)
-    .filter_by(teacher_id=user["user_id"], course_id=course_id)
-    .order_by(Assignment.deadline.desc())
-    .all()
-        )
+        db.query(Assignment)
+        .filter_by(teacher_id=user["user_id"], course_id=course_id)
+        .order_by(Assignment.created_at.desc())
+        .all()
+    )
     course = db.query(Course).filter(Course.id == course_id).first()
     teacher_id = user["user_id"]
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
@@ -796,16 +797,106 @@ async def teacher_assignments(request: Request, course_id: int,db: Session = Dep
     return templates.TemplateResponse("teacher_assignments.html", {
         "request": request,
         "assignments": assignments,
-        "course":course,
-        "courses":courses
+        "course": course,
+        "courses": courses
     })
+
+# Add a new route for editing assignments
+@ai_router.get("/assignments/{assignment_id}/edit", response_class=HTMLResponse)
+async def edit_assignment_form(request: Request, assignment_id: int, db: Session = Depends(get_db), user: dict = Depends(require_role("teacher"))):
+    assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
+    
+    if not assignment:
+        return HTMLResponse("❌ Assignment not found", status_code=404)
+    
+    # Ensure the teacher owns this assignment
+    if assignment.teacher_id != user["user_id"]:
+        return HTMLResponse("❌ You don't have permission to edit this assignment", status_code=403)
+    
+    course = db.query(Course).filter(Course.id == assignment.course_id).first()
+    courses = db.query(Course).filter(Course.teacher_id == user["user_id"]).all()
+    
+    return templates.TemplateResponse("edit_assignment.html", {
+        "request": request,
+        "assignment": assignment,
+        "course": course,
+        "courses": courses
+    })
+
+# Add a route to handle the assignment update
+@ai_router.post("/assignments/{assignment_id}/update", response_class=HTMLResponse)
+async def update_assignment(
+    request: Request,
+    assignment_id: int,
+    title: str = Form(...),
+    description: str = Form(...),
+    deadline: str = Form(None),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
+    
+    if not assignment:
+        return HTMLResponse("❌ Assignment not found", status_code=404)
+    
+    # Ensure the teacher owns this assignment
+    if assignment.teacher_id != user["user_id"]:
+        return HTMLResponse("❌ You don't have permission to edit this assignment", status_code=403)
+    
+    # Update assignment details
+    assignment.title = title
+    assignment.description = description
+    
+    if deadline:
+        try:
+            deadline_dt = datetime.strptime(deadline, "%Y-%m-%dT%H:%M")
+            assignment.deadline = deadline_dt
+        except ValueError:
+            # If deadline format is invalid, keep the existing one
+            pass
+    else:
+        assignment.deadline = None
+    
+    db.commit()
+    
+    # Redirect back to assignments page
+    return RedirectResponse(url=f"/ai/teacher/{assignment.course_id}/assignments", status_code=303)
+
+# Add a route to handle assignment deletion
+@ai_router.post("/assignments/{assignment_id}/delete", response_class=HTMLResponse)
+async def delete_assignment(
+    request: Request,
+    assignment_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
+    
+    if not assignment:
+        return HTMLResponse("❌ Assignment not found", status_code=404)
+    
+    # Ensure the teacher owns this assignment
+    if assignment.teacher_id != user["user_id"]:
+        return HTMLResponse("❌ You don't have permission to delete this assignment", status_code=403)
+    
+    course_id = assignment.course_id
+    
+    # Delete the assignment
+    db.delete(assignment)
+    db.commit()
+    
+    # Redirect back to assignments page
+    return RedirectResponse(url=f"/ai/teacher/{course_id}/assignments", status_code=303)
 
 @ai_router.get("/courses/{course_id}/quiz/create", response_class=HTMLResponse)
 async def quiz_creation_page(
     request: Request,
     course_id: int,
+    db : Session = Depends(get_db),
     user: dict = Depends(require_role("teacher"))
 ):
+    teacher_id = user["user_id"]
+    courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
     # Render form to create a quiz for this specific course
     return templates.TemplateResponse(
         "quiz_creator.html",
@@ -816,7 +907,8 @@ async def quiz_creation_page(
             "study_material_html": "",
             "teacher_id": user.get("user_id", ""),
             "question_types": ["mcq"],  # Default
-            "num_questions": 10
+            "num_questions": 10,
+            "courses":courses
         }
     )
 
@@ -831,8 +923,6 @@ async def generate_quiz(
     db: Session = Depends(get_db),   # ⏩ Add this!
 ):
     try:
-        # ... your input validation as before ...
-
         materials_json = generate_study_material_quiz(
             query=topic,
             material_type="quiz",
@@ -841,20 +931,41 @@ async def generate_quiz(
             question_types=question_types,
             num_questions=num_questions
         )
+        print("Generated materials_json:", materials_json)
 
-        request.session["quiz_materials"] = materials_json
-
-        quiz = Quiz(
-            course_id=course_id,
-            teacher_id=user.get("user_id",""),
-            topic=topic,
-            json_data=materials_json
-        )
-        db.add(quiz)
-        db.commit()
-
+        try:
+            existing = db.query(Quiz).filter_by(
+                course_id=course_id,
+                teacher_id=user.get("user_id", ""),
+                topic=topic
+            ).first()
+            if existing:
+                print("Found existing quiz, updating.")
+                existing.json_data = materials_json
+                quiz = existing
+            else:
+                print("Creating new quiz for this course/teacher/topic.")
+                quiz = Quiz(
+                    course_id=course_id,
+                    teacher_id=user.get("user_id", ""),
+                    topic=topic,
+                    json_data=materials_json
+                )
+                db.add(quiz)
+            db.commit()
+        except Exception as db_exc:
+                print("DB error:", db_exc)
+                return templates.TemplateResponse(
+                "quiz_creator.html",
+                {
+                    "request": request,
+                    "course_id": course_id,
+                    "topic": topic,
+                    "error": f"Database error: {db_exc}",
+                    "teacher_id": user.get("user_id", ""),
+                }
+            )
         study_material_html = render_quiz_htmx(materials_json)
-
         return templates.TemplateResponse(
             "quiz_creator.html",
             {
@@ -868,6 +979,7 @@ async def generate_quiz(
             }
         )
     except Exception as e:
+        print("Main error:", e)
         error_message = f"An unexpected error occurred: {str(e)}"
         return templates.TemplateResponse(
             "quiz_creator.html",
@@ -903,7 +1015,7 @@ async def export_quiz(
     # continue with your export logic!
     export_url = generate_quiz_export(materials_json, format, include_answers)
     filename = export_url.split("/")[-1]
-    download_url = f"/courses/{course_id}/quiz/download/{filename}"
+    download_url = f"/ai/courses/{course_id}/quiz/download/{filename}"
     return templates.TemplateResponse(
         "quiz_export.html",
         {
@@ -920,15 +1032,25 @@ async def download_quiz_file(
     filename: str,
     user: dict = Depends(require_role("teacher"))
 ):
+    filename = os.path.basename(filename)      # Security: strip directory
     export_dir = "static/exports"
     file_path = os.path.join(export_dir, filename)
+    abs_path = os.path.abspath(file_path)
+    print("---- DOWNLOAD DEBUG ----")
+    print("Relative file path:", file_path)
+    print("Absolute file path:", abs_path)
+    print("Current working directory:", os.getcwd())
+    print("File exists (rel)?", os.path.exists(file_path))
+    print("File exists (abs)?", os.path.exists(abs_path))
+    print("-------------------------")
     if not os.path.exists(file_path):
         return HTMLResponse(
-            "<div class='bg-red-100 text-red-700 p-4 rounded-lg'>File not found.</div>",
+            f"<div class='bg-red-100 text-red-700 p-4 rounded-lg'>File not found: {file_path}<br>Absolute: {abs_path}</div>",
             status_code=404
         )
+    print("File found! Downloading.")
     return FileResponse(
-        file_path,
+        abs_path,                 # direct absolute path, no ambiguity
         filename=filename,
-        media_type="application/octet-stream"
+        media_type="application/pdf"
     )

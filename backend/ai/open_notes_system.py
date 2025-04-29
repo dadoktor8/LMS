@@ -436,77 +436,87 @@ def log_generation_event(student_id: str, course_id: int, material_type: str, qu
         print(f"Error logging generation event: {e}")
 
 def render_flashcards_htmx(materials_json):
-    """Render responsive, animated, Tailwind-styled flashcards in HTMX format with all content INSIDE the card."""
+    """Render responsive, square, Tailwind-styled flashcards (not stuck in a narrow div)."""
     try:
         materials = json.loads(materials_json)
         html = '''
-        <div class="flex flex-wrap justify-center gap-6 mb-8">
+        <div class="w-full mx-auto px-2 py-6">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-12 place-items-center">
         '''
         for i, card in enumerate(materials):
             html += f'''
-              <div class="relative w-80 h-60 perspective" id="card-{i}">
+            <div class="perspective w-[23rem] h-[23rem] max-w-full" id="card-{i}">
                 <div class="flashcard-inner w-full h-full" id="inner-{i}">
-                  <!-- Front -->
-                  <div class="flashcard-front absolute inset-0 bg-white border border-blue-200 shadow-xl rounded-2xl flex flex-col h-full justify-between items-center px-6 py-4 [backface-visibility:hidden]">
-                    <div class="w-full flex-1 flex flex-col justify-center items-center">
-                      <h3 class="text-xl font-bold text-blue-800 text-center">{card["question"]}</h3>
+                    <!-- Front -->
+                    <div class="flashcard-front absolute inset-0 bg-white border-2 border-blue-300 shadow-xl rounded-2xl flex flex-col h-full w-full justify-between items-center p-8 [backface-visibility:hidden]">
+                        <div class="w-full flex-1 flex flex-col justify-center items-center">
+                            <h3 class="text-2xl font-bold text-blue-800 text-center break-words">{card["question"]}</h3>
+                        </div>
+                        <div class="w-full flex justify-center mt-4">
+                            <button type="button"
+                                onclick="flipCard({i})"
+                                class="px-6 py-2 rounded-lg bg-blue-100 text-blue-700 font-semibold hover:bg-blue-200 transition duration-300 text-base shadow-md">
+                                Show Answer
+                            </button>
+                        </div>
                     </div>
-                    <div class="pt-2 w-full flex justify-center">
-                      <button type="button"
-                        onclick="flipCard({i})"
-                        class="px-4 py-1 rounded-lg bg-blue-50 text-blue-700 font-semibold hover:bg-blue-200 transition text-sm">
-                        Show Answer
-                      </button>
+                    <!-- Back -->
+                    <div class="flashcard-back absolute inset-0 bg-blue-50 border-2 border-blue-300 shadow-xl rounded-2xl flex flex-col h-full w-full justify-between items-center p-8 [backface-visibility:hidden]" style="transform: rotateY(180deg);">
+                        <div class="w-full flex-1 flex flex-col justify-center items-center">
+                            <div class="text-xl font-semibold text-green-800 text-center break-words">{card["answer"]}</div>
+                            <div class="mt-6 flex flex-wrap justify-center gap-2">
+                                {''.join([f'<span class="inline-block bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">{tag}</span>' for tag in card.get("tags", [])])}
+                            </div>
+                        </div>
+                        <div class="w-full flex justify-center mt-4">
+                            <button type="button"
+                                onclick="flipCard({i})"
+                                class="px-6 py-2 rounded-lg bg-blue-100 text-blue-700 font-semibold hover:bg-blue-200 transition duration-300 text-base shadow-md">
+                                Show Question
+                            </button>
+                        </div>
                     </div>
-                  </div>
-                  <!-- Back -->
-                  <div class="flashcard-back absolute inset-0 bg-blue-50 border border-blue-200 shadow-xl rounded-2xl flex flex-col h-full justify-between items-center px-6 py-4 [backface-visibility:hidden]" style="transform: rotateY(180deg);">
-                    <div class="w-full flex-1 flex flex-col justify-center items-center">
-                      <div class="text-lg font-semibold text-green-800 text-center">{card["answer"]}</div>
-                      <div class="mb-2 flex flex-wrap justify-center gap-2">
-                        {''.join([f'<span class="inline-block bg-green-100 text-green-700 text-xs px-2 py-1 rounded">{tag}</span>' for tag in card.get("tags", [])])}
-                      </div>
-                    </div>
-                    <div class="pt-2 w-full flex justify-center">
-                      <button type="button"
-                        onclick="flipCard({i})"
-                        class="px-4 py-1 rounded-lg bg-blue-100 text-blue-700 font-semibold hover:bg-blue-200 transition text-sm">
-                        Show Question
-                      </button>
-                    </div>
-                  </div>
                 </div>
-              </div>
-            '''
+            </div>
+        '''
         html += '''
+            </div>
         </div>
         <script>
         function flipCard(index) {
-          const inner = document.getElementById(`inner-${index}`);
-          inner.classList.toggle('flipped');
+            const inner = document.getElementById(`inner-${index}`);
+            inner.classList.toggle('flipped');
         }
         </script>
         <style>
-        .perspective { perspective: 1200px; }
+        .perspective {
+            perspective: 1500px;
+        }
         .flashcard-inner {
-          position: relative;
-          width: 100%;
-          height: 100%;
-          transition: transform 0.5s;
-          transform-style: preserve-3d;
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.8s;
+            transform-style: preserve-3d;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            border-radius: 1rem;
         }
         .flashcard-front, .flashcard-back {
-          backface-visibility: hidden;
-          width: 100%;
-          height: 100%;
-          position: absolute;
-          top: 0; left: 0;
+            backface-visibility: hidden;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            display: flex;
+            flex-direction: column;
+            border-radius: 1rem;
         }
         .flashcard-back {
-          transform: rotateY(180deg);
+            transform: rotateY(180deg);
         }
         .flashcard-inner.flipped {
-          transform: rotateY(180deg);
+            transform: rotateY(180deg);
         }
         </style>
         '''
@@ -772,8 +782,8 @@ def render_quiz_htmx(materials_json):
             return;
           }
 
-            //window.location.href = `/ai/courses/${course_id}/quiz/export?format=${format}&include_answers=${includeAnswers}`;
-            window.location.href = `/ai/courses/${course_id}/quiz/export`; 
+            window.location.href = `/ai/courses/${course_id}/quiz/export?format=${format}&include_answers=${includeAnswers}`;
+            //window.location.href = `/ai/courses/${course_id}/quiz/export`; 
           } catch (error) {
             console.error("Export failed:", error);
             alert("Failed to export quiz. Please try again.");
@@ -854,7 +864,6 @@ def generate_study_material_quiz(
     query: str,
     material_type: str,
     course_id: int,
-    student_id: str = None,   # For logging/student mode
     teacher_id: str = None,   # For logging/teacher mode
     question_types: list = None,  # For quizzes: ["mcq", ...]
     num_questions: int = 10,      # For quizzes
@@ -876,6 +885,7 @@ def generate_study_material_quiz(
         return json.dumps({"error": "Invalid material type."})
     
     # Set default question types if none provided
+    print("Rendering Quiz!")
     if material_type == "quiz" and (not question_types or len(question_types) == 0):
         question_types = ["mcq"]
 
@@ -911,7 +921,7 @@ def generate_study_material_quiz(
         return json.dumps({"error": f"LLM generation failed: {str(e)}"})
     finally:
         # Audit logging, prefer teacher_id, else student_id
-        responsible_id = teacher_id or student_id or "unknown"
+        responsible_id = teacher_id or "unknown"
         log_generation_event(responsible_id, course_id, material_type, query)
 
 def retrieve_course_context(course_id, query):
@@ -1054,6 +1064,7 @@ def process_llm_quiz_response(response, query):
 def extract_json_from_text(text):
     """Extract JSON from text that might contain additional content"""
     # Try to find JSON in the response
+    print("extracting json from text!")
     json_patterns = [
         ('{', '}'),  # For object
         ('[', ']')   # For array
@@ -1301,35 +1312,3 @@ def generate_quiz_export(materials_json, format="pdf", include_answers=False):
             f.write(json.dumps(quiz_data, indent=2))
     
     return f"/static/exports/{filename}"
-
-    '''elif material_type == "quiz":
-        return PromptTemplate(
-            input_variables=["context", "question"],
-            template="""
-            You are creating a quiz for a student on a specific topic using their course materials.
-            
-            Based on the course materials below, create a quiz of 5 multiple-choice questions on the topic: {question}
-            
-            Format your output as a JSON object with the following structure:
-            {{
-              "title": "Quiz title here",
-              "description": "Brief description of the quiz",
-              "questions": [
-                {{
-                  "question": "Question text here",
-                  "options": ["Option A", "Option B", "Option C", "Option D"],
-                  "correct_answer_index": 0,  // Index of the correct answer (0-based)
-                  "explanation": "Explanation of why the answer is correct"
-                }},
-                ...more questions...
-              ]
-            }}
-            
-            Course Materials:
-            {context}
-            
-            Topic: {question}
-            
-            Quiz (JSON format):
-            """
-        )'''

@@ -1,14 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Intellaica Teacher Dashboard</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Edit Assignment | Intellaica</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.2"></script>
 </head>
 <body class="bg-gray-100 min-h-screen">
-  <!-- Navbar -->
-  <!-- Sidebar toggle -->
   <input id="sidebar-toggle" type="checkbox" class="hidden peer" />
 
   <!-- Sidebar (fixed to the left, slides over, X to close) -->
@@ -87,53 +86,63 @@
       </ul>
     </nav>
 
-  <main class="max-w-5xl mx-auto px-4 py-10">
-    <div class="text-center mb-9">
-      <h2 class="text-3xl font-bold text-gray-900">Welcome, {{ teacher_name }} 👋</h2>
-      <p class="mt-2 text-gray-600 text-lg">What would you like to do today?</p>
-    </div>
+    <main class="max-w-3xl mx-auto px-4 py-8">
+      <h2 class="text-2xl font-bold mb-6 text-gray-900">
+        ✏️ Edit Assignment - <span class="text-blue-700">{{ course.title }}</span>
+      </h2>
+      
+      <div class="bg-white rounded-xl shadow p-8 border border-gray-100">
+        <form action="/ai/assignments/{{ assignment.id }}/update" method="POST">
+          <div class="mb-5">
+            <label for="title" class="block text-gray-700 font-medium mb-2">Assignment Title</label>
+            <input 
+              type="text" 
+              id="title" 
+              name="title"
+              value="{{ assignment.title }}"
+              class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            >
+          </div>
+          
+          <div class="mb-5">
+            <label for="description" class="block text-gray-700 font-medium mb-2">Description</label>
+            <textarea 
+              id="description" 
+              name="description"
+              class="w-full border border-gray-300 rounded-lg px-4 py-2 h-32 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            >{{ assignment.description }}</textarea>
+          </div>
+          
+          <div class="mb-5">
+            <label for="deadline" class="block text-gray-700 font-medium mb-2">Deadline (Optional)</label>
+            <input 
+              type="datetime-local" 
+              id="deadline" 
+              name="deadline"
+              value="{% if assignment.deadline %}{{ assignment.deadline.strftime('%Y-%m-%dT%H:%M') }}{% endif %}"
+              class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+          </div>
 
-    <!-- Courses Section -->
-    <h3 class="text-xl font-semibold text-gray-800 mb-3 flex items-center gap-2">
-      <span>📚 Your Created Courses</span>
-      <span class="w-2 h-2 bg-blue-600 rounded-full inline-block"></span>
-    </h3>
-
-    <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-      <!-- Create Course Card -->
-      <div class="flex flex-col p-6 bg-white rounded-xl shadow border border-transparent hover:border-blue-500 transition">
-        <h4 class="text-lg font-semibold mb-1">➕ Create New Course</h4>
-        <p class="text-gray-500 mb-3">Start a new course and invite students.</p>
-        <a href="/auth/courses/new"
-           class="inline-block mt-auto px-4 py-2 text-white bg-blue-600 font-medium rounded-lg hover:bg-blue-700 transition text-center"
-        >Create</a>
+          <div class="flex justify-between pt-5">
+            <a 
+              href="/ai/teacher/{{ course.id }}/assignments"
+              class="px-5 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
+            >
+              Cancel
+            </a>
+            <button 
+              type="submit"
+              class="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            >
+              Update Assignment
+            </button>
+          </div>
+        </form>
       </div>
-      <!-- Courses Cards -->
-      {% for course in courses %}
-      <div class="flex flex-col p-6 bg-white rounded-xl shadow border border-gray-100 hover:border-blue-500 transition">
-        <h4 class="text-lg font-semibold mb-1 break-words">{{ course.title }}</h4>
-        <p class="text-gray-500 mb-4 break-words">{{ course.description }}</p>
-        <div class="flex flex-col gap-2 mt-auto">
-          <a href="/auth/courses/{{ course.id }}/enroll"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">👥 Enroll Students</a>
-          <a href="/auth/courses/{{ course.id }}/attendance"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">📝 Mark/View Attendance</a>
-          <a href="/ai/teacher/{{course.id}}/assignments"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">✏️ Manage Assignments</a>
-          <a href="/ai/courses/{{course.id}}/upload_materials"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">📤 Upload Materials</a>
-          <a href="/auth/courses/{{ course.id }}/invite-ta"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">🎓 Invite TA</a>
-          <a href="/ai/courses/{{ course.id }}/quiz/create"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">🎓 Create Quiz</a>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-
-    <div class="mt-12 text-center text-gray-400 text-sm">
-      ✨ Built with <span class="text-pink-500">❤️</span> for dedicated teachers — Intellaica
-    </div>
-  </main>
+    </main>
+  </div>
 </body>
 </html>
