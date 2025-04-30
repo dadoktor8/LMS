@@ -87,8 +87,8 @@
       </ul>
     </nav>
 
-  <main class="flex items-center justify-center min-h-[60vh]">
-    <div class="w-full max-w-xl mx-auto bg-white shadow rounded-2xl py-8 px-8 border border-gray-100">
+  <main class="flex items-center justify-center py-8">
+    <div class="w-full max-w-3xl mx-auto bg-white shadow rounded-2xl py-8 px-8 border border-gray-100">
       <h2 class="text-2xl font-bold mb-6 text-gray-800 text-center">📝 Create Assignment</h2>
       <form method="post" action="" class="flex flex-col gap-5">
         <div>
@@ -123,6 +123,30 @@
             class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
           />
         </div>
+        
+        <!-- Rubrics Section -->
+        <div class="mt-2">
+          <div class="flex items-center justify-between">
+            <label class="block font-semibold text-gray-700">📊 Rubrics</label>
+            <button 
+              type="button" 
+              id="add-criterion-btn"
+              class="text-sm bg-blue-50 text-blue-700 px-3 py-1 rounded font-medium hover:bg-blue-100 transition flex items-center"
+            >
+              + Add Criterion
+            </button>
+          </div>
+          
+          <div id="rubrics-container" class="mt-3 space-y-4 border border-gray-200 rounded-lg p-4 bg-gray-50">
+            <div class="text-gray-500 text-sm text-center" id="no-criteria-message">
+              No criteria added yet. Click "Add Criterion" to begin creating your rubric.
+            </div>
+            
+            <!-- Rubric criteria will be added here dynamically -->
+            <div id="criteria-list" class="space-y-4"></div>
+          </div>
+        </div>
+        
         <div>
           <label class="block font-semibold text-gray-700 mb-1">📎 Attach Files (optional):</label>
           <div class="flex flex-col gap-1">
@@ -153,5 +177,197 @@
     </div>
   </main>
   <div id="toast" class="mt-6"></div>
+  
+  <!-- Template for new criterion -->
+  <template id="criterion-template">
+    <div class="criterion-item bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+      <div class="flex justify-between items-start mb-3">
+        <div class="w-full">
+          <div class="flex justify-between">
+            <input 
+              type="text" 
+              name="criteria_names[]" 
+              placeholder="Criterion name (e.g., Content, Organization)"
+              class="w-full font-medium text-gray-800 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            />
+            <div class="flex gap-2 ml-2">
+              <input 
+                type="number" 
+                name="criteria_weights[]" 
+                placeholder="Weight"
+                class="w-20 text-center px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                min="1" 
+                max="100"
+                value="10"
+                required
+              />
+              <button type="button" class="remove-criterion-btn text-red-500 hover:text-red-700">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="levels-container space-y-2">
+        <div class="flex justify-between items-center mb-2">
+          <label class="text-sm font-medium text-gray-700">Performance Levels</label>
+          <button type="button" class="add-level-btn text-xs bg-green-50 text-green-700 px-2 py-1 rounded font-medium hover:bg-green-100 transition">
+            + Add Level
+          </button>
+        </div>
+        
+        <div class="levels-list space-y-2">
+          <!-- Default levels -->
+          <div class="level-item flex gap-2">
+            <input 
+              type="text" 
+              name="level_descriptions[]" 
+              placeholder="Level description" 
+              class="flex-grow px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              required
+            />
+            <input 
+              type="number" 
+              name="level_points[]" 
+              placeholder="Points" 
+              class="w-16 text-center px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              min="0"
+              required
+            />
+            <button type="button" class="remove-level-btn text-red-500 hover:text-red-700">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const addCriterionBtn = document.getElementById('add-criterion-btn');
+      const criteriaList = document.getElementById('criteria-list');
+      const noMessageElement = document.getElementById('no-criteria-message');
+      const criterionTemplate = document.getElementById('criterion-template');
+      
+      let criteriaCounter = 0;
+      
+      // Add a criterion
+      addCriterionBtn.addEventListener('click', function() {
+        // Hide the "no criteria" message
+        noMessageElement.style.display = 'none';
+        
+        // Clone the template
+        const newCriterion = document.importNode(criterionTemplate.content, true);
+        const criterionId = 'criterion-' + criteriaCounter++;
+        newCriterion.querySelector('.criterion-item').id = criterionId;
+        
+        // Add initial two levels
+        const levelsContainer = newCriterion.querySelector('.levels-list');
+        
+        // Set up remove criterion button
+        newCriterion.querySelector('.remove-criterion-btn').addEventListener('click', function() {
+          document.getElementById(criterionId).remove();
+          
+          // Show "no criteria" message if there are no criteria left
+          if (criteriaList.children.length === 0) {
+            noMessageElement.style.display = 'block';
+          }
+        });
+        
+        // Set up add level button
+        newCriterion.querySelector('.add-level-btn').addEventListener('click', function() {
+          addLevelToContainer(document.getElementById(criterionId).querySelector('.levels-list'));
+        });
+        
+        // Set up remove level button for initial level
+        newCriterion.querySelectorAll('.remove-level-btn').forEach(btn => {
+          btn.addEventListener('click', function() {
+            const levelsContainer = this.closest('.levels-list');
+            if (levelsContainer.children.length > 1) {
+              this.closest('.level-item').remove();
+            }
+          });
+        });
+        
+        criteriaList.appendChild(newCriterion);
+        
+        // Add name attributes with unique identifiers for form submission
+        updateFormFieldNames();
+      });
+      
+      // Add a new level to a criterion
+      function addLevelToContainer(levelsContainer) {
+        const levelItem = document.createElement('div');
+        levelItem.classList.add('level-item', 'flex', 'gap-2');
+        
+        levelItem.innerHTML = `
+          <input 
+            type="text" 
+            placeholder="Level description" 
+            class="flex-grow px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            required
+          />
+          <input 
+            type="number" 
+            placeholder="Points" 
+            class="w-16 text-center px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            min="0"
+            required
+          />
+          <button type="button" class="remove-level-btn text-red-500 hover:text-red-700">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        `;
+        
+        // Set up remove level button
+        levelItem.querySelector('.remove-level-btn').addEventListener('click', function() {
+          if (levelsContainer.children.length > 1) {
+            this.closest('.level-item').remove();
+          }
+        });
+        
+        levelsContainer.appendChild(levelItem);
+        
+        // Update form field names
+        updateFormFieldNames();
+      }
+      
+      // Update all form field name attributes to include criterion and level indices
+      function updateFormFieldNames() {
+        const criteria = criteriaList.querySelectorAll('.criterion-item');
+        
+        criteria.forEach((criterion, criterionIndex) => {
+          // Update criterion name and weight
+          criterion.querySelector('input[placeholder="Criterion name (e.g., Content, Organization)"]').name = 
+            `rubric[${criterionIndex}][name]`;
+          
+          criterion.querySelector('input[placeholder="Weight"]').name = 
+            `rubric[${criterionIndex}][weight]`;
+          
+          // Update levels
+          const levels = criterion.querySelectorAll('.level-item');
+          levels.forEach((level, levelIndex) => {
+            level.querySelector('input[placeholder="Level description"]').name = 
+              `rubric[${criterionIndex}][levels][${levelIndex}][description]`;
+            
+            level.querySelector('input[placeholder="Points"]').name = 
+              `rubric[${criterionIndex}][levels][${levelIndex}][points]`;
+          });
+        });
+      }
+      
+      // Example: Add initial criterion
+      addCriterionBtn.click();
+    });
+  </script>
 </body>
 </html>

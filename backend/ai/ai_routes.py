@@ -13,11 +13,11 @@ import os
 from datetime import datetime
 
 import urllib
-from backend.ai.ai_grader import evaluate_assignment_text
+from backend.ai.ai_grader import evaluate_assignment_text, prepare_rubric_for_ai
 from backend.ai.open_notes_system import generate_quiz_export, generate_study_material, generate_study_material_quiz, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, ProcessedMaterial,Quiz  # Make sure this is correct
+from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
@@ -480,15 +480,22 @@ async def generate_study_guide(
         }
     )
 
+# Modified route handlers to support rubrics
+
 @ai_router.get("/courses/{course_id}/create-assignment", response_class=HTMLResponse)
-async def show_create_assignment_form(request: Request, course_id: int, db: Session = Depends(get_db), user=Depends(require_role("teacher")) ):
+async def show_create_assignment_form(
+    request: Request, 
+    course_id: int, 
+    db: Session = Depends(get_db), 
+    user=Depends(require_role("teacher"))
+):
     materials = db.query(CourseMaterial).filter(CourseMaterial.course_id == course_id).order_by(CourseMaterial.uploaded_at.desc()).all()
     course = db.query(Course).filter(Course.id == course_id).first()
     teacher_id = user["user_id"]
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
     if not course:
         return HTMLResponse("❌ Course not found", status_code=404)
-    return templates.TemplateResponse("create_assignment.html", {"request": request, "course_id": course_id, "course":course, "materials": materials, "courses" : courses})
+    return templates.TemplateResponse("create_assignment.html", {"request": request, "course_id": course_id, "course":course, "materials": materials, "courses": courses})
 
 @ai_router.post("/courses/{course_id}/create-assignment", response_class=HTMLResponse)
 async def create_assignment(
@@ -499,7 +506,7 @@ async def create_assignment(
     deadline: str = Form(...),
     db: Session = Depends(get_db),
     user=Depends(require_teacher_or_ta()),
-    material_ids: List[int] = Form(None)
+    material_ids: List[int] = Form(None),
 ):
     deadline_dt = datetime.fromisoformat(deadline)
     assignment = Assignment(
@@ -509,10 +516,65 @@ async def create_assignment(
         deadline=deadline_dt,
         teacher_id=user["user_id"]
     )
+    
     if material_ids:
         assignment.materials = db.query(CourseMaterial).filter(CourseMaterial.id.in_(material_ids)).all()
+    
     db.add(assignment)
     db.commit()
+    db.refresh(assignment)
+    
+    form_data = await request.form()
+
+    # Process rubrics
+    rubric_data = {}
+    for key, value in form_data.items():
+        if key.startswith('rubric['):
+            # Parse the form data to extract rubric information
+            # Format: rubric[criterion_index][field_name] or
+            #         rubric[criterion_index][levels][level_index][field_name]
+            parts = key.rstrip(']').split('[')
+            criterion_index = int(parts[1].rstrip(']'))  # <<< FIXED
+
+            if criterion_index not in rubric_data:
+                rubric_data[criterion_index] = {'levels': {}}
+
+            if len(parts) == 3:
+                # This is a criterion attribute (name, weight)
+                field_name = parts[2].rstrip(']')
+                rubric_data[criterion_index][field_name] = value
+            elif len(parts) == 5:
+                # This is a level attribute (description, points)
+                level_index = int(parts[3].rstrip(']'))  # <<< FIXED
+                field_name = parts[4].rstrip(']')
+
+                if level_index not in rubric_data[criterion_index]['levels']:
+                    rubric_data[criterion_index]['levels'][level_index] = {}
+
+                rubric_data[criterion_index]['levels'][level_index][field_name] = value 
+    
+    # Now save the rubric criteria and levels to the database
+    for criterion_data in rubric_data.values():
+        criterion = RubricCriterion(
+            assignment_id=assignment.id,
+            name=criterion_data.get('name', ''),
+            weight=int(criterion_data.get('weight', 10))
+        )
+        db.add(criterion)
+        db.commit()
+        db.refresh(criterion)
+        
+        # Add levels for this criterion
+        for level_data in criterion_data['levels'].values():
+            level = RubricLevel(
+                criterion_id=criterion.id,
+                description=level_data.get('description', ''),
+                points=float(level_data.get('points', 0))
+            )
+            db.add(level)
+    
+    db.commit()
+    
     return RedirectResponse(f"/ai/teacher/{course_id}/assignments", status_code=303)
 
 @ai_router.get("/assignments/{assignment_id}/submit", response_class=HTMLResponse)
@@ -520,7 +582,11 @@ async def show_submit_assignment_form(request: Request, assignment_id: int, db: 
     assignment = db.query(Assignment).filter_by(id=assignment_id).first()
     enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
     courses = [enroll.course for enroll in enrollments]
-    return templates.TemplateResponse("submit_assignment.html", {"request": request, "assignment": assignment, "courses":courses})
+
+    rubric_criteria = db.query(RubricCriterion).filter(
+        RubricCriterion.assignment_id == assignment_id
+    ).options(joinedload(RubricCriterion.levels)).all()
+    return templates.TemplateResponse("submit_assignment.html", {"request": request, "assignment": assignment, "courses":courses, "rubric_criteria": rubric_criteria})
 
 @ai_router.post("/assignments/{assignment_id}/submit", response_class=HTMLResponse)
 async def submit_assignment(
@@ -533,66 +599,105 @@ async def submit_assignment(
     assignment = db.query(Assignment).filter_by(id=assignment_id).first()
     if not assignment:
         return HTMLResponse("❌ Assignment not found", status_code=404)
-    
+
     # Save file
     filename = f"{datetime.utcnow().timestamp()}_{file.filename}"
-    file_location = f"uploads/assignments/{assignment_id}_{filename}"  # no leading slash
-    save_path = f"backend/{file_location}"  # actual filesystem path
-
-
-
-    # Ensure the directory exists
+    file_location = f"uploads/assignments/{assignment_id}_{filename}"
+    save_path = f"backend/{file_location}"
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-    # Save the file
     with open(save_path, "wb") as f:
         f.write(await file.read())
 
-    
-    # Extract and evaluate
+    # Extract text & AI grade (with/without rubric)
+    ai_score = None
+    ai_feedback = None
+    ai_criteria_eval = None
     try:
-        raw_text = extract_text_from_pdf(f"backend/{file_location}")
-        ai_score, ai_feedback = evaluate_assignment_text(
-            raw_text, 
-            assignment.title, 
-            assignment.description
+        raw_text = extract_text_from_pdf(save_path)
+        # Try to get rubric criteria (with all levels loaded)
+        rubric_criteria = db.query(RubricCriterion).filter(
+            RubricCriterion.assignment_id == assignment.id
+        ).options(joinedload(RubricCriterion.levels)).all()
+        ai_rubric = prepare_rubric_for_ai(rubric_criteria) if rubric_criteria else None
+
+        ai_score, ai_feedback, ai_criteria_eval = evaluate_assignment_text(
+            text=raw_text,
+            assignment_title=assignment.title,
+            assignment_description=assignment.description,
+            rubric_criteria=ai_rubric
         )
     except Exception as e:
-        logging.error(f"AI Evaluation failed: {e}")
-        ai_score, ai_feedback = None, None
-    
-    # Check if a previous submission exists
+        logging.exception(f"AI Evaluation failed: {e}")
+        ai_score, ai_feedback, ai_criteria_eval = None, None, None
+
+    # Save or update submission (without per-criterion rubric yet)
     existing_submission = (
         db.query(AssignmentSubmission)
         .filter_by(assignment_id=assignment_id, student_id=student_id)
         .first()
     )
-    
     if existing_submission:
-        # If resubmission, update the existing record
-        existing_submission.file_path = file_location
-        existing_submission.ai_score = ai_score
-        existing_submission.ai_feedback = ai_feedback
-        existing_submission.submitted_at = datetime.utcnow()
+        submission = existing_submission
+        submission.file_path = file_location
+        submission.ai_score = ai_score
+        submission.ai_feedback = ai_feedback
+        submission.submitted_at = datetime.utcnow()
     else:
-        # Create new submission
         submission = AssignmentSubmission(
             assignment_id=assignment_id,
             student_id=student_id,
-            file_path=save_path,
+            file_path=file_location,
             ai_score=ai_score,
             ai_feedback=ai_feedback,
             submitted_at=datetime.utcnow()
         )
         db.add(submission)
-    
+        db.flush() # so submission.id is available
+
     db.commit()
-    
+
+    # Save rubric evaluations per-criterion (just like your inspiration code)
+    if ai_criteria_eval:
+        # Delete previous AI evaluations for this submission (if any)
+        db.query(RubricEvaluation).filter(
+            RubricEvaluation.submission_id == submission.id,
+            RubricEvaluation.graded_by_ai == True
+        ).delete(synchronize_session=False)
+        # Create new evaluations
+        for crit in ai_criteria_eval:
+            criterion_id = crit.get('criterion_id')
+            level_id = crit.get('selected_level_id')
+            points = crit.get('points_awarded')
+            criterion_feedback = crit.get('feedback')
+            evaluation = RubricEvaluation(
+                submission_id=submission.id,
+                criterion_id=criterion_id,
+                level_id=level_id,
+                points_awarded=points,
+                feedback=criterion_feedback,
+                graded_by_ai=True,
+                created_at=datetime.utcnow()
+            )
+            db.add(evaluation)
+        db.commit()
+
+    # Generate HTML feedback (overall + rubric, if any):
+    rubric_html = ""
+    if ai_criteria_eval:
+        rubric_html += "<h4 class='font-bold mt-2'>Rubric Evaluation:</h4><ul class='m-2 p-2'>"
+        for crit in ai_criteria_eval:
+            rubric_html += (
+                f"<li><b>{crit.get('name')}</b>: {crit.get('feedback')} "
+                f"(Points: {crit.get('points_awarded', '—')})</li>"
+            )
+        rubric_html += "</ul>"
+
     return HTMLResponse(
         f"""<div class='toast success'>
-                ✅ Submitted! AI Score: {ai_score or "Pending"}
+                ✅ Submitted! AI Score: {ai_score if ai_score is not None else 'Pending'}
                 <br>
-                <small>{ai_feedback or "AI feedback pending"}</small>
+                <small>{ai_feedback if ai_feedback else "AI feedback pending"}</small>
+                {rubric_html}
             </div>""",
         status_code=200
     )
@@ -650,6 +755,19 @@ async def student_course_assignments(
     
     # Create a dictionary for easier lookup in template
     submission_dict = {s.assignment_id: s for s in submissions}
+    criteria_by_assignment = {}
+    levels_by_criterion = {}
+    for assignment in assignments:
+        criteria = db.query(RubricCriterion).filter_by(assignment_id=assignment.id).all()
+        criteria_by_assignment[assignment.id] = criteria
+        for crit in criteria:
+            levels_by_criterion[crit.id] = db.query(RubricLevel).filter_by(criterion_id=crit.id).order_by(RubricLevel.points.desc()).all()
+
+    # For each submission: get rubric evaluations
+    evaluations_by_submission = {}
+    for s in submissions:
+        evals = db.query(RubricEvaluation).filter_by(submission_id=s.id).all()
+        evaluations_by_submission[s.id] = evals
     
     return templates.TemplateResponse(
         "student_assignments.html",
@@ -659,7 +777,10 @@ async def student_course_assignments(
             "submissions": submissions,
             "submission_dict": submission_dict,
             "course": course,
-            "courses":courses
+            "courses":courses,
+            "criteria_by_assignment": criteria_by_assignment,
+            "levels_by_criterion": levels_by_criterion,
+            "evaluations_by_submission": evaluations_by_submission,
         },
     )
 @ai_router.post("/assignments/{assignment_id}/grade/{submission_id}")
@@ -669,40 +790,75 @@ async def grade_submission(
     teacher_score: Optional[int] = Form(None),
     comment: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    user: dict = Depends(require_role("teacher"))
+    user: dict = Depends(require_role("teacher")),
+    request: Request = None,
 ):
     submission = db.query(AssignmentSubmission).join(Assignment).filter(
         Assignment.id == assignment_id,
         Assignment.teacher_id == user["user_id"],
         AssignmentSubmission.id == submission_id
     ).first()
-    
     if not submission:
         raise HTTPException(status_code=404, detail="Submission not found")
-    
     # Update the teacher's score
     if teacher_score is not None:
         submission.teacher_score = teacher_score
-    
-    # Add a comment if provided
+
+    # Rubric evaluation handling
+    form = await request.form()
+    print("==== GRADING SUBMISSION DEBUG ====")
+    print("Form fields received:")
+    for k, v in form.items():
+        print(f"  {k}: {v}")
+
+    all_criteria = db.query(RubricCriterion).filter_by(assignment_id=assignment_id).all()
+
+    for crit in all_criteria:
+        crit_id = crit.id
+        level_id_raw = form.get(f"rubric_crit_{crit_id}_level")
+        feedback = form.get(f"rubric_crit_{crit_id}_feedback", "").strip()
+        print(f"\n-- Processing criterion {crit_id} ({crit.name})")
+        print(f"   Level: {level_id_raw}")
+        print(f"   Feedback: '{feedback}'")
+        if not level_id_raw:
+            print("   [SKIPPED: No level selected]")
+            continue
+        chosen_level_id = int(level_id_raw)
+        level = db.query(RubricLevel).filter_by(id=chosen_level_id).first()
+        print(f"   RubricLevel object: {level} (desc: {level.description if level else 'N/A'})")
+        eval = db.query(RubricEvaluation).filter_by(submission_id=submission_id, criterion_id=crit_id).first()
+        print(f"   RubricEvaluation found: {bool(eval)}")
+        if not eval:
+            eval = RubricEvaluation(
+                submission_id=submission_id,
+                criterion_id=crit_id,
+                level_id=chosen_level_id,
+                points_awarded=level.points if level else None,
+                feedback=feedback,
+                graded_by_user_id=user["user_id"]
+            )
+            db.add(eval)
+            print("   [CREATED NEW Eval]")
+        else:
+            eval.level_id = chosen_level_id
+            eval.points_awarded = level.points if level else None
+            eval.feedback = feedback
+            eval.graded_by_user_id = user["user_id"]
+            print("   [UPDATED Eval]")
+        print(f"   Saved: level_id={eval.level_id}, points={eval.points_awarded}, feedback='{eval.feedback}'")
+
+    # Add a general comment if provided
     if comment and comment.strip():
-        # Log the comment being added
         logging.info(f"Adding comment to submission {submission_id}: '{comment}' by user {user['user_id']}")
-        
         new_comment = AssignmentComment(
             submission_id=submission_id,
             user_id=user["user_id"],
             message=comment
         )
         db.add(new_comment)
-    
     db.commit()
-    
-    # Verify comment was added
-    comments = db.query(AssignmentComment).filter_by(submission_id=submission_id).all()
-    logging.info(f"After commit, submission {submission_id} has {len(comments)} comments")
-    
-    # Use the correct prefix for your routes
+    print("==== END GRADING DEBUG ====")
+    print(form)
     return RedirectResponse(
         url=f"/ai/assignments/{assignment_id}/submissions",
         status_code=303
@@ -718,16 +874,27 @@ async def view_submissions(
     assignment = db.query(Assignment).filter_by(id=assignment_id, teacher_id=user["user_id"]).first()
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
-
     submissions = db.query(AssignmentSubmission).filter_by(assignment_id=assignment.id).all()
     teacher_id = user["user_id"]
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
+
+    # RUBRICS ADDED
+    criteria = db.query(RubricCriterion).filter_by(assignment_id=assignment.id).all()
+    levels_by_criterion = {}
+    for crit in criteria:
+        levels_by_criterion[crit.id] = db.query(RubricLevel).filter_by(criterion_id=crit.id).order_by(RubricLevel.points.desc()).all()
+    evals_by_submission = {}
+    for s in submissions:
+        evals_by_submission[s.id] = db.query(RubricEvaluation).filter_by(submission_id=s.id).all()
 
     return templates.TemplateResponse("teacher_assignment_submissions.html", {
         "request": request,
         "assignment": assignment,
         "submissions": submissions,
-        "courses":courses
+        "courses": courses,
+        "criteria": criteria,
+        "levels_by_criterion": levels_by_criterion,
+        "evals_by_submission": evals_by_submission,
     })
 
 @ai_router.get("/assignments/{assignment_id}/export")

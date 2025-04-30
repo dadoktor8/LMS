@@ -1,7 +1,7 @@
 # backend/db/models.py
 from datetime import datetime
 import traceback
-from sqlalchemy import Column, DateTime, Integer, String, Boolean, ForeignKey, Table, Text, func
+from sqlalchemy import Column, DateTime, Float, Integer, String, Boolean, ForeignKey, Table, Text, func
 from backend.db.database import Base
 from sqlalchemy.orm import relationship
 
@@ -170,6 +170,7 @@ class Assignment(Base):
     submissions = relationship("AssignmentSubmission", back_populates="assignment", cascade="all, delete-orphan")
     teacher = relationship("User")
     materials = relationship("CourseMaterial", secondary=assignment_materials, backref="assignments")
+    rubric_criteria = relationship("RubricCriterion", back_populates="assignment", cascade="all, delete-orphan")
 
 
 class AssignmentSubmission(Base):
@@ -186,6 +187,7 @@ class AssignmentSubmission(Base):
     student = relationship("User")
     assignment = relationship("Assignment", back_populates="submissions")
     comments = relationship("AssignmentComment", back_populates="submission", cascade="all, delete-orphan")
+    rubric_evaluations = relationship("RubricEvaluation", back_populates="submission", cascade="all, delete-orphan")
 
 
 class AssignmentComment(Base):
@@ -211,3 +213,58 @@ class Quiz(Base):
     topic = Column(String, nullable=False)
     json_data = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
+
+class RubricCriterion(Base):
+    __tablename__ = "rubric_criteria"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    assignment_id = Column(Integer, ForeignKey("assignments.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String, nullable=False)
+    weight = Column(Integer, default=10)  # Percentage weight in the overall grade
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    assignment = relationship("Assignment", back_populates="rubric_criteria")
+    levels = relationship("RubricLevel", back_populates="criterion", cascade="all, delete-orphan")
+    
+    def __repr__(self):
+        return f"<RubricCriterion {self.name}>"
+
+class RubricLevel(Base):
+    __tablename__ = "rubric_levels"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    criterion_id = Column(Integer, ForeignKey("rubric_criteria.id", ondelete="CASCADE"), nullable=False)
+    description = Column(String, nullable=False)
+    points = Column(Float, nullable=False)  # Points awarded for this level
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    criterion = relationship("RubricCriterion", back_populates="levels")
+    
+    def __repr__(self):
+        return f"<RubricLevel {self.description[:20]}... - {self.points} pts>"
+    
+
+
+class RubricEvaluation(Base):
+    __tablename__ = "rubric_evaluations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    submission_id = Column(Integer, ForeignKey("assignment_submissions.id", ondelete="CASCADE"), nullable=False)
+    criterion_id = Column(Integer, ForeignKey("rubric_criteria.id", ondelete="CASCADE"), nullable=False)
+    level_id = Column(Integer, ForeignKey("rubric_levels.id", ondelete="CASCADE"), nullable=True)
+    points_awarded = Column(Float, nullable=False)
+    feedback = Column(Text, nullable=True)
+    graded_by_ai = Column(Boolean, default=False)
+    graded_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    submission = relationship("AssignmentSubmission", back_populates="rubric_evaluations")
+    criterion = relationship("RubricCriterion")
+    level = relationship("RubricLevel")
+    graded_by_user = relationship("User")
+    
+    def __repr__(self):
+        return f"<RubricEvaluation for criterion {self.criterion_id} - {self.points_awarded} points>"

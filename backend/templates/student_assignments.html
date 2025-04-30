@@ -223,9 +223,57 @@
 
       <!-- Teacher Feedback Section -->
       <div class="feedback-section mb-2 rounded-lg px-4 py-3 bg-green-50 border-l-4 border-green-500">
-        <h4 class="font-semibold text-green-800 mb-2">Teacher Assessment (Score: {{ submission_dict[assignment.id].teacher_score if submission_dict[assignment.id].teacher_score is not none else "Pending" }})</h4>
+        <h4 class="font-semibold text-green-800 mb-2">
+          Teacher Assessment (Score: {{ submission_dict[assignment.id].teacher_score if submission_dict[assignment.id].teacher_score is not none else "Pending" }})
+        </h4>
+        {% set submission = submission_dict[assignment.id] %}
+        {% set criteria = criteria_by_assignment[assignment.id] %}
+        {% set evaluations = evaluations_by_submission.get(submission.id, []) %}
+        {% if criteria %}
+        <div class="mb-4">
+          <h5 class="font-semibold mb-2 text-gray-700">🧾 Grading Rubric Breakdown</h5>
+          <table class="w-full border text-sm mb-2 rounded shadow">
+            <thead>
+              <tr>
+                <th>Criterion</th>
+                <th>Level</th>
+                <th>Points</th>
+                <th>Max</th>
+                <th>Feedback</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for crit in criteria %}
+                {% set found_eval = (evaluations | selectattr("criterion_id", "equalto", crit.id) | list | first) %}
+                {% set found_level = None %}
+                {% if found_eval and found_eval.level_id %}
+                  {% for lvl in levels_by_criterion[crit.id] %}
+                    {% if lvl.id == found_eval.level_id %}
+                      {% set found_level = lvl %}
+                    {% endif %}
+                  {% endfor %}
+                {% endif %}
+                <tr>
+                  <td>{{ crit.name }} <span class="text-xs text-gray-500">({{ crit.weight }}%)</span></td>
+                  <td>{{ found_level.description if found_level else '-' }}</td>
+                  <td>{{ found_eval.points_awarded if found_eval else '-' }}</td>
+                  <td>
+                    {% set max_points = levels_by_criterion[crit.id][0].points if levels_by_criterion[crit.id]|length > 0 else '-' %}
+                    {{ max_points }}
+                  </td>
+                  <td>{{ found_eval.feedback if found_eval and found_eval.feedback else '-' }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+      </div>
+      {% endif %}
+      {% set submission = submission_dict.get(assignment.id) %}
+      {% if submission %}
         {% set teacher_comments = [] %}
-        {% for comment in submission_dict[assignment.id].comments %}
+        {% for comment in submission.comments %}
           {% if not comment.message.startswith('AI Feedback:') %}
             {% set _ = teacher_comments.append(comment) %}
           {% endif %}
@@ -234,16 +282,16 @@
           {% for comment in teacher_comments %}
             <div class="mb-2">
               <p><span class="font-semibold">{{ comment.user.f_name if comment.user else 'Teacher' }}:</span>
-                <span class="text-gray-700">{{ comment.message }}</span></p>
+              <span class="text-gray-700">{{ comment.message }}</span></p>
               <small class="text-gray-500">{{ comment.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
             </div>
           {% endfor %}
         {% else %}
           <p class="text-gray-700">No teacher feedback available yet.</p>
         {% endif %}
+      {% endif %}
       </div>
     </div>
-    {% endif %}
   {% endfor %}
 
   <div class="text-center mt-12">

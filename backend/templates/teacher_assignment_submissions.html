@@ -108,9 +108,7 @@
               <th class="px-3 py-2">Submitted At</th>
               <th class="px-3 py-2">AI Score</th>
               <th class="px-3 py-2">AI Feedback</th>
-              <th class="px-3 py-2">Teacher Score</th>
-              <th class="px-3 py-2">Teacher Comment</th>
-              <th class="px-3 py-2">Action</th>
+              <th class="px-3 py-2" colspan="2">Rubric Evaluation</th>
             </tr>
           </thead>
           <tbody>
@@ -136,7 +134,7 @@
                         onclick="hideModal({{submission.id}})" aria-label="Close Modal">&times;</button>
                       <h4 class="font-semibold mb-3 text-gray-800 text-lg text-center">AI Feedback</h4>
                       <pre class="w-full max-h-80 overflow-y-auto text-sm bg-gray-50 border p-4 rounded whitespace-pre-line text-gray-800 font-mono leading-relaxed">
-{{ submission.ai_feedback }}
+                      {{ submission.ai_feedback }}
                       </pre>
                     </div>
                   </div>
@@ -144,36 +142,76 @@
                   <span class="text-gray-400">No Feedback</span>
                 {% endif %}
               </td>
-              <td class="px-3 py-2">
+              <!-- Rubric grading table -->
+              <td class="px-3 py-2" colspan="2">
                 <form method="post" action="/ai/assignments/{{ assignment.id }}/grade/{{ submission.id }}">
-                  <input type="number"
-                         name="teacher_score"
-                         value="{{ submission.teacher_score or '' }}"
-                         min="0" max="100"
-                         class="border w-16 px-1 py-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-              </td>
-              <td class="px-3 py-2">
-                <textarea
-                  name="comment"
-                  rows="2"
-                  placeholder="Add a comment"
-                  class="border px-3 py-2 rounded w-56 min-h-[42px] focus:outline-none focus:ring-2 focus:ring-blue-500 text-base resize-y font-medium text-gray-800"
-                ></textarea>
-                <br>
-                {% if submission.comments %}
-                  <div class="mt-2 text-gray-700 text-sm space-y-1">
-                  {% for com in submission.comments %}
-                    <div><b>{{ com.user.f_name }}:</b> {{ com.message }}</div>
-                  {% endfor %}
+                  <table class="w-full text-xs border rounded">
+                    <thead>
+                      <tr class="bg-gray-50">
+                        <th class="p-1 text-left">Criterion</th>
+                        <th class="p-1 text-left">Level</th>
+                        <th class="p-1 text-left">Score</th>
+                        <th class="p-1 text-left">Feedback</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% set evals = evals_by_submission[submission.id] %}
+                      {% for crit in criteria %}
+                        {% set found_eval = None %}
+                        {% for ev in evals if ev.criterion_id == crit.id %}{% set found_eval = ev %}{% endfor %}
+                        <tr class="border-t">
+                          <td class="p-1 font-semibold">{{ crit.name }}</td>
+                          <td class="p-1">
+                            <select name="rubric_crit_{{ crit.id }}_level" class="border rounded py-1 px-2">
+                              <option value="">Select Level</option>
+                              {% for level in levels_by_criterion[crit.id] %}
+                                <option value="{{ level.id }}"
+                                {% if found_eval and found_eval.level_id == level.id %}
+                                  selected
+                                {% endif %}
+                                >{{ level.description }} ({{ level.points }} pts)</option>
+                              {% endfor %}
+                            </select>
+                          </td>
+                          <td class="p-1 text-center">
+                            {% if found_eval %}{{ found_eval.points_awarded }}{% else %}-{% endif %}
+                          </td>
+                          <td class="p-1">
+                            <input type="text"
+                                   name="rubric_crit_{{ crit.id }}_feedback"
+                                   value="{{ found_eval.feedback if found_eval else '' }}"
+                                   class="border rounded py-1 px-2 w-36"
+                                   placeholder="Criterion feedback...">
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                  <div class="flex gap-2 mt-2">
+                    <input type="number"
+                           name="teacher_score"
+                           value="{{ submission.teacher_score or '' }}"
+                           min="0" max="100"
+                           class="border w-16 px-1 py-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                           placeholder="Total Score">
+                    <textarea
+                      name="comment"
+                      rows="2"
+                      placeholder="General Comment"
+                      class="border px-2 py-1 rounded w-40 min-h-[30px] focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs resize-y font-medium text-gray-800"
+                    >{{ '' }}</textarea>
+                    <button type="submit"
+                            class="px-4 py-2 bg-blue-600 text-white rounded font-semibold hover:bg-blue-700 transition text-xs flex-shrink-0">
+                      💾 Save
+                    </button>
                   </div>
-                {% endif %}
-              </td>
-              <td class="px-3 py-2">
-                  <button type="submit"
-                          class="mt-3 px-4 py-2 bg-blue-600 text-white rounded font-semibold hover:bg-blue-700 transition text-sm">
-                    💾 Save
-                  </button>
+                  {% if submission.comments %}
+                    <div class="mt-1 text-gray-700 text-xs space-y-1">
+                      {% for com in submission.comments %}
+                        <div><b>{{ com.user.f_name }}:</b> {{ com.message }}</div>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
                 </form>
               </td>
             </tr>
