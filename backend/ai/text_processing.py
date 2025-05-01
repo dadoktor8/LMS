@@ -2,6 +2,7 @@ import logging
 import os
 import re
 from typing import Optional
+from fastapi import HTTPException
 import fitz  # PyMuPDF for PDF text extraction
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from nltk.tokenize import sent_tokenize
@@ -29,6 +30,40 @@ from sqlalchemy import create_engine
 from langchain.llms import LlamaCpp
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings 
 from langchain.prompts import PromptTemplate
+
+
+
+
+def get_course_retriever(course_id: int):
+    try:
+        index_path = f"faiss_index_{course_id}"
+        embeddings = OpenAIEmbeddings()
+        db = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+        return db.as_retriever(search_kwargs={"k": 10})
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"No existing knowledge base found for course {course_id}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Problem loading FAISS index: {str(e)}")
+
+def get_context_for_query(retriever, query: str):
+    retrieved_docs = retriever.get_relevant_documents(query)
+    context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+    if not context.strip():
+        raise HTTPException(status_code=404, detail="Insufficient context found for your query.")
+    return context
+
+def get_openai_client():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OpenAI API key missing in environment variables.")
+    try:
+        return ChatOpenAI(
+            model="gpt-4.1-mini",
+            temperature=0.2,
+            openai_api_key=api_key
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not setup OpenAI Client: {str(e)}")
 
 # ---------------------------------------------
 # Utility

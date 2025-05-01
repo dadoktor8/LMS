@@ -19,6 +19,7 @@ class User(Base):
     courses = relationship("Course",back_populates="teacher")
     attendance = relationship("AttendanceRecord", backref="student")
     assignment_submissions = relationship("AssignmentSubmission", back_populates="student", cascade="all, delete-orphan")
+    activities = relationship("StudentActivity", back_populates="student")
 
 class Course(Base):
     __tablename__ = "courses"
@@ -36,6 +37,7 @@ class Course(Base):
     processed_materials = relationship("ProcessedMaterial", back_populates="course")
     text_chunks = relationship("TextChunk", back_populates="course")
     assignments = relationship("Assignment", back_populates="course", cascade="all, delete-orphan")
+    student_activities = relationship("StudentActivity", back_populates="course")
 
 
 class Enrollment(Base):
@@ -268,3 +270,23 @@ class RubricEvaluation(Base):
     
     def __repr__(self):
         return f"<RubricEvaluation for criterion {self.criterion_id} - {self.points_awarded} points>"
+    
+
+class StudentActivity(Base):
+    __tablename__ = "student_activities"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
+    activity_type = Column(String(50), nullable=False)  # "Muddiest Point" or "Misconception Check"
+    topic = Column(String(255), nullable=False)
+    user_input = Column(Text, nullable=False)
+    ai_response = Column(Text, nullable=False)  # Store as JSON string
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    student = relationship("User", back_populates="activities")
+    course = relationship("Course", back_populates="student_activities")
+    
+    def __repr__(self):
+        return f"<StudentActivity {self.activity_type} for {self.topic}>"

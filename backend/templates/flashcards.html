@@ -9,6 +9,7 @@
 </head>
 <body class="bg-gray-100 min-h-screen">
   <!-- Navbar -->
+  <!-- Peer toggle, must be before everything -->
   <input id="sidebar-toggle" type="checkbox" class="hidden peer" />
 
   <!-- Sidebar (fixed to the left, slides over, X to close) -->
@@ -40,6 +41,7 @@
                   <li><a href="/auth/courses/{{ course.id }}/student-attendance" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">🎯 Attendance</a></li>
                   <li><a href="/ai/courses/{{ course.id }}/tutor" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">🧠 AI Tutor</a></li>
                   <li><a href="/ai/student/courses/{{ course.id }}/assignments" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">📄 Assignments</a></li>
+                  <li><a href="/ai/student/courses/{{ course.id }}/engagement" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">🗨️ Engagement</a></li>
                 </ul>
               </details>
             </li>
@@ -79,42 +81,6 @@
 
       <!-- Nav items right -->
       <ul class="flex gap-6 items-center text-base ml-auto">
-        <li>
-          <details class="relative">
-            <summary class="cursor-pointer inline-flex items-center">🔔 <span class="ml-2">Course Invites</span></summary>
-            <ul class="absolute bg-white shadow rounded-lg overflow-hidden mt-2 min-w-[220px] z-30 border border-gray-100">
-              {% for invite in pending_invites %}
-                <li class="px-4 py-2 hover:bg-blue-50">
-                  <a href="{{ invite.link }}" class="text-blue-700">📩 Accept invite for {{ invite.course.title }}</a>
-                </li>
-              {% else %}
-                <li class="px-4 py-2 text-gray-500">No new invites</li>
-              {% endfor %}
-            </ul>
-          </details>
-        </li>
-        <li>
-          <details class="relative">
-            <summary class="cursor-pointer inline-flex items-center">🧑‍🏫 <span class="ml-2">TA Invites</span></summary>
-            <ul class="absolute bg-white shadow rounded-lg overflow-hidden mt-2 min-w-[220px] z-30 border border-gray-100">
-              {% for ta in ta_invites %}
-                <li class="px-4 py-2">
-                  <form method="post"
-                    hx-post="/auth/courses/{{ ta.course.id }}/accept-ta"
-                    hx-target="#code-display"
-                    hx-swap="innerHTML"
-                    class="m-0 flex">
-                    <button type="submit" class="text-blue-700 hover:underline text-left w-full">
-                      ✅ Accept TA role for {{ ta.course.title }}
-                    </button>
-                  </form>
-                </li>
-              {% else %}
-                <li class="px-4 py-2 text-gray-500">No TA invites</li>
-              {% endfor %}
-            </ul>
-          </details>
-        </li>
         <li><a href="/auth/logout" class="text-red-600 hover:underline">Logout</a></li>
       </ul>
     </nav>

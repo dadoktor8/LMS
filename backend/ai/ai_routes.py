@@ -2,10 +2,12 @@
 import html
 import json
 import logging
+import traceback
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Depends, Request, BackgroundTasks
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 import pandas as pd
+from pydantic import BaseModel
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 import shutil
@@ -17,11 +19,11 @@ from backend.ai.ai_grader import evaluate_assignment_text, prepare_rubric_for_ai
 from backend.ai.open_notes_system import generate_quiz_export, generate_study_material, generate_study_material_quiz, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel  # Make sure this is correct
+from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
-from .text_processing import extract_text_from_pdf, chunk_text, embed_chunks, get_answer_from_rag_langchain_openai, process_materials_in_background, save_embeddings_to_faiss,sanitize_filename
+from .text_processing import extract_text_from_pdf, chunk_text, embed_chunks, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background, save_embeddings_to_faiss,sanitize_filename
 from langchain.memory.chat_message_histories import SQLChatMessageHistory
 from langchain.schema import AIMessage, HumanMessage
 from fastapi import FastAPI
@@ -41,6 +43,26 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 templates = Jinja2Templates(directory="backend/templates")
+
+class AIResponse(BaseModel):
+    summary: str
+    resources: List[str]
+
+class MuddiestPointResponse(AIResponse):
+    confusion_areas: List[str]
+    review_topics: List[str]
+
+class BeliefEvaluation(BaseModel):
+    statement: str
+    is_accurate: bool
+    explanation: str
+
+class MisconceptionCheckResponse(AIResponse):
+    beliefs: List[BeliefEvaluation]
+
+
+
+
 
 @ai_router.post("/courses/{course_id}/upload_materials", response_class=HTMLResponse)
 async def upload_course_material(
@@ -1221,3 +1243,221 @@ async def download_quiz_file(
         filename=filename,
         media_type="application/pdf"
     )
+
+
+@ai_router.get("/student/courses/{course_id}/engagement", response_class=HTMLResponse)
+async def student_engagement_activities(
+    request: Request,
+    course_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    enrollment = db.query(Enrollment).filter_by(
+        student_id=user["user_id"],
+        course_id=course_id,
+        is_accepted=True
+    ).first()
+    if not enrollment:
+        raise HTTPException(status_code=403, detail="You are not enrolled in this course")
+    course = db.query(Course).filter_by(id=course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    student_activities = db.query(StudentActivity).filter_by(
+        student_id=user["user_id"], course_id=course_id
+    ).order_by(StudentActivity.created_at.desc()).all()
+    enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
+    return templates.TemplateResponse("student_engagement.html", {
+        "request": request,
+        "course": course,
+        "courses":courses,
+        "student_activities": student_activities
+    })
+
+# Muddiest Point endpoint
+@ai_router.post("/student/courses/{course_id}/muddiest-point", response_class=HTMLResponse)
+async def process_muddiest_point(
+    request: Request,
+    course_id: int,
+    topic: str = Form(...),
+    confusion: str = Form(...),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    enrollment = db.query(Enrollment).filter_by(
+        student_id=user["user_id"], course_id=course_id, is_accepted=True
+    ).first()
+    if not enrollment:
+        return JSONResponse(content={"error": "You are not enrolled in this course"}, status_code=403)
+    
+    query = f"Topic: {topic}. Confusion: {confusion}"
+    try:
+        retriever = get_course_retriever(course_id)
+        context = get_context_for_query(retriever, query)
+        chat = get_openai_client()
+        
+        system_prompt = f"""
+You are an educational AI tutor analyzing a student's confusion about a topic. Use the provided course materials to:
+1. Identify the core confusion areas
+2. Suggest specific review topics that would help clarify understanding
+3. Provide a list of key resources or concepts to focus on
+Base your analysis ONLY on the context provided.
+CONTEXT FROM COURSE MATERIALS: {context}
+        """
+        user_message = f"""
+Topic: {topic}
+Student's confusion: {confusion}
+Analyze this confusion, identify the core confusion areas, and provide suggestions for review.
+Return your response as valid JSON with the following structure:
+{{ "summary": "...", "confusion_areas": [ ... ], "review_topics": [ ... ], "resources": [ ... ] }}
+        """
+
+        # Modern Langchain/OpenAI expects a message list for chat models
+        response = chat.invoke([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ])
+        
+        # response.content if using Langchain's OpenAI chat model (extract string)
+        if hasattr(response, "content"):
+            ai_text = response.content
+        else:
+            ai_text = response  # fallback
+        
+        try:
+            ai_response = json.loads(ai_text)
+        except Exception as e:
+            return JSONResponse(content={"error": "Failed to parse AI response: " + str(e)}, status_code=500)
+
+        # Save activity
+        new_activity = StudentActivity(
+            student_id=user["user_id"],
+            course_id=course_id,
+            activity_type="Muddiest Point",
+            topic=topic,
+            user_input=confusion,
+            ai_response=json.dumps(ai_response),
+            created_at=datetime.utcnow()
+        )
+        db.add(new_activity)
+        db.commit()
+
+        # Render response using your template/component
+        return templates.TemplateResponse("muddiest_point_response.html", {
+            "request": request,
+            "ai_response": ai_response
+        })
+    except HTTPException as e:
+        return JSONResponse(content={"error": e.detail}, status_code=e.status_code)
+    except Exception as e:
+        print(traceback.format_exc())
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+# Misconception Check endpoint
+@ai_router.post("/student/courses/{course_id}/misconception-check", response_class=HTMLResponse)
+async def process_misconception_check(
+    request: Request,
+    course_id: int,
+    topic: str = Form(...),
+    beliefs: str = Form(...),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    enrollment = db.query(Enrollment).filter_by(
+        student_id=user["user_id"], course_id=course_id, is_accepted=True
+    ).first()
+    if not enrollment:
+        return JSONResponse(content={"error": "You are not enrolled in this course"}, status_code=403)
+    
+    query = f"Topic: {topic}. Student beliefs: {beliefs}"
+    try:
+        retriever = get_course_retriever(course_id)
+        context = get_context_for_query(retriever, query)
+        chat = get_openai_client()
+
+        system_prompt = f"""
+You are an educational AI tutor analyzing a student's beliefs or understanding about a topic. Use the provided course materials to:
+1. Compare the student's stated beliefs with accurate information
+2. Identify any misconceptions
+3. Provide helpful corrections and explanations
+4. Suggest resources for further learning
+Base your analysis ONLY on the context provided.
+CONTEXT FROM COURSE MATERIALS: {context}
+        """
+        user_message = f"""
+Topic: {topic}
+Student's beliefs: {beliefs}
+Analyze these beliefs, identify what's accurate and what may be misconceptions.
+Return your response as valid JSON with the following structure:
+{{ "summary": "...", "beliefs": [{{ "statement": "...", "is_accurate": true/false, "explanation": "..." }}], "resources": [ ... ] }}
+        """
+
+        # UPDATED: Use .invoke with a message list!
+        response = chat.invoke([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ])
+        # For langchain.chat_models.base.BaseChatModel, .content contains the response text.
+        ai_text = getattr(response, "content", response)
+        try:
+            ai_response = json.loads(ai_text)
+        except Exception as e:
+            return JSONResponse(
+                content={"error": f"Failed to parse AI response: {e}\nRaw response: {ai_text}"},
+                status_code=500
+            )
+        new_activity = StudentActivity(
+            student_id=user["user_id"],
+            course_id=course_id,
+            activity_type="Misconception Check",
+            topic=topic,
+            user_input=beliefs,
+            ai_response=json.dumps(ai_response),
+            created_at=datetime.utcnow()
+        )
+        db.add(new_activity)
+        db.commit()
+        return templates.TemplateResponse("misconception_response.html", {
+            "request": request,
+            "ai_response": ai_response
+        })
+    except HTTPException as e:
+        return JSONResponse(content={"error": e.detail}, status_code=e.status_code)
+    except Exception as e:
+        print(traceback.format_exc())
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+# View activity detail
+@ai_router.get("/student/activities/{activity_id}", response_class=HTMLResponse)
+async def view_activity_detail(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    activity = db.query(StudentActivity).filter_by(
+        id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found or you don't have access")
+    ai_response = json.loads(activity.ai_response)
+    if activity.activity_type == "Muddiest Point":
+        # Render muddiest point response component as HTML for detail page
+        ai_response_html = templates.get_template("muddiest_point_response.html").render(
+            request=request,
+            ai_response=ai_response
+        )
+    elif activity.activity_type == "Misconception Check":
+        # Render misconception response component as HTML for detail page
+        ai_response_html = templates.get_template("misconception_response.html").render(
+            request=request,
+            ai_response=ai_response
+        )
+    else:
+        ai_response_html = "<div class='p-4 bg-gray-100 rounded text-gray-600'>No AI response data available for this activity.</div>"
+
+    return templates.TemplateResponse("activity_detail.html", {
+        "request": request,
+        "activity": activity,
+        "ai_response_html": ai_response_html
+    })

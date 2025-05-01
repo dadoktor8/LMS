@@ -40,6 +40,7 @@
                   <li><a href="/auth/courses/{{ course.id }}/student-attendance" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">🎯 Attendance</a></li>
                   <li><a href="/ai/courses/{{ course.id }}/tutor" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">🧠 AI Tutor</a></li>
                   <li><a href="/ai/student/courses/{{ course.id }}/assignments" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">📄 Assignments</a></li>
+                  <li><a href="/ai/student/courses/{{ course.id }}/engagement" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">🗨️ Engagement</a></li>
                 </ul>
               </details>
             </li>
@@ -134,6 +135,7 @@
             <a href="/auth/courses/{{ course.id }}/student-attendance" class="text-blue-700 hover:underline flex items-center gap-1">🎯 Check Attendance</a>
             <a href="/ai/courses/{{ course.id }}/tutor" class="text-blue-700 hover:underline flex items-center gap-1">🧠 Ask AI Tutor</a>
             <a href="/ai/student/courses/{{ course.id }}/assignments" class="text-blue-700 hover:underline flex items-center gap-1">📄 Go to Assignments</a>
+            <a href="/ai/student/courses/{{course.id}}/engagement" class="text-blue-700 hover:underline flex items-center gap-1">🗨️ Engagement Activities</a>
           </div>
         </div>
       {% else %}
@@ -179,6 +181,7 @@
             <a href="/auth/courses/{{ course.id }}/enroll" class="text-blue-700 hover:underline flex items-center gap-1">👥 Enroll Students</a>
             <a href="/courses/{{ course.id }}/info" class="text-blue-700 hover:underline flex items-center gap-1">📄 Course Info</a>
             <a href="/ai/courses/{{course.id}}/upload_materials" class="text-blue-700 hover:underline flex items-center gap-1">📤 Upload Materials</a>
+            
           </div>
         </div>
       {% else %}
