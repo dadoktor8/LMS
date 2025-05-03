@@ -193,7 +193,57 @@ def login_form(
 
     return response
 
+@auth_router.get("/student/profile", response_class=HTMLResponse)
+async def student_profile(request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_role("student"))):
+    if current_user["role"] != "student":
+        return RedirectResponse(url="/auth/dashboard")
+    
+    student_id = current_user["user_id"]
+    student = db.query(User).filter_by(id=student_id).first()
+    enrollments = db.query(Enrollment).filter_by(student_id=student_id, is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
+    return templates.TemplateResponse(
+        "student_profile.html",
+        {
+            "request": request,
+            "user": current_user,
+            "courses": courses,
+            "student":student,
+        }
+    )
 
+# Step 4: Add route to update profile
+@auth_router.post("/student/update-profile", response_class=HTMLResponse)
+async def update_student_profile(
+    request: Request,
+    f_name: str = Form(...),
+    l_name: str = Form(None),
+    roll_number: str = Form(None),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
+):
+    if user["role"] != "student":
+        return HTMLResponse(content="❌ You don't have permission to update this profile", status_code=403)
+    
+    user_obj = db.query(User).filter_by(id=user["user_id"]).first()
+    if not user_obj:
+        return HTMLResponse(content="❌ User not found", status_code=404)
+
+    user_obj.f_name = f_name
+    user_obj.l_name = l_name
+    user_obj.roll_number = roll_number
+
+    db.commit()
+    db.refresh(user_obj)
+    
+    # Return success message
+    return HTMLResponse(
+        content="""
+        <div class="p-4 bg-green-50 border-l-4 border-green-500 text-green-700 rounded">
+            ✅ Profile updated successfully!
+        </div>
+        """
+    )
 
 @auth_router.get("/logout")
 def logout():
@@ -755,22 +805,26 @@ def export_attendance_csv(
     course = db.query(Course).filter_by(id=course_id, teacher_id=user["user_id"]).first()
     if not course:
         raise HTTPException(status_code=403, detail="Unauthorized")
-
+    
     records = db.query(AttendanceRecord).filter_by(course_id=course_id).all()
-
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Student Name", "Email", "Date", "Code Used"])
-
+    
+    # Added Roll Number to the header
+    writer.writerow(["Student Name", "Roll Number", "Email", "Date", "Code Used"])
+    
     for record in records:
         student = db.query(User).filter(User.id == record.student_id).first()
+        
+        # Added roll_number to the row, with a fallback if it's None
         writer.writerow([
             f"{student.f_name} {student.l_name}",
+            student.roll_number or "Not provided",  # Include roll number or placeholder if not available
             student.email,
             record.attended_at.strftime("%d/%m/%Y %H:%M"),
             record.code_used
         ])
-
+        
     output.seek(0)
     return StreamingResponse(
         output,

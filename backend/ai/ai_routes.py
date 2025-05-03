@@ -12,14 +12,14 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 import shutil
 import os
-from datetime import datetime
+from datetime import date, datetime
 
 import urllib
 from backend.ai.ai_grader import evaluate_assignment_text, prepare_rubric_for_ai
-from backend.ai.open_notes_system import generate_quiz_export, generate_study_material, generate_study_material_quiz, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
+from backend.ai.open_notes_system import check_quiz_quota, generate_quiz_export, generate_study_material, generate_study_material_quiz, increment_quiz_quota, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity  # Make sure this is correct
+from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, PDFQuotaUsage, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
@@ -99,24 +99,82 @@ async def upload_course_material(
     )
 
 @ai_router.get("/courses/{course_id}/upload_materials", response_class=HTMLResponse)
-async def show_upload_form(request: Request, course_id: int, user : dict = Depends(require_teacher_or_ta()), db : Session = Depends(get_db)):
+async def show_upload_form(request: Request, course_id: int, user: dict = Depends(require_teacher_or_ta()), db: Session = Depends(get_db)):
+    # Get course materials as before
     materials = db.query(CourseMaterial).filter(CourseMaterial.course_id == course_id).order_by(CourseMaterial.uploaded_at.desc()).all()
     teacher_id = user["user_id"]
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
+    
+    # Get quota information for today
+    today = date.today()
+    quota_usage = db.query(PDFQuotaUsage).filter(
+        PDFQuotaUsage.course_id == course_id,
+        PDFQuotaUsage.usage_date == today
+    ).first()
+    
+    # Set quota values
+    DAILY_PAGE_QUOTA = 100
+    quota_used = quota_usage.pages_processed if quota_usage else 0
+    quota_remaining = DAILY_PAGE_QUOTA - quota_used
+    
+    # Return template with quota information
     return templates.TemplateResponse("upload_materials.html", {
         "request": request,
         "course_id": course_id,
         "role": user["role"],
-        "materials":materials,
-        "courses":courses
+        "materials": materials,
+        "courses": courses,
+        "quota_used": quota_used,
+        "quota_remaining": quota_remaining,
+        "quota_total": DAILY_PAGE_QUOTA
     })
 
 @ai_router.post("/courses/{course_id}/process_materials")
-async def process_materials(course_id: int, background_tasks: BackgroundTasks , db: Session = Depends(get_db)):
-    background_tasks.add_task(process_materials_in_background, course_id, db)
+async def process_materials(course_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    # Get today's quota usage
+    today = date.today()
+    quota_usage = db.query(PDFQuotaUsage).filter(
+        PDFQuotaUsage.course_id == course_id,
+        PDFQuotaUsage.usage_date == today
+    ).first()
+    
+    DAILY_PAGE_QUOTA = 100
+    used_pages = quota_usage.pages_processed if quota_usage else 0
+    remaining_quota = DAILY_PAGE_QUOTA - used_pages
+    
+    # Process materials in foreground instead of background for immediate feedback
+    # This change gives instant feedback to the user
+    result = process_materials_in_background(course_id, db)
+    
+    # After processing, get updated quota information
+    quota_usage = db.query(PDFQuotaUsage).filter(
+        PDFQuotaUsage.course_id == course_id,
+        PDFQuotaUsage.usage_date == today
+    ).first()
+    
+    used_pages = quota_usage.pages_processed if quota_usage else 0
+    remaining_quota = DAILY_PAGE_QUOTA - used_pages
     
     return HTMLResponse(
-        content="<div class='toast success'>✅ File processed successfully!</div>",
+        content=f"""
+        <div class="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4 mt-4">
+            <h3 class="font-semibold text-blue-700">📊 Processing Results</h3>
+            <ul class="mt-2 text-sm text-blue-600 space-y-1">
+                <li>✅ Processed: {result['processed']} materials</li>
+                <li>⏭️ Skipped: {result['skipped']} (already processed)</li>
+                <li>⚠️ Quota exceeded: {result['quota_exceeded']} materials</li>
+            </ul>
+            <p class="mt-2 text-xs text-blue-700">
+                Daily quota remaining: {remaining_quota} pages
+            </p>
+            <script>
+                // Trigger a page refresh to update the quota bar
+                setTimeout(function() {{
+                    window.location.reload();
+                }}, 3000);
+            </script>
+        </div>
+        """,
         status_code=200
     )
 
@@ -1086,6 +1144,10 @@ async def quiz_creation_page(
 ):
     teacher_id = user["user_id"]
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
+    
+    # Check quota and get remaining count
+    quota_exceeded, remaining = check_quiz_quota(db, teacher_id, course_id)
+    
     # Render form to create a quiz for this specific course
     return templates.TemplateResponse(
         "quiz_creator.html",
@@ -1097,7 +1159,9 @@ async def quiz_creation_page(
             "teacher_id": user.get("user_id", ""),
             "question_types": ["mcq"],  # Default
             "num_questions": 10,
-            "courses":courses
+            "courses": courses,
+            "remaining_quota": remaining,
+            "quota_exceeded": quota_exceeded
         }
     )
 
@@ -1109,14 +1173,40 @@ async def generate_quiz(
     question_types: List[str] = Form(...),
     num_questions: int = Form(10),
     user: dict = Depends(require_role("teacher")),
-    db: Session = Depends(get_db),   # ⏩ Add this!
+    db: Session = Depends(get_db),
 ):
+    teacher_id = user.get("user_id", "")
+    MAX_QUESTIONS = 20
+    if num_questions > MAX_QUESTIONS:
+        num_questions = MAX_QUESTIONS
+    
     try:
+        # Check if quota is exceeded
+        quota_exceeded, remaining = check_quiz_quota(db, teacher_id, course_id)
+        
+        if quota_exceeded:
+            return templates.TemplateResponse(
+                "quiz_creator.html",
+                {
+                    "request": request,
+                    "course_id": course_id,
+                    "topic": topic,
+                    "error": "Daily quiz creation limit reached (5 quizzes per course). Please try again tomorrow.",
+                    "teacher_id": teacher_id,
+                    "question_types": question_types,
+                    "num_questions": num_questions,
+                    "remaining_quota": 0,
+                    "quota_exceeded": True,
+                    "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
+                }
+            )
+            
+        # Generate the quiz materials
         materials_json = generate_study_material_quiz(
             query=topic,
             material_type="quiz",
             course_id=course_id,
-            teacher_id=user.get("user_id", ""),
+            teacher_id=teacher_id,
             question_types=question_types,
             num_questions=num_questions
         )
@@ -1125,7 +1215,7 @@ async def generate_quiz(
         try:
             existing = db.query(Quiz).filter_by(
                 course_id=course_id,
-                teacher_id=user.get("user_id", ""),
+                teacher_id=teacher_id,
                 topic=topic
             ).first()
             if existing:
@@ -1136,24 +1226,33 @@ async def generate_quiz(
                 print("Creating new quiz for this course/teacher/topic.")
                 quiz = Quiz(
                     course_id=course_id,
-                    teacher_id=user.get("user_id", ""),
+                    teacher_id=teacher_id,
                     topic=topic,
                     json_data=materials_json
                 )
                 db.add(quiz)
             db.commit()
+            
+            # Increment the quota since we successfully created a quiz
+            increment_quiz_quota(db, teacher_id, course_id)
+            # Get updated remaining count
+            _, remaining = check_quiz_quota(db, teacher_id, course_id)
+            
         except Exception as db_exc:
-                print("DB error:", db_exc)
-                return templates.TemplateResponse(
+            print("DB error:", db_exc)
+            return templates.TemplateResponse(
                 "quiz_creator.html",
                 {
                     "request": request,
                     "course_id": course_id,
                     "topic": topic,
                     "error": f"Database error: {db_exc}",
-                    "teacher_id": user.get("user_id", ""),
+                    "teacher_id": teacher_id,
+                    "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all(),
+                    "remaining_quota": remaining
                 }
             )
+            
         study_material_html = render_quiz_htmx(materials_json)
         return templates.TemplateResponse(
             "quiz_creator.html",
@@ -1162,9 +1261,12 @@ async def generate_quiz(
                 "course_id": course_id,
                 "topic": topic,
                 "study_material_html": study_material_html,
-                "teacher_id": user.get("user_id", ""),
+                "teacher_id": teacher_id,
                 "question_types": question_types,
                 "num_questions": num_questions,
+                "remaining_quota": remaining,
+                "quota_success": True,
+                "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
             }
         )
     except Exception as e:
@@ -1177,7 +1279,8 @@ async def generate_quiz(
                 "course_id": course_id,
                 "topic": topic if 'topic' in locals() else "",
                 "error": error_message,
-                "teacher_id": user.get("user_id", ""),
+                "teacher_id": teacher_id,
+                "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
             }
         )
 

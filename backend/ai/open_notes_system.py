@@ -1,3 +1,4 @@
+from datetime import date
 from typing import List, Dict, Union, Optional
 import uuid
 from langchain.embeddings import OpenAIEmbeddings
@@ -10,6 +11,8 @@ import os
 import re
 import json
 from pydantic import BaseModel, Field
+
+from backend.db.models import QuizQuota
 
 # Define models for our study materials
 class FlashCard(BaseModel):
@@ -1312,3 +1315,66 @@ def generate_quiz_export(materials_json, format="pdf", include_answers=False):
             f.write(json.dumps(quiz_data, indent=2))
     
     return f"/static/exports/{filename}"
+
+
+def check_quiz_quota(db, teacher_id, course_id, max_quota=5):
+    """
+    Check if a teacher has exceeded their quiz quota for a course today
+    
+    Returns:
+        tuple: (quota_exceeded: bool, remaining: int)
+    """
+    today = date.today()
+    
+    # Find or create today's quota record
+    quota = db.query(QuizQuota).filter(
+        QuizQuota.teacher_id == teacher_id,
+        QuizQuota.course_id == course_id,
+        QuizQuota.date == today
+    ).first()
+    
+    if not quota:
+        quota = QuizQuota(
+            teacher_id=teacher_id,
+            course_id=course_id,
+            date=today,
+            count=0
+        )
+        db.add(quota)
+        db.commit()
+    
+    # Check if quota exceeded
+    quota_exceeded = quota.count >= max_quota
+    remaining = max(max_quota - quota.count, 0)
+    
+    return quota_exceeded, remaining
+
+def increment_quiz_quota(db, teacher_id, course_id):
+    """
+    Increment the quiz count for today
+    
+    Returns:
+        int: New count
+    """
+    today = date.today()
+    
+    # Find or create today's quota record
+    quota = db.query(QuizQuota).filter(
+        QuizQuota.teacher_id == teacher_id,
+        QuizQuota.course_id == course_id,
+        QuizQuota.date == today
+    ).first()
+    
+    if not quota:
+        quota = QuizQuota(
+            teacher_id=teacher_id,
+            course_id=course_id,
+            date=today,
+            count=1  # Start at 1 since we're creating a quiz now
+        )
+        db.add(quota)
+    else:
+        quota.count += 1
+    
+    db.commit()
+    return quota.count

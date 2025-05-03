@@ -1,7 +1,7 @@
 # backend/db/models.py
-from datetime import datetime
+from datetime import date, datetime
 import traceback
-from sqlalchemy import Column, DateTime, Float, Integer, String, Boolean, ForeignKey, Table, Text, func
+from sqlalchemy import Column, Date, DateTime, Float, Integer, String, Boolean, ForeignKey, Table, Text, func
 from backend.db.database import Base
 from sqlalchemy.orm import relationship
 
@@ -16,6 +16,7 @@ class User(Base):
     role = Column(String, nullable=False)
     f_name = Column(String, nullable=False)
     l_name = Column(String, nullable=True)
+    roll_number = Column(String, nullable=True)
     courses = relationship("Course",back_populates="teacher")
     attendance = relationship("AttendanceRecord", backref="student")
     assignment_submissions = relationship("AssignmentSubmission", back_populates="student", cascade="all, delete-orphan")
@@ -38,6 +39,7 @@ class Course(Base):
     text_chunks = relationship("TextChunk", back_populates="course")
     assignments = relationship("Assignment", back_populates="course", cascade="all, delete-orphan")
     student_activities = relationship("StudentActivity", back_populates="course")
+    quiz_quotas = relationship("QuizQuota", back_populates="course")
 
 
 class Enrollment(Base):
@@ -290,3 +292,26 @@ class StudentActivity(Base):
     
     def __repr__(self):
         return f"<StudentActivity {self.activity_type} for {self.topic}>"
+    
+
+
+class PDFQuotaUsage(Base):
+    __tablename__ = "pdf_quota_usage"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
+    usage_date = Column(Date, default=date.today, nullable=False)
+    pages_processed = Column(Integer, default=0, nullable=False)
+
+class QuizQuota(Base):
+
+    __tablename__ = "quiz_quotas"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    teacher_id = Column(String, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), index=True)
+    date = Column(Date, default=date.today, index=True)
+    count = Column(Integer, default=0)
+    
+    # Relationship
+    course = relationship("Course", back_populates="quiz_quotas")

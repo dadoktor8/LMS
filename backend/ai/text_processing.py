@@ -1,3 +1,4 @@
+from datetime import date
 import logging
 import os
 import re
@@ -13,7 +14,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
 import urllib
-from backend.db.models import CourseMaterial, ProcessedMaterial, TextChunk
+from backend.db.models import CourseMaterial, PDFQuotaUsage, ProcessedMaterial, TextChunk
 from backend.db.database import SessionLocal  # if you're using a unified DB setup
 from langchain.vectorstores import FAISS
 #from langchain.embeddings import HuggingFaceEmbeddings
@@ -75,6 +76,14 @@ def sanitize_filename(filename: str):
 def extract_text_from_pdf(pdf_path: str) -> str:
     doc = fitz.open(pdf_path)
     return "\n".join(page.get_text() for page in doc)
+
+
+def count_pdf_pages(pdf_path: str) -> int:
+    """Count the number of pages in a PDF file."""
+    doc = fitz.open(pdf_path)
+    page_count = len(doc)
+    doc.close()
+    return page_count
 """
 # ---------------------------------------------
 # 2. Chunk Text into Manageable Pieces
@@ -137,30 +146,111 @@ def save_embeddings_to_faiss(course_id: int, embeddings: torch.Tensor, chunks: l
     print(f"✅ Saved FAISS index and chunks for course {course_id}")
     logging.info(f"✅ Saved FAISS index and chunks for course {course_id}")
 
+
+
+def check_pdf_quota(course_id: int, pdf_path: str, db: Session) -> tuple[bool, int, int]:
+    """
+    Check if processing a PDF would exceed the daily quota.
+    
+    Returns:
+        tuple: (quota_ok, pages_to_process, remaining_quota)
+    """
+    # Set daily quota limit (pages per course)
+    DAILY_PAGE_QUOTA = 100
+    
+    # Count pages in the PDF
+    page_count = count_pdf_pages(pdf_path)
+    
+    # Get today's usage for this course
+    today = date.today()
+    quota_usage = db.query(PDFQuotaUsage).filter(
+        PDFQuotaUsage.course_id == course_id,
+        PDFQuotaUsage.usage_date == today
+    ).first()
+    
+    # If no record exists for today, create one
+    if not quota_usage:
+        quota_usage = PDFQuotaUsage(
+            course_id=course_id,
+            usage_date=today,
+            pages_processed=0
+        )
+        db.add(quota_usage)
+        db.commit()
+        db.refresh(quota_usage)
+    
+    # Calculate remaining quota
+    used_pages = quota_usage.pages_processed
+    remaining_quota = DAILY_PAGE_QUOTA - used_pages
+    
+    # Check if processing would exceed the quota
+    if page_count > remaining_quota:
+        return False, page_count, remaining_quota
+    
+    # Update quota usage
+    quota_usage.pages_processed += page_count
+    db.commit()
+    
+    return True, page_count, remaining_quota - page_count
+
+
 # ---------------------------------------------
 # 5. Process PDFs
 def process_materials_in_background(course_id: int, db: Session):
     materials = db.query(CourseMaterial).filter_by(course_id=course_id).all()
-
+    
+    # Track overall processing status
+    processed_count = 0
+    skipped_count = 0
+    quota_exceeded_count = 0
+    quota_remaining = None
+    
     for material in materials:
         file_path = f"backend/uploads/{material.filename}"
+        
+        # Skip already processed materials
         if db.query(ProcessedMaterial).filter_by(course_id=course_id, material_id=material.id).first():
             logging.info(f"⏭ Skipping {material.filename} (already processed)")
             print(f"⏭ Skipping {material.filename} (already processed)")
+            skipped_count += 1
             continue
-
+        
         try:
+            # Check quota before processing
+            quota_ok, pages_count, remaining = check_pdf_quota(course_id, file_path, db)
+            quota_remaining = remaining  # Store the latest remaining quota
+            
+            if not quota_ok:
+                logging.warning(f"⚠️ Quota exceeded for {material.filename} ({pages_count} pages, {remaining} remaining)")
+                print(f"⚠️ Quota exceeded for {material.filename} ({pages_count} pages, {remaining} remaining)")
+                quota_exceeded_count += 1
+                continue
+            
+            # Process the PDF if quota is OK
             text = extract_text_from_pdf(file_path)
             chunks = chunk_text(text)
             embeddings = embed_chunks(chunks)
-            #save_embeddings_to_faiss(course_id, embeddings, chunks, db)
-            #save_embeddings_to_faiss_langchain(course_id, chunks, db)
             save_embeddings_to_faiss_openai(course_id, chunks, db)
+            
+            # Mark as processed
             db.add(ProcessedMaterial(course_id=course_id, material_id=material.id))
             db.commit()
+            processed_count += 1
+            
+            logging.info(f"✅ Processed {material.filename} ({pages_count} pages, {remaining} remaining in quota)")
+            print(f"✅ Processed {material.filename} ({pages_count} pages, {remaining} remaining in quota)")
+            
         except Exception as e:
             logging.error(f"❌ Failed processing {material.filename}: {e}")
             print(f"❌ Failed processing {material.filename}: {e}")
+    
+    # Return summary statistics
+    return {
+        "processed": processed_count,
+        "skipped": skipped_count,
+        "quota_exceeded": quota_exceeded_count,
+        "remaining_quota": quota_remaining
+    }
 
 '''
 # ---------------------------------------------

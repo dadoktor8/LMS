@@ -88,6 +88,51 @@
 
   <main class="max-w-2xl mx-auto px-4 py-10">
     <h1 class="text-3xl font-bold text-blue-700 mb-4 text-center">📝 Quiz Creator</h1>
+    
+    <!-- Quota Status Bar -->
+    <div class="mb-6 bg-white rounded-lg shadow p-4 border border-gray-100">
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="font-semibold text-gray-700">Daily Quiz Quota</h3>
+        <span class="text-sm font-medium {{ 'text-red-600' if quota_exceeded else 'text-blue-600' }}">
+          {{ remaining_quota }} of 5 remaining
+        </span>
+      </div>
+      <div class="w-full bg-gray-200 rounded-full h-2.5">
+        <div class="bg-blue-600 h-2.5 rounded-full" style="width: {{ (remaining_quota/5)*100 }}%"></div>
+      </div>
+      <p class="text-xs text-gray-500 mt-1">Limit resets at midnight</p>
+    </div>
+    
+    <!-- Success Message -->
+    {% if quota_success %}
+    <div class="mb-6 bg-green-50 text-green-700 p-4 rounded-lg border border-green-100">
+      <div class="flex items-start">
+        <svg class="w-5 h-5 mr-3 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        <div>
+          <p class="font-medium">Quiz created successfully!</p>
+          <p class="text-sm">You have {{ remaining_quota }} quiz{{ '' if remaining_quota == 1 else 'zes' }} remaining today for this course.</p>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    
+    <!-- Error Message -->
+    {% if error %}
+    <div class="mb-6 bg-red-50 text-red-700 p-4 rounded-lg border border-red-100">
+      <div class="flex items-start">
+        <svg class="w-5 h-5 mr-3 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+        </svg>
+        <div>
+          <p class="font-medium">An error occurred</p>
+          <p class="text-sm">{{ error }}</p>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    
     <div class="bg-white rounded-xl shadow p-8 border border-gray-100 mb-8">
       <form action="/ai/courses/{{course_id}}/quiz/generate" method="post" class="flex flex-col gap-5">
         <label for="topic" class="font-semibold text-gray-800 text-lg">
@@ -100,6 +145,7 @@
                required
                value="{{ topic }}"
                class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+               {{ 'disabled' if quota_exceeded else '' }}
         >
         
         <div class="mt-3">
@@ -107,30 +153,34 @@
             📊 Question Types
           </label>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
-            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer">
+            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer {{ 'opacity-50' if quota_exceeded else '' }}">
               <input type="checkbox" name="question_types" value="mcq" checked 
                 class="form-checkbox h-5 w-5 text-blue-600" 
+                {{ 'disabled' if quota_exceeded else '' }}
               >
               <span class="text-gray-800">Multiple Choice (Single Answer)</span>
             </label>
             
-            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer">
+            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer {{ 'opacity-50' if quota_exceeded else '' }}">
               <input type="checkbox" name="question_types" value="msq" 
-                class="form-checkbox h-5 w-5 text-blue-600" 
+                class="form-checkbox h-5 w-5 text-blue-600"
+                {{ 'disabled' if quota_exceeded else '' }}
               >
               <span class="text-gray-800">Multiple Select (Multiple Answers)</span>
             </label>
             
-            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer">
+            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer {{ 'opacity-50' if quota_exceeded else '' }}">
               <input type="checkbox" name="question_types" value="short_answer" 
-                class="form-checkbox h-5 w-5 text-blue-600" 
+                class="form-checkbox h-5 w-5 text-blue-600"
+                {{ 'disabled' if quota_exceeded else '' }}
               >
               <span class="text-gray-800">Short Answer Questions</span>
             </label>
             
-            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer">
+            <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer {{ 'opacity-50' if quota_exceeded else '' }}">
               <input type="checkbox" name="question_types" value="essay" 
-                class="form-checkbox h-5 w-5 text-blue-600" 
+                class="form-checkbox h-5 w-5 text-blue-600"
+                {{ 'disabled' if quota_exceeded else '' }}
               >
               <span class="text-gray-800">Essay Questions</span>
             </label>
@@ -148,6 +198,7 @@
                  max="20"
                  value="{{ num_questions }}"
                  class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base w-full mt-2"
+                 {{ 'disabled' if quota_exceeded else '' }}
           >
         </div>
         
@@ -156,8 +207,16 @@
         
         <button
           type="submit"
-          class="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-lg"
-        >Generate Quiz</button>
+          class="w-full py-3 {{ 'bg-gray-400' if quota_exceeded else 'bg-blue-600 hover:bg-blue-700' }} text-white font-semibold rounded-lg transition text-lg"
+          {{ 'disabled' if quota_exceeded else '' }}
+        >{{ 'Daily Limit Reached' if quota_exceeded else 'Generate Quiz' }}</button>
+        
+        {% if quota_exceeded %}
+        <p class="text-center text-red-600 text-sm font-medium">
+          You've reached the daily limit of 5 quizzes for this course. 
+          <br>The quota will reset at midnight.
+        </p>
+        {% endif %}
       </form>
       <div id="loading" class="mt-5 hidden text-center">
         <div class="inline-flex items-center gap-2 px-3 py-2 rounded bg-blue-100 text-blue-700 font-medium shadow animate-pulse">
