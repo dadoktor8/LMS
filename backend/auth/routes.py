@@ -421,14 +421,26 @@ def create_course(
     db: Session = Depends(get_db),
     user=Depends(require_role("teacher"))
 ):
+    # Count existing courses by this teacher
+    existing_courses_count = db.query(Course).filter(Course.teacher_id == user["user_id"]).count()
+    
+    # Check if the teacher already has 15 courses
+    if existing_courses_count >= 15:
+        return HTMLResponse(
+            content='<div class="toast error">❌ You can create a maximum of 15 courses per account.</div>',
+            status_code=400
+        )
+    
+    # If under the limit, create the new course
     new_course = Course(title=title, description=description, teacher_id=user["user_id"])
     db.add(new_course)
     db.commit()
     db.refresh(new_course)
+    
     return HTMLResponse(
-    content='<div class="toast success">✅ Course created successfully!</div>',
-    status_code=200
-)
+        content='<div class="toast success">✅ Course created successfully!</div>',
+        status_code=200
+    )
 
 @auth_router.post("/courses/{course_id}/upload-students", response_class=HTMLResponse)
 def upload_students(course_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):

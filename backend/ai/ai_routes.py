@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 import shutil
 import os
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 import urllib
 from backend.ai.ai_grader import evaluate_assignment_text, prepare_rubric_for_ai
@@ -77,17 +77,15 @@ async def upload_course_material(
 
     filename = f"{datetime.utcnow().timestamp()}_{sanitize_filename(file.filename)}"
     save_path = f"backend/uploads/{filename}"
-    file_location = f"uploads/{course_id}_{file.filename}"
     os.makedirs("backend/uploads", exist_ok=True)
     with open(save_path, "wb") as f:
         contents = await file.read()
         f.write(contents)
-
     material = CourseMaterial(
         course_id=course_id,
         title=file.filename,
         filename=filename,
-        filepath=file_location,
+        filepath=f"uploads/{filename}",  # <--- changed to match static serving
         uploaded_by=user["user_id"]
     )
     db.add(material)
@@ -189,26 +187,60 @@ async def ask_tutor(
     try:
         student_id = str(user["user_id"])
         session_id = f"{student_id}_{course_id}"
-
+        
+        # Check daily message limit PER COURSE (100 messages per day per course)
+        today = datetime.now().date()
+        today_start = datetime.combine(today, time.min)
+        today_end = datetime.combine(today, time.max)
+        
+        message_count = db.query(ChatHistory).filter(
+            ChatHistory.user_id == user["user_id"],
+            ChatHistory.course_id == course_id,  # Added course_id filter to restrict count to current course
+            ChatHistory.sender == "student",
+            ChatHistory.timestamp >= today_start,
+            ChatHistory.timestamp <= today_end
+        ).count()
+        
+        if message_count >= 100:
+            return HTMLResponse(
+                content="""
+                <div class="chat-bubble bg-amber-50 border border-amber-200 text-amber-900 px-6 py-4 rounded-2xl self-start max-w-2xl shadow text-lg font-medium leading-relaxed whitespace-pre-line">
+                    ⚠️ You've reached your daily message limit (100 messages) for this course. Please try again tomorrow.
+                </div>
+                <script>
+                    document.body.dispatchEvent(new CustomEvent('ai-response-complete'));
+                </script>
+                """,
+                status_code=429,  # Too Many Requests
+                headers={"HX-Trigger": "ai-response-complete"}
+            )
+        
         # Ensure materials exist
         course_materials = db.query(CourseMaterial).filter_by(course_id=course_id).all()
         if not course_materials:
             raise HTTPException(status_code=404, detail="No course materials found")
-
+            
         processed_materials = db.query(ProcessedMaterial).filter_by(course_id=course_id).all()
         if not processed_materials:
             raise HTTPException(status_code=404, detail="Course materials haven't been processed yet")
-
-        faiss_index_path = f"faiss_index_{course_id}.index"
-        if not os.path.exists(faiss_index_path):
+            
+        faiss_index_dir = f"faiss_index_{course_id}"
+        if not os.path.exists(faiss_index_dir):
             raise HTTPException(status_code=404, detail="FAISS index not found")
+
+            
+        # Save student message to DB
         db.add(ChatHistory(user_id=user["user_id"], course_id=course_id, sender="student", message=query))
+        
         # Get answer using LangChain RAG
         answer = get_answer_from_rag_langchain_openai(query, course_id, student_id)
-
+        
+        # Save AI response to DB
         db.add(ChatHistory(user_id=user["user_id"], course_id=course_id, sender="ai", message=answer))
         db.commit()
+        
         safe_query = html.escape(query)
+        
         # Save to chat history
         history = SQLChatMessageHistory(
             session_id=session_id,
@@ -216,39 +248,86 @@ async def ask_tutor(
         )
         history.add_user_message(query)
         history.add_ai_message(answer)
-
-        return HTMLResponse(content=f"""
-        <div class="chat-bubble bg-blue-600 text-white px-6 py-4 rounded-2xl self-end max-w-2xl ml-auto shadow text-lg font-semibold whitespace-pre-line">
-            🧑‍🎓 {safe_query}
-        </div>
-        <div class="chat-bubble bg-indigo-50 border border-indigo-200 text-indigo-900 px-6 py-4 rounded-2xl self-start max-w-2xl shadow text-lg font-medium leading-relaxed whitespace-pre-line">
-            💡 {answer}
-        </div>
-        """, status_code=200)
         
+        return HTMLResponse(
+            content=f"""
+            <div class="chat-bubble bg-blue-600 text-white px-6 py-4 rounded-2xl self-end max-w-2xl ml-auto shadow text-lg font-semibold whitespace-pre-line">
+                🧑‍🎓 {safe_query}
+            </div>
+            <div class="chat-bubble bg-indigo-50 border border-indigo-200 text-indigo-900 px-6 py-4 rounded-2xl self-start max-w-2xl shadow text-lg font-medium leading-relaxed whitespace-pre-line">
+                💡 {answer}
+            </div>
+            <script>
+                // Dispatch a custom event to signal that the AI response is complete
+                document.body.dispatchEvent(new CustomEvent('ai-response-complete'));
+            </script>
+            """, 
+            status_code=200,
+            headers={"HX-Trigger": "ai-response-complete"}
+        )
+       
     except HTTPException as e:
         logging.error(f"HTTP Exception: {e.detail}")
-        return HTMLResponse(content=f"<div class='toast error'>❌ {e.detail}</div>", status_code=e.status_code)
+        return HTMLResponse(
+            content=f"""
+            <div class='toast error'>❌ {e.detail}</div>
+            <script>
+                document.body.dispatchEvent(new CustomEvent('ai-response-complete'));
+            </script>
+            """, 
+            status_code=e.status_code,
+            headers={"HX-Trigger": "ai-response-complete"}
+        )
     except Exception as e:
         import traceback
         logging.error(f"Error in ask_tutor: {str(e)}")
         logging.error(traceback.format_exc())
-        return HTMLResponse(content=f"<div class='toast error'>❌ Something went wrong. Please try again later.</div>", status_code=500)
-
+        return HTMLResponse(
+            content=f"""
+            <div class='toast error'>❌ Something went wrong. Please try again later.</div>
+            <script>
+                document.body.dispatchEvent(new CustomEvent('ai-response-complete'));
+            </script>
+            """, 
+            status_code=500,
+            headers={"HX-Trigger": "ai-response-complete"}
+        )
 
 @ai_router.get("/courses/{course_id}/tutor", response_class=HTMLResponse)
-async def show_student_tutor(request: Request, course_id: int, db: Session = Depends(get_db), user=Depends(require_role("student"))):
+async def show_student_tutor(
+    request: Request, 
+    course_id: int, 
+    db: Session = Depends(get_db), 
+    user=Depends(require_role("student"))
+):
     course = db.query(Course).filter(Course.id == course_id).first()
     materials = db.query(CourseMaterial).filter_by(course_id=course_id).order_by(CourseMaterial.uploaded_at.desc()).all()
     messages = db.query(ChatHistory).filter_by(user_id=user["user_id"], course_id=course_id).order_by(ChatHistory.timestamp).all()
     enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
     courses = [enroll.course for enroll in enrollments]
+    
+    # Get remaining messages for today for THIS COURSE
+    today = datetime.now().date()
+    today_start = datetime.combine(today, time.min)
+    today_end = datetime.combine(today, time.max)
+    
+    message_count = db.query(ChatHistory).filter(
+        ChatHistory.user_id == user["user_id"],
+        ChatHistory.course_id == course_id,  # Added course_id filter to count messages per course
+        ChatHistory.sender == "student",
+        ChatHistory.timestamp >= today_start,
+        ChatHistory.timestamp <= today_end
+    ).count()
+    
+    remaining_messages = 100 - message_count if message_count < 100 else 0
+    
     return templates.TemplateResponse("student_ai_tutor.html", {
         "request": request,
         "course": course,
         "materials": materials,
         "messages": messages,
-        "courses":courses
+        "courses": courses,
+        "remaining_messages": remaining_messages
     })
 
 @ai_router.post("/process_materials")

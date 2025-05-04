@@ -14,10 +14,13 @@
       from { opacity: 0; transform: translateY(8px);}
       to   { opacity: 1; transform: translateY(0);}
     }
+    .btn-disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
-  <!-- Navbar -->
   <!-- Navbar -->
   <!-- Peer toggle, must be before everything -->
   <input id="sidebar-toggle" type="checkbox" class="hidden peer" />
@@ -34,7 +37,7 @@
         </svg>
       </label>
     </div>
-    <!-- Sidebar nav: copy your <nav>/sidebar links here -->
+    <!-- Sidebar nav -->
     <nav class="mt-2">
       <ul class="space-y-2">
         <li>
@@ -110,7 +113,21 @@
         <li class="text-gray-400">No materials uploaded yet.</li>
         {% endfor %}
       </ul>
+      
+      <!-- Message limit indicator -->
+      <div class="mt-8 pt-4 border-t border-gray-100">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-sm font-medium text-gray-700">Daily Message Limit</span>
+          <span class="text-sm font-bold {% if remaining_messages < 20 %}text-amber-500{% else %}text-green-600{% endif %}">
+            {{ remaining_messages }}/100
+          </span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2">
+          <div class="bg-blue-600 h-2 rounded-full" style="width: {{ (remaining_messages) }}%;"></div>
+        </div>
+      </div>
     </aside>
+    
     <!-- Main Chat Area -->
     <div class="flex-1 bg-white shadow border border-gray-100 rounded-2xl flex flex-col lg:max-h-[80vh] min-h-[60vh]">
       <main class="flex flex-col h-full">
@@ -131,31 +148,92 @@
             {% endif %}
           {% endfor %}
         </div>
+        
         <!-- Chat Input -->
         <form
-          hx-post="/ai/ask_tutor"
-          hx-target="#chat-history"
-          hx-swap="beforeend"
-          class="flex flex-col sm:flex-row items-center gap-4 bg-gray-50 px-8 py-6 border-t border-gray-200 rounded-b-2xl"
-        >
+        hx-post="/ai/ask_tutor"
+        hx-target="#chat-history"
+        hx-swap="beforeend"
+        hx-indicator="#loading-indicator"
+        class="flex flex-col sm:flex-row items-center ..."
+        id="chat-form"
+      >
           <input type="hidden" name="course_id" value="{{ course.id }}">
           <input
             type="text"
             name="query"
+            id="query-input"
             placeholder="Type your question..."
             required
             class="flex-1 px-5 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
             autocomplete="off"
+            {% if remaining_messages <= 0 %}disabled{% endif %}
           >
-          <button type="submit"
-            class="px-8 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition text-lg"
+          <button 
+            type="submit"
+            id="submit-button"
+            class="px-8 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition text-lg {% if remaining_messages <= 0 %}opacity-50 cursor-not-allowed{% endif %}"
+            {% if remaining_messages <= 0 %}disabled{% endif %}
           >Ask</button>
+          <div id="loading-indicator" class="htmx-indicator">
+            <span class="sr-only">Processing...</span>
+          </div>
         </form>
+        
+        {% if remaining_messages <= 0 %}
+        <div class="text-center py-3 text-amber-600 font-medium">
+          You've reached your daily message limit. The limit resets tomorrow.
+        </div>
+        {% endif %}
+        
         <div class="text-center my-8">
-          <a href="/auth/student/courses" class="text-blue-700 hover:underline flex items-center gap-1 text-base">⬅ Back to Dashboard</a>
+          <a href="/auth/student/courses" class="text-blue-700 hover:underline flex items-center gap-1 text-base justify-center">⬅ Back to Dashboard</a>
         </div>
       </main>
     </div>
   </div>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Scroll to bottom of chat on page load
+        const chatHistory = document.getElementById('chat-history');
+        if (chatHistory) {
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+    
+        // Auto-scroll on new content
+        document.body.addEventListener('htmx:afterSwap', function() {
+            if (chatHistory) {
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+            }
+        });
+    
+        // --- FORM SUBMIT BUTTON STATE MANAGEMENT ----
+        const form = document.getElementById('chat-form');
+        const submitButton = document.getElementById('submit-button');
+        const queryInput = document.getElementById('query-input');
+    
+        if(form && submitButton && queryInput) {
+            form.addEventListener('htmx:beforeRequest', function(evt){
+                submitButton.disabled = true;
+                submitButton.classList.add('opacity-50', 'cursor-not-allowed');
+                submitButton.textContent = 'Processing...';
+            });
+            form.addEventListener('htmx:afterRequest', function(evt){
+                enableSubmit();
+            });
+            form.addEventListener('htmx:responseError', function(evt){
+                enableSubmit();
+            });
+            function enableSubmit() {
+                submitButton.disabled = false;
+                submitButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                submitButton.textContent = 'Ask';
+                queryInput.value = '';
+                queryInput.focus();
+            }
+        }
+    });
+    </script>
 </body>
 </html>
