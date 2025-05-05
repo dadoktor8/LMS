@@ -107,6 +107,16 @@
             class="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-lg"
           >Generate Flashcards</button>
         </form>
+        {% if error_message %}
+        <div class="mt-5 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg">
+          <div class="flex items-center">
+            <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+            </svg>
+            {{ error_message }}
+          </div>
+        </div>
+        {% endif %}
         <div id="loading" class="mt-5 hidden text-center">
           <div class="inline-flex items-center gap-2 px-3 py-2 rounded bg-blue-100 text-blue-700 font-medium shadow animate-pulse">
             <svg class="w-4 h-4 animate-spin mr-2" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>

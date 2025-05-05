@@ -19,7 +19,7 @@ from backend.ai.ai_grader import evaluate_assignment_text, prepare_rubric_for_ai
 from backend.ai.open_notes_system import check_quiz_quota, generate_quiz_export, generate_study_material, generate_study_material_quiz, increment_quiz_quota, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, PDFQuotaUsage, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity  # Make sure this is correct
+from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, FlashcardUsage, PDFQuotaUsage, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity, StudyGuideUsage  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
@@ -187,12 +187,26 @@ async def ask_tutor(
     try:
         student_id = str(user["user_id"])
         session_id = f"{student_id}_{course_id}"
-        
+        print(f"User ID: {user['user_id']}, Course ID: {course_id}")
+        current_time = datetime.now()
+        print(f"Current server time: {current_time}")
         # Check daily message limit PER COURSE (100 messages per day per course)
-        today = datetime.now().date()
+        today = current_time.date()
         today_start = datetime.combine(today, time.min)
         today_end = datetime.combine(today, time.max)
+        print(f"Date range: {today_start} to {today_end}")
+
+        all_messages = db.query(ChatHistory).filter(
+            ChatHistory.user_id == user["user_id"],
+            ChatHistory.course_id == course_id,
+            ChatHistory.sender == "student"
+        ).all()
         
+        print(f"Total messages ever sent in this course: {len(all_messages)}")
+        if all_messages:
+            print(f"First message timestamp: {all_messages[0].timestamp}")
+            print(f"Last message timestamp: {all_messages[-1].timestamp}")
+
         message_count = db.query(ChatHistory).filter(
             ChatHistory.user_id == user["user_id"],
             ChatHistory.course_id == course_id,  # Added course_id filter to restrict count to current course
@@ -200,7 +214,7 @@ async def ask_tutor(
             ChatHistory.timestamp >= today_start,
             ChatHistory.timestamp <= today_end
         ).count()
-        
+        print(f"Current message count: {message_count} for course {course_id}")
         if message_count >= 100:
             return HTMLResponse(
                 content="""
@@ -230,13 +244,28 @@ async def ask_tutor(
 
             
         # Save student message to DB
-        db.add(ChatHistory(user_id=user["user_id"], course_id=course_id, sender="student", message=query))
+        student_message = ChatHistory(
+            user_id=user["user_id"], 
+            course_id=course_id, 
+            sender="student", 
+            message=query,
+            timestamp=current_time  # Explicitly set the current time
+        )
+        db.add(student_message)
+        db.commit()
         
         # Get answer using LangChain RAG
         answer = get_answer_from_rag_langchain_openai(query, course_id, student_id)
         
         # Save AI response to DB
-        db.add(ChatHistory(user_id=user["user_id"], course_id=course_id, sender="ai", message=answer))
+        ai_message = ChatHistory(
+            user_id=user["user_id"], 
+            course_id=course_id, 
+            sender="ai", 
+            message=answer,
+            timestamp=datetime.now()  # Use fresh timestamp
+        )
+        db.add(ai_message)
         db.commit()
         
         safe_query = html.escape(query)
@@ -320,6 +349,8 @@ async def show_student_tutor(
     ).count()
     
     remaining_messages = 100 - message_count if message_count < 100 else 0
+
+    print(f"{remaining_messages} to get!")
     
     return templates.TemplateResponse("student_ai_tutor.html", {
         "request": request,
@@ -512,7 +543,7 @@ async def flashcards_page(
     study_material_html = render_flashcards_htmx(materials_json) if materials_json else ""
     enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
     courses = [enroll.course for enroll in enrollments]
-    
+   
     return templates.TemplateResponse(
         "flashcards.html",
         {
@@ -521,7 +552,7 @@ async def flashcards_page(
             "topic": topic,
             "study_material_html": study_material_html,
             "student_id": request.session.get("student_id", ""),
-            "courses":courses
+            "courses": courses
         }
     )
 
@@ -578,12 +609,64 @@ async def generate_flashcards(
     request: Request,
     topic: str = Form(...),
     course_id: int = Form(...),
-    student_id: str = Form(...)
+    student_id: str = Form(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
 ):
+    # Check today's usage for this student and course
+    today = date.today()
+    usage = db.query(FlashcardUsage).filter(
+        FlashcardUsage.student_id == student_id,
+        FlashcardUsage.course_id == course_id,
+        FlashcardUsage.usage_date == today
+    ).first()
+    
+    # Set the daily limit
+    daily_limit = 5
+    
+    # Check if the user has exceeded their daily quota
+    if usage and usage.count >= daily_limit:
+        # Return the page with an error message
+        enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+        courses = [enroll.course for enroll in enrollments]
+        
+        return templates.TemplateResponse(
+            "flashcards.html",
+            {
+                "request": request,
+                "course_id": course_id,
+                "topic": topic,
+                "study_material_html": "",
+                "student_id": student_id,
+                "courses": courses,
+                "error_message": f"Daily limit reached. You can generate up to {daily_limit} flashcards per course per day."
+            }
+        )
+    
+    # Update usage record or create a new one
+    if usage:
+        usage.count += 1
+    else:
+        new_usage = FlashcardUsage(
+            student_id=student_id,
+            course_id=course_id,
+            usage_date=today,
+            count=1
+        )
+        db.add(new_usage)
+    
+    # Commit changes to the database
+    db.commit()
+    
+    # Generate the flashcards
     materials_json = generate_study_material(topic, "flashcards", course_id, student_id)
     request.session["flashcards_materials"] = materials_json
     study_material_html = render_flashcards_htmx(materials_json)
     
+    # Get courses for the sidebar
+    enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
+   
     return templates.TemplateResponse(
         "flashcards.html",
         {
@@ -592,9 +675,9 @@ async def generate_flashcards(
             "topic": topic,
             "study_material_html": study_material_html,
             "student_id": student_id,
+            "courses": courses,
         }
     )
-
 @ai_router.post("/study/quiz/generate", response_class=HTMLResponse)
 async def generate_quiz(
     request: Request,
@@ -622,11 +705,57 @@ async def generate_study_guide(
     request: Request,
     topic: str = Form(...),
     course_id: int = Form(...),
-    student_id: str = Form(...)
+    student_id: str = Form(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
 ):
+    today = date.today()
+    usage = db.query(StudyGuideUsage).filter(
+        StudyGuideUsage.student_id == student_id,
+        StudyGuideUsage.course_id == course_id,
+        StudyGuideUsage.usage_date == today
+    ).first()
+    
+    # Set the daily limit
+    daily_limit = 5
+    if usage and usage.count >= daily_limit:
+        # Return the page with an error message
+        enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+        courses = [enroll.course for enroll in enrollments]
+        
+        return templates.TemplateResponse(
+            "study_guide.html",
+            {
+                "request": request,
+                "course_id": course_id,
+                "topic": topic,
+                "study_material_html": "",
+                "student_id": student_id,
+                "courses": courses,
+                "error_message": f"Daily limit reached. You can generate up to {daily_limit} Study Guides per course per day."
+            }
+        )
+    
+    if usage:
+        usage.count += 1
+    else:
+        new_usage = StudyGuideUsage(
+            student_id=student_id,
+            course_id=course_id,
+            usage_date=today,
+            count=1
+        )
+        db.add(new_usage)
+    
+    # Commit changes to the database
+    db.commit()
+    print(f"Study guides remaining {usage and usage.count}")
     materials_json = generate_study_material(topic, "study_guide", course_id, student_id)
     request.session["study_guide_materials"] = materials_json
     study_material_html = render_study_guide_htmx(materials_json)
+
+    enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+    courses = [enroll.course for enroll in enrollments]
     
     return templates.TemplateResponse(
         "study_guide.html",
@@ -636,6 +765,7 @@ async def generate_study_guide(
             "topic": topic,
             "study_material_html": study_material_html,
             "student_id": student_id,
+            "courses": courses,
         }
     )
 

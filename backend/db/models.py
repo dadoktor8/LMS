@@ -315,3 +315,21 @@ class QuizQuota(Base):
     
     # Relationship
     course = relationship("Course", back_populates="quiz_quotas")
+
+class FlashcardUsage(Base):
+    __tablename__ = "flashcard_usages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(String, index=True)
+    course_id = Column(Integer, index=True)
+    usage_date = Column(Date, default=date.today)
+    count = Column(Integer, default=1)
+
+class StudyGuideUsage(Base):
+    __tablename__ = "studyguide_usages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(String, index=True)
+    course_id = Column(Integer, index=True)
+    usage_date = Column(Date, default=date.today)
+    count = Column(Integer, default=1)
