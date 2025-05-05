@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 import shutil
 import os
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import urllib
 from backend.ai.ai_grader import evaluate_assignment_text, prepare_rubric_for_ai
@@ -794,55 +794,61 @@ async def create_assignment(
     description: str = Form(...),
     deadline: str = Form(...),
     db: Session = Depends(get_db),
-    user=Depends(require_teacher_or_ta()),
+    user = Depends(require_teacher_or_ta()),
     material_ids: List[int] = Form(None),
 ):
+    # Restriction: Only 3 assignments per day (24h window), per teacher per course
+    now = datetime.utcnow()
+    window_start = now - timedelta(days=1)
+    teacher_id = user["user_id"]
+
+    # Count assignments for this teacher & course in the last 24h
+    assignment_count = db.query(Assignment).filter(
+        Assignment.teacher_id == teacher_id,
+        Assignment.course_id == course_id,
+        Assignment.created_at >= window_start
+    ).count()
+    if assignment_count >= 3:
+        raise HTTPException(
+            status_code=400,
+            detail="You can only create up to 3 assignments per day for this course."
+        )
+
     deadline_dt = datetime.fromisoformat(deadline)
     assignment = Assignment(
         course_id=course_id,
         title=title,
         description=description,
         deadline=deadline_dt,
-        teacher_id=user["user_id"]
+        teacher_id=teacher_id
     )
-    
+
     if material_ids:
         assignment.materials = db.query(CourseMaterial).filter(CourseMaterial.id.in_(material_ids)).all()
-    
+
     db.add(assignment)
     db.commit()
     db.refresh(assignment)
-    
-    form_data = await request.form()
 
+    form_data = await request.form()
     # Process rubrics
     rubric_data = {}
     for key, value in form_data.items():
         if key.startswith('rubric['):
-            # Parse the form data to extract rubric information
-            # Format: rubric[criterion_index][field_name] or
-            #         rubric[criterion_index][levels][level_index][field_name]
             parts = key.rstrip(']').split('[')
-            criterion_index = int(parts[1].rstrip(']'))  # <<< FIXED
-
+            criterion_index = int(parts[1].rstrip(']'))
             if criterion_index not in rubric_data:
                 rubric_data[criterion_index] = {'levels': {}}
-
             if len(parts) == 3:
-                # This is a criterion attribute (name, weight)
                 field_name = parts[2].rstrip(']')
                 rubric_data[criterion_index][field_name] = value
             elif len(parts) == 5:
-                # This is a level attribute (description, points)
-                level_index = int(parts[3].rstrip(']'))  # <<< FIXED
+                level_index = int(parts[3].rstrip(']'))
                 field_name = parts[4].rstrip(']')
-
                 if level_index not in rubric_data[criterion_index]['levels']:
                     rubric_data[criterion_index]['levels'][level_index] = {}
+                rubric_data[criterion_index]['levels'][level_index][field_name] = value
 
-                rubric_data[criterion_index]['levels'][level_index][field_name] = value 
-    
-    # Now save the rubric criteria and levels to the database
     for criterion_data in rubric_data.values():
         criterion = RubricCriterion(
             assignment_id=assignment.id,
@@ -852,8 +858,7 @@ async def create_assignment(
         db.add(criterion)
         db.commit()
         db.refresh(criterion)
-        
-        # Add levels for this criterion
+
         for level_data in criterion_data['levels'].values():
             level = RubricLevel(
                 criterion_id=criterion.id,
@@ -861,9 +866,9 @@ async def create_assignment(
                 points=float(level_data.get('points', 0))
             )
             db.add(level)
-    
+
     db.commit()
-    
+
     return RedirectResponse(f"/ai/teacher/{course_id}/assignments", status_code=303)
 
 @ai_router.get("/assignments/{assignment_id}/submit", response_class=HTMLResponse)
@@ -897,61 +902,81 @@ async def submit_assignment(
     with open(save_path, "wb") as f:
         f.write(await file.read())
 
-    # Extract text & AI grade (with/without rubric)
-    ai_score = None
-    ai_feedback = None
-    ai_criteria_eval = None
-    try:
-        raw_text = extract_text_from_pdf(save_path)
-        # Try to get rubric criteria (with all levels loaded)
-        rubric_criteria = db.query(RubricCriterion).filter(
-            RubricCriterion.assignment_id == assignment.id
-        ).options(joinedload(RubricCriterion.levels)).all()
-        ai_rubric = prepare_rubric_for_ai(rubric_criteria) if rubric_criteria else None
-
-        ai_score, ai_feedback, ai_criteria_eval = evaluate_assignment_text(
-            text=raw_text,
-            assignment_title=assignment.title,
-            assignment_description=assignment.description,
-            rubric_criteria=ai_rubric
-        )
-    except Exception as e:
-        logging.exception(f"AI Evaluation failed: {e}")
-        ai_score, ai_feedback, ai_criteria_eval = None, None, None
-
-    # Save or update submission (without per-criterion rubric yet)
+    # Check for existing submission
     existing_submission = (
         db.query(AssignmentSubmission)
         .filter_by(assignment_id=assignment_id, student_id=student_id)
         .first()
     )
+
+    # Extract text & AI grade (with/without rubric) - only if allowed
+    ai_score = None
+    ai_feedback = None
+    ai_criteria_eval = None
+    perform_ai_evaluation = False
+    
     if existing_submission:
+        # Use existing submission
         submission = existing_submission
         submission.file_path = file_location
-        submission.ai_score = ai_score
-        submission.ai_feedback = ai_feedback
         submission.submitted_at = datetime.utcnow()
+        
+        # Handle case where ai_evaluation_count might be None
+        current_count = submission.ai_evaluation_count or 0
+        
+        # Check if we can still use AI evaluation (less than 2 times)
+        if current_count < 2:
+            perform_ai_evaluation = True
+            submission.ai_evaluation_count = current_count + 1
     else:
+        # Create new submission
         submission = AssignmentSubmission(
             assignment_id=assignment_id,
             student_id=student_id,
             file_path=file_location,
-            ai_score=ai_score,
-            ai_feedback=ai_feedback,
-            submitted_at=datetime.utcnow()
+            submitted_at=datetime.utcnow(),
+            ai_evaluation_count=1  # First evaluation
         )
         db.add(submission)
-        db.flush() # so submission.id is available
+        perform_ai_evaluation = True  # New submission gets one evaluation
+    
+    # Perform AI evaluation if allowed
+    if perform_ai_evaluation:
+        try:
+            raw_text = extract_text_from_pdf(save_path)
+            # Try to get rubric criteria (with all levels loaded)
+            rubric_criteria = db.query(RubricCriterion).filter(
+                RubricCriterion.assignment_id == assignment.id
+            ).options(joinedload(RubricCriterion.levels)).all()
+            ai_rubric = prepare_rubric_for_ai(rubric_criteria) if rubric_criteria else None
 
+            ai_score, ai_feedback, ai_criteria_eval = evaluate_assignment_text(
+                text=raw_text,
+                assignment_title=assignment.title,
+                assignment_description=assignment.description,
+                rubric_criteria=ai_rubric
+            )
+            
+            # Update submission with AI evaluation results
+            submission.ai_score = ai_score
+            submission.ai_feedback = ai_feedback
+            
+        except Exception as e:
+            logging.exception(f"AI Evaluation failed: {e}")
+            ai_score, ai_feedback, ai_criteria_eval = None, None, None
+
+    # Commit changes to submission
+    db.flush()  # so submission.id is available
     db.commit()
 
-    # Save rubric evaluations per-criterion (just like your inspiration code)
-    if ai_criteria_eval:
+    # Save rubric evaluations per-criterion (only if AI evaluation was performed)
+    if perform_ai_evaluation and ai_criteria_eval:
         # Delete previous AI evaluations for this submission (if any)
         db.query(RubricEvaluation).filter(
             RubricEvaluation.submission_id == submission.id,
             RubricEvaluation.graded_by_ai == True
         ).delete(synchronize_session=False)
+        
         # Create new evaluations
         for crit in ai_criteria_eval:
             criterion_id = crit.get('criterion_id')
@@ -981,11 +1006,17 @@ async def submit_assignment(
             )
         rubric_html += "</ul>"
 
+    # Create appropriate response message based on whether AI evaluation was performed
+    evaluation_status = ""
+    if not perform_ai_evaluation:
+        evaluation_status = "<p class='text-amber-600'>AI evaluation limit reached (max 2 per submission).</p>"
+    
     return HTMLResponse(
         f"""<div class='toast success'>
-                ✅ Submitted! AI Score: {ai_score if ai_score is not None else 'Pending'}
+                ✅ Submitted! {evaluation_status}
+                {"AI Score: " + str(ai_score) if ai_score is not None else ""}
                 <br>
-                <small>{ai_feedback if ai_feedback else "AI feedback pending"}</small>
+                <small>{ai_feedback if ai_feedback else ""}</small>
                 {rubric_html}
             </div>""",
         status_code=200

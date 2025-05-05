@@ -187,6 +187,7 @@ class AssignmentSubmission(Base):
     ai_score = Column(Integer, nullable=True)
     ai_feedback = Column(Text, nullable=True)  # New column for AI feedback
     teacher_score = Column(Integer, nullable=True)
+    ai_evaluation_count = Column(Integer, default=0)
     # Relationships
     student = relationship("User")
     assignment = relationship("Assignment", back_populates="submissions")
