@@ -6,14 +6,14 @@ from typing import Optional
 from fastapi import HTTPException
 import fitz  # PyMuPDF for PDF text extraction
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from nltk.tokenize import sent_tokenize
-import torch
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-import faiss
-import numpy as np
-from sentence_transformers import SentenceTransformer
+#from nltk.tokenize import sent_tokenize
+#import torch
+#from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+#import faiss
+#import numpy as np
+#from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
-import urllib
+#import urllib
 from backend.db.models import CourseMaterial, PDFQuotaUsage, ProcessedMaterial, TextChunk
 from backend.db.database import SessionLocal  # if you're using a unified DB setup
 from langchain.vectorstores import FAISS
@@ -118,6 +118,7 @@ def embed_chunks(chunks: list) -> torch.Tensor:
     model = SentenceTransformer(r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2")  # or use local path if offline
     return model.encode(chunks, convert_to_tensor=True)
 '''
+'''
 def embed_chunks(chunks: list) -> torch.Tensor:
     model = SentenceTransformer(r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2")
     normalized_chunks = [chunk.strip().replace("\n", " ") for chunk in chunks]
@@ -146,7 +147,7 @@ def save_embeddings_to_faiss(course_id: int, embeddings: torch.Tensor, chunks: l
     print(f"✅ Saved FAISS index and chunks for course {course_id}")
     logging.info(f"✅ Saved FAISS index and chunks for course {course_id}")
 
-
+'''
 
 def check_pdf_quota(course_id: int, pdf_path: str, db: Session) -> tuple[bool, int, int]:
     """
@@ -229,7 +230,7 @@ def process_materials_in_background(course_id: int, db: Session):
             # Process the PDF if quota is OK
             text = extract_text_from_pdf(file_path)
             chunks = chunk_text(text)
-            embeddings = embed_chunks(chunks)
+            #embeddings = embed_chunks(chunks)
             save_embeddings_to_faiss_openai(course_id, chunks, db)
             
             # Mark as processed
@@ -269,6 +270,7 @@ def search_faiss(query: str, faiss_index_path: str, chunk_text_path: str, top_k:
 
 # ---------------------------------------------
 '''
+'''
 def search_faiss(query: str, faiss_index_path: str, chunk_text_path: str, top_k: int = 5) -> list:
     index = faiss.read_index(faiss_index_path)
     model = SentenceTransformer(r"D:\My Projects And Such\lms\backend\model\all-MiniLM-L6-v2")
@@ -304,6 +306,7 @@ def get_answer_from_rag(query: str, faiss_index_path: str, top_k: int = 5) -> st
 
 '''
 
+'''
 def get_answer_from_rag_langchain(query: str, course_id: int, student_id: str) -> str:
     try:
         # Load FAISS index
@@ -657,7 +660,7 @@ def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id:
         import traceback
         traceback.print_exc()
         return "I apologize, but I encountered an unexpected error. Our team has been notified, and we're working to fix it."
-
+'''
 def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session):
     # 1. Normalize chunks
     normalized_chunks = [chunk.strip().replace("\n", " ") for chunk in chunks]
@@ -712,7 +715,7 @@ def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session
     logging.info(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")
     print(f"✅ Saved FAISS index and chunks (LangChain) for course {course_id}")
 
-
+'''
 def save_embeddings_to_faiss_openai(course_id: int, chunks: list, db: Session):
     # 1. Normalize chunks
     normalized_chunks = [chunk.strip().replace("\n", " ") for chunk in chunks]

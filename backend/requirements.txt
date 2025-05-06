@@ -12,11 +12,7 @@ yagmail
 pandas
 openpyxl
 PyMuPDF 
-nltk 
-transformers 
-torch 
 faiss-cpu
-sentence-transformers
 langchain
 langchain-community
 reportlab
