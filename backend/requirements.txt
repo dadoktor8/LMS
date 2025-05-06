@@ -21,3 +21,4 @@ sentence-transformers
 langchain
 langchain-community
 reportlab
+psycopg2-binary==2.9.9

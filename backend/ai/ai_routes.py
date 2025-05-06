@@ -1610,12 +1610,37 @@ async def student_engagement_activities(
     ).order_by(StudentActivity.created_at.desc()).all()
     enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
     courses = [enroll.course for enroll in enrollments]
+    
+    # Calculate how many activities were done today
+    today = datetime.utcnow().date()
+    activities_today = sum(1 for activity in student_activities if activity.created_at.date() == today)
+    daily_limit_reached = activities_today >= 5
+    
     return templates.TemplateResponse("student_engagement.html", {
         "request": request,
         "course": course,
-        "courses":courses,
-        "student_activities": student_activities
+        "courses": courses,
+        "student_activities": student_activities,
+        "activities_today": activities_today,
+        "daily_limit": 5,
+        "daily_limit_reached": daily_limit_reached
     })
+
+# Helper function to check daily activity limit
+def check_daily_activity_limit(db: Session, student_id: int, course_id: int):
+    today = datetime.utcnow().date()
+    today_start = datetime.combine(today, datetime.min.time())
+    today_end = datetime.combine(today, datetime.max.time())
+    
+    # Count activities created today for this course
+    activities_today = db.query(StudentActivity).filter(
+        StudentActivity.student_id == student_id,
+        StudentActivity.course_id == course_id,
+        StudentActivity.created_at >= today_start,
+        StudentActivity.created_at <= today_end
+    ).count()
+    
+    return activities_today, activities_today >= 5
 
 # Muddiest Point endpoint
 @ai_router.post("/student/courses/{course_id}/muddiest-point", response_class=HTMLResponse)
@@ -1632,6 +1657,14 @@ async def process_muddiest_point(
     ).first()
     if not enrollment:
         return JSONResponse(content={"error": "You are not enrolled in this course"}, status_code=403)
+    
+    # Check daily activity limit
+    activities_today, limit_reached = check_daily_activity_limit(db, user["user_id"], course_id)
+    if limit_reached:
+        return JSONResponse(
+            content={"error": f"Daily limit of 5 engagement activities per course reached. Please try again tomorrow."},
+            status_code=429  # Too Many Requests
+        )
     
     query = f"Topic: {topic}. Confusion: {confusion}"
     try:
@@ -1688,7 +1721,9 @@ Return your response as valid JSON with the following structure:
         # Render response using your template/component
         return templates.TemplateResponse("muddiest_point_response.html", {
             "request": request,
-            "ai_response": ai_response
+            "ai_response": ai_response,
+            "activities_today": activities_today + 1,
+            "daily_limit": 5
         })
     except HTTPException as e:
         return JSONResponse(content={"error": e.detail}, status_code=e.status_code)
@@ -1711,6 +1746,14 @@ async def process_misconception_check(
     ).first()
     if not enrollment:
         return JSONResponse(content={"error": "You are not enrolled in this course"}, status_code=403)
+    
+    # Check daily activity limit
+    activities_today, limit_reached = check_daily_activity_limit(db, user["user_id"], course_id)
+    if limit_reached:
+        return JSONResponse(
+            content={"error": f"Daily limit of 5 engagement activities per course reached. Please try again tomorrow."},
+            status_code=429  # Too Many Requests
+        )
     
     query = f"Topic: {topic}. Student beliefs: {beliefs}"
     try:
@@ -1762,7 +1805,9 @@ Return your response as valid JSON with the following structure:
         db.commit()
         return templates.TemplateResponse("misconception_response.html", {
             "request": request,
-            "ai_response": ai_response
+            "ai_response": ai_response,
+            "activities_today": activities_today + 1,
+            "daily_limit": 5
         })
     except HTTPException as e:
         return JSONResponse(content={"error": e.detail}, status_code=e.status_code)
