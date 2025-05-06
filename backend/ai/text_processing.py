@@ -18,17 +18,17 @@ from backend.db.models import CourseMaterial, PDFQuotaUsage, ProcessedMaterial, 
 from backend.db.database import SessionLocal  # if you're using a unified DB setup
 from langchain.vectorstores import FAISS
 #from langchain.embeddings import HuggingFaceEmbeddings
-from langchain_huggingface import HuggingFaceEmbeddings
+#from langchain_huggingface import HuggingFaceEmbeddings
 #from langchain.llms import HuggingFacePipeline
-from langchain_huggingface import HuggingFacePipeline
+#from langchain_huggingface import HuggingFacePipeline
 from langchain.chains import RetrievalQA
 from langchain.schema import Document
-from transformers import pipeline
+#from transformers import pipeline
 from langchain.memory.chat_message_histories import SQLChatMessageHistory
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationalRetrievalChain
-from sqlalchemy import create_engine
-from langchain.llms import LlamaCpp
+#from langchain.memory import ConversationBufferMemory
+#from langchain.chains import ConversationalRetrievalChain
+#from sqlalchemy import create_engine
+#from langchain.llms import LlamaCpp
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings 
 from langchain.prompts import PromptTemplate
 

@@ -23,7 +23,7 @@ from backend.db.models import Assignment, AssignmentComment, AssignmentSubmissio
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
-from .text_processing import extract_text_from_pdf, chunk_text, embed_chunks, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background, save_embeddings_to_faiss,sanitize_filename
+from .text_processing import extract_text_from_pdf, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background,sanitize_filename
 from langchain.memory.chat_message_histories import SQLChatMessageHistory
 from langchain.schema import AIMessage, HumanMessage
 from fastapi import FastAPI

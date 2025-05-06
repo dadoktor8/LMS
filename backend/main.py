@@ -20,7 +20,11 @@ import os
 from backend.auth.routes import auth_router
 from backend.db.init_db import init_db
 secret_key = os.getenv("SECRET_KEY")
-app = FastAPI()
+app = FastAPI(
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None
+)
 app.add_middleware(SessionMiddleware, secret_key=secret_key)
 templates = Jinja2Templates(directory="backend/templates")
 app.mount("/static", StaticFiles(directory="backend/static"), name="static")
