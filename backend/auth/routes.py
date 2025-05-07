@@ -2,6 +2,7 @@ from collections import defaultdict
 import csv
 import io
 import random
+import re
 import string
 from fastapi import APIRouter, HTTPException, Depends, Query, Request, Form
 from fastapi.security import OAuth2PasswordBearer
@@ -9,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import UploadFile, File 
 import pandas as pd
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, validator
 from passlib.context import CryptContext
 import jwt
 from datetime import datetime, timedelta
@@ -18,8 +19,9 @@ import os
 from dotenv import load_dotenv
 from sqlalchemy import desc, func, text
 from sqlalchemy.orm import Session
+import yagmail
 from backend.utils.permissions import require_teacher_or_ta
-from backend.utils.tokens import create_access_token, decode_token, generate_verification_token
+from backend.utils.tokens import ALGORITHM, PASSWORD_PATTERN, create_access_token, decode_token, generate_verification_token
 from backend.utils.tokens import confirm_token
 from backend.utils.email_utils import send_verification_email
 from backend.db.models import AttendanceCode, AttendanceRecord, TeachingAssistant, User,Course,Enrollment,CourseInvite
@@ -39,7 +41,26 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 class SignupRequest(BaseModel):
     email: EmailStr
     password: str
-    role: Literal["admin", "student"]
+    confirm_password: str
+    role: str
+    f_name: str
+    l_name: str = ""
+    
+    @validator('password')
+    def password_strength(cls, v):
+        pattern = re.compile(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{8,}$')
+        if not pattern.match(v):
+            raise ValueError(
+                "Password must be at least 8 characters and include at least "
+                "one lowercase letter, one uppercase letter, one number, and one special character"
+            )
+        return v
+    
+    @validator('confirm_password')
+    def passwords_match(cls, v, values, **kwargs):
+        if 'password' in values and v != values['password']:
+            raise ValueError('Passwords do not match')
+        return v
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -47,13 +68,52 @@ class LoginRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
-    token_type: str = "bearer"
+    token_type: str
+
+def decode_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 def verify_password(plain_password, hashed_password) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
+
+def is_valid_password(password: str) -> bool:
+    """
+    Validate password meets complexity requirements:
+    - At least 8 characters
+    - At least one lowercase letter
+    - At least one uppercase letter
+    - At least one number
+    - At least one special character
+    """
+    return bool(PASSWORD_PATTERN.match(password))
+
+def get_base_url(request: Request = None) -> str:
+    """
+    Get the base URL for the application - handles local development vs production
+    """
+    # First priority: Use environment variable if set
+    base_url = os.getenv('FRONTEND_URL')
+    
+    # Second priority: Use request host if available
+    if not base_url and request:
+        host = request.headers.get('host', '')
+        scheme = request.headers.get('x-forwarded-proto', 'http')
+        if not scheme or scheme == 'null':
+            scheme = 'https' if request.url.scheme == 'https' else 'http'
+        base_url = f"{scheme}://{host}"
+    
+    # Fallback to localhost if nothing else works
+    if not base_url:
+        base_url = "http://127.0.0.1:8000"
+        
+    return base_url
 
 def require_role(required_role: str):
     def role_checker(request: Request):
@@ -68,24 +128,44 @@ def require_role(required_role: str):
 
     return role_checker
 
-# === JSON API SIGNUP ===
 @auth_router.post("/signup")
 def signup(payload: SignupRequest, db: Session = Depends(get_db)):
+    # Check if user already exists
     existing_user = db.query(User).filter(User.email == payload.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="User already exists")
+    
+    # Verify password strength
+    if not is_valid_password(payload.password):
+        raise HTTPException(
+            status_code=400, 
+            detail="Password must be at least 8 characters with at least one lowercase letter, "
+                  "one uppercase letter, one number, and one special character"
+        )
+    
+    # Verify passwords match
+    if payload.password != payload.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+    
     new_user = User(
         email=payload.email,
         hashed_password=hash_password(payload.password),
         role=payload.role,
-        f_name = payload.f_name,
-        l_name = payload.l_name
+        f_name=payload.f_name,
+        l_name=payload.l_name,
+        is_verified=False  # Default to unverified
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    print(f"Creating user with email: {payload.email}")
-    return {"msg": "User created successfully"}
+    
+    # Send verification email
+    token = generate_verification_token(payload.email)
+    base_url = get_base_url()
+    verification_link = f"{base_url}/auth/verify-email?token={token}"
+    send_verification_email(payload.email, verification_link)
+    
+    return {"msg": "User created successfully. Please check your email to verify your account."}
 
 # === HTMX SIGNUP FORM ===
 @auth_router.get("/signup-page", response_class=HTMLResponse)
@@ -97,54 +177,83 @@ def signup_form(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    confirm_password: str = Form(...),
     role: str = Form(...),
     f_name: str = Form(...),
     l_name: str = Form(...),
     db: Session = Depends(get_db)
 ):
+    # Check if user already exists
     existing_user = db.query(User).filter(User.email == email).first()
     if existing_user:
         return HTMLResponse(content="❌ User already exists", status_code=400)
     
-    new_user = User(f_name=f_name,l_name=l_name,email=email, hashed_password=hash_password(password), role=role)
+    # Validate password
+    if not is_valid_password(password):
+        return HTMLResponse(
+            content="❌ Password must be at least 8 characters with at least one lowercase letter, "
+                   "one uppercase letter, one number, and one special character",
+            status_code=400
+        )
+    
+    # Check if passwords match
+    if password != confirm_password:
+        return HTMLResponse(content="❌ Passwords do not match", status_code=400)
+   
+    new_user = User(
+        f_name=f_name,
+        l_name=l_name,
+        email=email, 
+        hashed_password=hash_password(password), 
+        role=role,
+        is_verified=False  # Default to unverified
+    )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    print("✅ User added:", new_user.email)
+    
+    # Generate verification token and send email
     token = generate_verification_token(email)
-    link = f"{os.getenv('FRONTEND_URL', 'http://127.0.0.1:8000')}/auth/verify-email?token={token}"
+    base_url = get_base_url(request)
+    link = f"{base_url}/auth/verify-email?token={token}"
     send_verification_email(email, link)
-    return HTMLResponse(content="✅ User created successfully!")
+    
+    return HTMLResponse(content="✅ User created successfully! Please check your email to verify your account.")
 
 # === JSON API LOGIN ===
 @auth_router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
+    
+    # Check if user exists and password is correct
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Check if email is verified
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=401, 
+            detail="Email not verified. Please check your inbox for the verification link."
+        )
+    
     access_token = create_access_token(data={"sub": user.email, "role": user.role})
     return {
         "access_token": access_token,
         "token_type": "bearer"
     }
-@auth_router.get("/login")
-def redirect_to_login_page(msg: str = ""):
-    return RedirectResponse(url=f"/auth/login-page?msg={msg}", status_code=302)
 
 
 # === HTMX LOGIN FORM ===
 @auth_router.get("/login-page", response_class=HTMLResponse)
-def login_page(request: Request):
+def login_page(request: Request, msg: str = ""):
     logged_out = request.cookies.get("logged_out")
-
     response = templates.TemplateResponse("login.html", {
         "request": request,
-        "logged_out": logged_out
+        "logged_out": logged_out,
+        "msg": msg
     })
-
-    # 🍪 Clear the cookie after reading so it doesn’t show again next time
+    # Clear the cookie after reading so it doesn't show again next time
     response.delete_cookie("logged_out")
-
     return response
 
 
@@ -156,13 +265,28 @@ def login_form(
     db: Session = Depends(get_db)
 ):
     user = db.query(User).filter(User.email == email).first()
+    
+    # Check if user exists and password is correct
     if not user or not verify_password(password, user.hashed_password):
         return HTMLResponse(
             content='<div class="toast error" style="text-align:center;">❌ Invalid email or password</div>',
             status_code=200
         )
-
-    # Redirect logic
+    
+    # Check if email is verified
+    if not user.is_verified:
+        # Generate new verification token
+        token = generate_verification_token(email)
+        base_url = get_base_url(request)
+        link = f"{base_url}/auth/verify-email?token={token}"
+        send_verification_email(email, link)
+        
+        return HTMLResponse(
+            content='<div class="toast warning" style="text-align:center;">⚠️ Email not verified. A new verification link has been sent to your email.</div>',
+            status_code=200
+        )
+    
+    # Determine redirect URL based on role
     if user.role == "admin":
         redirect_url = "/auth/admin/dashboard"
     elif user.role == "student":
@@ -171,26 +295,32 @@ def login_form(
         redirect_url = "/auth/teacher/dashboard"
     else:
         return HTMLResponse(content="Invalid role", status_code=400)
-
-    # ⛓️ Create JWT token
-    access_token = create_access_token(data={
-        "sub": user.email,
-        "role": user.role,
-        "user_id": user.id
-    }, expires_delta=timedelta(hours=24))
-
-    # 🌐 Set token in cookie
-    response = HTMLResponse(status_code=200)
+    
+    # Create JWT token with user_id included
+    access_token = create_access_token(
+        data={
+            "sub": user.email,
+            "role": user.role,
+            "user_id": user.id
+        }, 
+        expires_delta=timedelta(hours=24)
+    )
+    
+    # Set token in cookie and redirect
+    response = HTMLResponse(
+        content='<div class="toast success" style="text-align:center;">✅ Login successful! Redirecting...</div>',
+        status_code=200
+    )
     response.headers["HX-Redirect"] = redirect_url
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         max_age=60 * 60 * 24,  # 1 day
-        secure=False,  # True in production with HTTPS
+        secure=False,  # Set to True in production with HTTPS
         samesite="Lax"
     )
-
+    
     return response
 
 @auth_router.get("/student/profile", response_class=HTMLResponse)
@@ -336,7 +466,7 @@ def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
             "title": "Verification Failed",
             "message": "❌ Invalid or expired token."
         })
-
+        
     user = db.query(User).filter(User.email == email).first()
     if not user:
         return templates.TemplateResponse("message.html", {
@@ -344,21 +474,21 @@ def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
             "title": "User Not Found",
             "message": "❌ User does not exist."
         })
-
+        
     if user.is_verified:
         return templates.TemplateResponse("message.html", {
             "request": request,
             "title": "Already Verified",
             "message": "✅ Email already verified!"
         })
-
+        
     user.is_verified = True
     db.commit()
-    
+   
     return templates.TemplateResponse("message.html", {
         "request": request,
         "title": "Success",
-        "message": "🎉 Email verified successfully!"
+        "message": "🎉 Email verified successfully! You can now <a href='/auth/login-page'>login</a>."
     })
 
 @auth_router.post("/forgot-password", response_class=HTMLResponse)
@@ -366,11 +496,20 @@ def forgot_password(request: Request, email: str = Form(...), db: Session = Depe
     user = db.query(User).filter(User.email == email).first()
     if not user:
         return HTMLResponse(content="❌ No account found with that email", status_code=404)
-
+    
     token = generate_verification_token(email)
-    reset_link = f"{os.getenv('FRONTEND_URL', 'http://127.0.0.1:8000')}/auth/reset-password?token={token}"
-    send_verification_email(email, reset_link)  # Reuse your email function
-
+    base_url = get_base_url(request)
+    reset_link = f"{base_url}/auth/reset-password?token={token}"
+    
+    # Send email with reset link
+    user_email = os.getenv("EMAIL_USER")
+    password = os.getenv("EMAIL_PASSWORD")
+    
+    yag = yagmail.SMTP(user=user_email, password=password)
+    subject = "Reset your password"
+    content = f"Click the link to reset your password: {reset_link}"
+    yag.send(to=email, subject=subject, contents=content)
+    
     return HTMLResponse(content="📧 Password reset link sent!")
 
 @auth_router.get("/reset-password", response_class=HTMLResponse)
@@ -378,7 +517,7 @@ def reset_password_form(request: Request, token: str):
     email = confirm_token(token)
     if not email:
         return HTMLResponse(content="❌ Invalid or expired token", status_code=400)
-
+    
     return templates.TemplateResponse(
         "reset_password.html",
         {"request": request, "token": token}
@@ -392,26 +531,80 @@ def reset_password(
     confirm_password: str = Form(...),
     db: Session = Depends(get_db)
 ):
+    # Validate password complexity
+    if not is_valid_password(new_password):
+        return templates.TemplateResponse(
+            "reset_password.html",
+            {
+                "request": request, 
+                "token": token,
+                "error": "Password must be at least 8 characters with at least one lowercase letter, one uppercase letter, one number, and one special character"
+            },
+            status_code=400
+        )
+       
     if new_password != confirm_password:
-        return HTMLResponse(content="❌ Passwords do not match", status_code=400)
-
+        return templates.TemplateResponse(
+            "reset_password.html",
+            {
+                "request": request, 
+                "token": token,
+                "error": "Passwords do not match"
+            },
+            status_code=400
+        )
+       
     email = confirm_token(token)
     if not email:
-        return HTMLResponse(content="❌ Invalid or expired token", status_code=400)
-
+        return templates.TemplateResponse(
+            "reset_password.html",
+            {
+                "request": request, 
+                "token": token,
+                "error": "Invalid or expired token"
+            },
+            status_code=400
+        )
+       
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        return HTMLResponse(content="❌ User not found", status_code=400)
-
+        return templates.TemplateResponse(
+            "reset_password.html",
+            {
+                "request": request, 
+                "token": token,
+                "error": "User not found"
+            },
+            status_code=400
+        )
+       
     user.hashed_password = hash_password(new_password)
     db.commit()
-
-    # Redirect to login page after successful password reset
-    return RedirectResponse(url="/auth/login?msg=Password+reset+successful", status_code=303)
+   
+    # Use a regular HTTP redirect to login page after successful password reset
+    # This ensures a complete page refresh
+    response = RedirectResponse(url="/auth/login-page?msg=Password+reset+successful", status_code=303)
+    return response
 
 @auth_router.get("/forgot-password-page", response_class=HTMLResponse)
 def forgot_password_page(request: Request):
     return templates.TemplateResponse("forgot_password.html", {"request": request})
+
+@auth_router.get("/resend-verification", response_class=HTMLResponse)
+def resend_verification(request: Request, email: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return HTMLResponse(content="❌ No account found with that email", status_code=404)
+        
+    if user.is_verified:
+        return HTMLResponse(content="✅ Email already verified! You can login.", status_code=200)
+        
+    token = generate_verification_token(email)
+    base_url = get_base_url(request)
+    link = f"{base_url}/auth/verify-email?token={token}"
+    send_verification_email(email, link)
+    
+    return HTMLResponse(content="📧 Verification email resent! Please check your inbox.")
 
 
 @auth_router.post("/courses")
