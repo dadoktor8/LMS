@@ -122,10 +122,10 @@
               {% for material in materials %}
               <tr class="border-b">
                 <td class="px-4 py-2">
-                  <a href="/{{ material.filepath }}" target="_blank" download
-                    class="text-blue-700 underline font-medium hover:text-blue-900">
-                    📄 {{ material.title or material.filename }}
-                  </a>
+                  <a href="/ai/courses/{{ course_id }}/materials/{{ material.id }}/download" target="_blank"
+                  class="text-blue-700 underline font-medium hover:text-blue-900">
+                  📄 {{ material.title or material.filename }}
+               </a>
                 </td>
                 <td class="px-4 py-2">{{ material.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
               </tr>

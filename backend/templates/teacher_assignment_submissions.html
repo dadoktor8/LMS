@@ -116,7 +116,7 @@
             <tr class="border-t">
               <td class="px-3 py-2">{{ submission.student.f_name }} {{ submission.student.l_name }}</td>
               <td class="px-3 py-2">
-                <a href="/{{ submission.file_path }}" target="_blank" class="text-blue-700 underline">📄 View</a>
+                <a href="/ai/assignments/submission/{{ submission.id }}/download" target="_blank" class="text-blue-700 underline">📄 View</a>
               </td>
               <td class="px-3 py-2">{{ submission.submitted_at.strftime('%Y-%m-%d %H:%M') }}</td>
               <td class="px-3 py-2">{{ submission.ai_score if submission.ai_score is not none else "Pending" }}</td>

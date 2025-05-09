@@ -2,8 +2,10 @@
 import html
 import json
 import logging
+import tempfile
 import traceback
 from typing import List, Optional
+from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Depends, Request, BackgroundTasks
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 import pandas as pd
@@ -16,6 +18,7 @@ from datetime import date, datetime, time, timedelta
 
 import urllib
 from backend.ai.ai_grader import evaluate_assignment_text, prepare_rubric_for_ai
+from backend.ai.aws_ai import S3_BUCKET_NAME, generate_presigned_url, generate_s3_download_link, get_s3_client, upload_file_to_s3
 from backend.ai.open_notes_system import check_quiz_quota, generate_quiz_export, generate_study_material, generate_study_material_quiz, increment_quiz_quota, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
@@ -43,6 +46,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 templates = Jinja2Templates(directory="backend/templates")
+
 
 class AIResponse(BaseModel):
     summary: str
@@ -76,11 +80,20 @@ async def upload_course_material(
         return HTMLResponse("❌ Course not found", status_code=404)
 
     filename = f"{datetime.utcnow().timestamp()}_{sanitize_filename(file.filename)}"
-    save_path = f"backend/uploads/{filename}"
-    os.makedirs("backend/uploads", exist_ok=True)
-    with open(save_path, "wb") as f:
-        contents = await file.read()
-        f.write(contents)
+    s3_key = f"course_materials/{course_id}/{filename}"
+    
+    # Upload file to S3
+    upload_success = await upload_file_to_s3(file, s3_key)
+    if not upload_success:
+        return HTMLResponse("❌ File upload failed", status_code=500)
+    
+    # Generate a presigned URL that expires in 1 hour
+    presigned_url = generate_presigned_url(s3_key)
+    #save_path = f"backend/uploads/{filename}"
+    #os.makedirs("backend/uploads", exist_ok=True)
+    #with open(save_path, "wb") as f:
+       # contents = await file.read()
+        #f.write(contents)
     material = CourseMaterial(
         course_id=course_id,
         title=file.filename,
@@ -176,6 +189,20 @@ async def process_materials(course_id: int, background_tasks: BackgroundTasks, d
         status_code=200
     )
 
+@ai_router.get("/courses/{course_id}/materials/{material_id}/download")
+async def download_material(course_id: int, material_id: int, db: Session = Depends(get_db), user=Depends(require_teacher_or_ta())):
+    # Get the material info from DB
+    material = db.query(CourseMaterial).filter_by(id=material_id, course_id=course_id).first()
+    if not material:
+        return HTMLResponse("❌ Material not found", status_code=404)
+    # Reconstruct the S3 key (must match upload!)
+    s3_key = f"course_materials/{course_id}/{material.filename}"
+
+    # Get a presigned URL from S3
+    url = generate_presigned_url(s3_key, expiration=300)  # 5 min expiry
+    if not url:
+        return HTMLResponse("❌ Could not generate download link", status_code=500)
+    return RedirectResponse(url)
 
 @ai_router.post("/ask_tutor", response_class=HTMLResponse)
 async def ask_tutor(
@@ -895,12 +922,13 @@ async def submit_assignment(
         return HTMLResponse("❌ Assignment not found", status_code=404)
 
     # Save file
-    filename = f"{datetime.utcnow().timestamp()}_{file.filename}"
-    file_location = f"uploads/assignments/{assignment_id}_{filename}"
-    save_path = f"backend/{file_location}"
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    with open(save_path, "wb") as f:
-        f.write(await file.read())
+    filename = f"{uuid4()}_{sanitize_filename(file.filename)}"
+    s3_key = f"assignment_submissions/{assignment_id}/{student_id}/{filename}"
+
+    upload_success = await upload_file_to_s3(file, s3_key)
+
+    if not upload_success:
+        return HTMLResponse("❌ Upload to cloud storage failed!", status_code=500)
 
     # Check for existing submission
     existing_submission = (
@@ -918,7 +946,7 @@ async def submit_assignment(
     if existing_submission:
         # Use existing submission
         submission = existing_submission
-        submission.file_path = file_location
+        submission.file_path = s3_key
         submission.submitted_at = datetime.utcnow()
         
         # Handle case where ai_evaluation_count might be None
@@ -933,7 +961,7 @@ async def submit_assignment(
         submission = AssignmentSubmission(
             assignment_id=assignment_id,
             student_id=student_id,
-            file_path=file_location,
+            file_path=s3_key,
             submitted_at=datetime.utcnow(),
             ai_evaluation_count=1  # First evaluation
         )
@@ -943,24 +971,37 @@ async def submit_assignment(
     # Perform AI evaluation if allowed
     if perform_ai_evaluation:
         try:
-            raw_text = extract_text_from_pdf(save_path)
+            s3_key = submission.file_path  # e.g., "assignment_submissions/{assignment_id}/{student_id}/{filename}"
+            file_ext = os.path.splitext(s3_key)[-1] or ".pdf"
+            s3_client = get_s3_client()
+            # ---- FIX: Use delete=False, work outside the block ----
+            with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tmpfile:
+                s3_client.download_fileobj(S3_BUCKET_NAME, s3_key, tmpfile)
+                tmpfile_path = tmpfile.name  # save name for after block
+
+            try:
+                raw_text = extract_text_from_pdf(tmpfile_path)
+            finally:
+                try:
+                    os.remove(tmpfile_path)
+                except Exception:
+                    pass
+            
             # Try to get rubric criteria (with all levels loaded)
             rubric_criteria = db.query(RubricCriterion).filter(
                 RubricCriterion.assignment_id == assignment.id
             ).options(joinedload(RubricCriterion.levels)).all()
             ai_rubric = prepare_rubric_for_ai(rubric_criteria) if rubric_criteria else None
-
             ai_score, ai_feedback, ai_criteria_eval = evaluate_assignment_text(
                 text=raw_text,
                 assignment_title=assignment.title,
                 assignment_description=assignment.description,
                 rubric_criteria=ai_rubric
             )
-            
             # Update submission with AI evaluation results
             submission.ai_score = ai_score
             submission.ai_feedback = ai_feedback
-            
+
         except Exception as e:
             logging.exception(f"AI Evaluation failed: {e}")
             ai_score, ai_feedback, ai_criteria_eval = None, None, None
@@ -1021,6 +1062,23 @@ async def submit_assignment(
             </div>""",
         status_code=200
     )
+
+@ai_router.get("/assignments/submission/{submission_id}/download")
+async def download_submission_file(
+    submission_id: int, 
+    db: Session = Depends(get_db)
+):
+    submission = db.query(AssignmentSubmission).filter_by(id=submission_id).first()
+    if not submission or not submission.file_path:
+        return HTMLResponse("❌ Submission not found", status_code=404)
+    filename = submission.file_path.split("/")[-1]
+    s3_key = submission.file_path
+
+    presigned_url = generate_presigned_url(s3_key, expiration=600)
+    if not presigned_url:
+        return HTMLResponse("❌ Unable to generate download link.", status_code=404)
+    
+    return RedirectResponse(presigned_url)
 
 #Function to get into student assignment page
 @ai_router.get("/student/courses/{course_id}/assignments", response_class=HTMLResponse)
@@ -1545,8 +1603,7 @@ async def export_quiz(
         materials_json = quiz.json_data
 
     # continue with your export logic!
-    export_url = generate_quiz_export(materials_json, format, include_answers)
-    filename = export_url.split("/")[-1]
+    s3_key, filename = generate_quiz_export(materials_json, course_id, format, include_answers)
     download_url = f"/ai/courses/{course_id}/quiz/download/{filename}"
     return templates.TemplateResponse(
         "quiz_export.html",
@@ -1554,7 +1611,8 @@ async def export_quiz(
             "request": request,
             "course_id": course_id,
             "export_url": download_url,
-            "format": format
+            "format": format,
+            "filename":filename
         }
     )
 
@@ -1565,27 +1623,17 @@ async def download_quiz_file(
     user: dict = Depends(require_role("teacher"))
 ):
     filename = os.path.basename(filename)      # Security: strip directory
-    export_dir = "static/exports"
-    file_path = os.path.join(export_dir, filename)
-    abs_path = os.path.abspath(file_path)
+    s3_key = f"quiz_exports/{course_id}/{filename}"
     print("---- DOWNLOAD DEBUG ----")
-    print("Relative file path:", file_path)
-    print("Absolute file path:", abs_path)
     print("Current working directory:", os.getcwd())
-    print("File exists (rel)?", os.path.exists(file_path))
-    print("File exists (abs)?", os.path.exists(abs_path))
     print("-------------------------")
-    if not os.path.exists(file_path):
+    download_link = generate_s3_download_link(s3_key, filename)
+    if not download_link:
         return HTMLResponse(
-            f"<div class='bg-red-100 text-red-700 p-4 rounded-lg'>File not found: {file_path}<br>Absolute: {abs_path}</div>",
+            f"<div class='bg-red-100 text-red-700 p-4 rounded-lg'>Quiz download failed. File not found in cloud storage.</div>",
             status_code=404
         )
-    print("File found! Downloading.")
-    return FileResponse(
-        abs_path,                 # direct absolute path, no ambiguity
-        filename=filename,
-        media_type="application/pdf"
-    )
+    return RedirectResponse(download_link)
 
 
 @ai_router.get("/student/courses/{course_id}/engagement", response_class=HTMLResponse)

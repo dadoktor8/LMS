@@ -12,6 +12,7 @@ import re
 import json
 from pydantic import BaseModel, Field
 
+from backend.ai.aws_ai import load_faiss_vectorstore, upload_file_to_s3_from_path
 from backend.db.models import QuizQuota
 
 # Define models for our study materials
@@ -271,14 +272,16 @@ def generate_study_material(query:str, material_type:str, course_id:int, student
 
     # --- Step 2: Load FAISS index and fetch context ---
     try:
-        index_path = f"faiss_index_{course_id}"
-        embeddings = OpenAIEmbeddings()
-        db = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
-        retriever = db.as_retriever(search_kwargs={"k": 10})
+        faiss_vectorstore = load_faiss_vectorstore(
+            course_id=course_id,
+            openai_api_key=os.getenv("OPENAI_API_KEY"),  # Or None to auto-pickup
+            temp_dir="tmp"  # Or whatever temp location you want
+        )
+        retriever = faiss_vectorstore.as_retriever(search_kwargs={"k": 5})
     except FileNotFoundError:
-        return json.dumps({"error": f"No existing knowledge base found for course {course_id}"})
+        raise ValueError(f"FAISS index not found for course ID: {course_id}")
     except Exception as e:
-        return json.dumps({"error": f"Problem loading FAISS index: {str(e)}"})
+        raise ConnectionError(f"Error loading or downloading FAISS index: {str(e)}")
 
     retrieved_docs = retriever.get_relevant_documents(query)
     context = "\n\n".join([doc.page_content for doc in retrieved_docs])
@@ -928,11 +931,10 @@ def generate_study_material_quiz(
         log_generation_event(responsible_id, course_id, material_type, query)
 
 def retrieve_course_context(course_id, query):
-    """Helper function to retrieve context from course knowledge base"""
+    """Helper function to retrieve context from course knowledge base.
+    Automatically downloads index from S3 if missing."""
     try:
-        index_path = f"faiss_index_{course_id}"
-        embeddings = OpenAIEmbeddings()
-        db = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+        db = load_faiss_vectorstore(course_id, openai_api_key=None)  
         retriever = db.as_retriever(search_kwargs={"k": 10})
         retrieved_docs = retriever.get_relevant_documents(query)
         context = "\n\n".join([doc.page_content for doc in retrieved_docs])
@@ -1147,7 +1149,7 @@ def ensure_quiz_structure(json_data, query):
     
     return result
 
-def generate_quiz_export(materials_json, format="pdf", include_answers=False):
+def generate_quiz_export(materials_json, course_id,format="pdf", include_answers=False):
     """
     Generate a PDF export of a quiz
     
@@ -1313,8 +1315,9 @@ def generate_quiz_export(materials_json, format="pdf", include_answers=False):
         # If not PDF format, just save as JSON for now
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(json.dumps(quiz_data, indent=2))
-    
-    return f"/static/exports/{filename}"
+    s3_key = f"quiz_exports/{course_id}/{filename}"
+    upload_file_to_s3_from_path(file_path, s3_key)
+    return s3_key, filename
 
 
 def check_quiz_quota(db, teacher_id, course_id, max_quota=5):

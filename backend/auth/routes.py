@@ -165,7 +165,7 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
     verification_link = f"{base_url}/auth/verify-email?token={token}"
     send_verification_email(payload.email, verification_link)
     
-    return {"msg": "User created successfully. Please check your email to verify your account."}
+    return {"msg": "User created successfully. Please check your email or spam to verify your account."}
 
 # === HTMX SIGNUP FORM ===
 @auth_router.get("/signup-page", response_class=HTMLResponse)
@@ -183,42 +183,67 @@ def signup_form(
     l_name: str = Form(...),
     db: Session = Depends(get_db)
 ):
+    # Helper for error block (reuse this for all errors)
+    def error_block(message):
+        return HTMLResponse(
+            content=f"""
+<div class="bg-red-100 border border-red-400 text-red-700 rounded px-4 py-3 mb-4 flex justify-between items-center">
+  <div>
+    <strong class="font-bold">Error: </strong> {message}
+  </div>
+  <button onclick="window.location.reload()" class="bg-red-200 text-red-800 font-semibold px-2 py-1 ml-4 rounded hover:bg-red-300">Refresh</button>
+</div>
+""",
+            status_code=200
+        )
+
     # Check if user already exists
     existing_user = db.query(User).filter(User.email == email).first()
     if existing_user:
-        return HTMLResponse(content="❌ User already exists", status_code=400)
-    
-    # Validate password
+        return error_block("A user with this email already exists.")
+
+    # Validate password strength
     if not is_valid_password(password):
-        return HTMLResponse(
-            content="❌ Password must be at least 8 characters with at least one lowercase letter, "
-                   "one uppercase letter, one number, and one special character",
-            status_code=400
+        return error_block(
+            "Password must be at least 8 characters with at least one lowercase letter, "
+            "one uppercase letter, one number, and one special character."
         )
-    
-    # Check if passwords match
+
+    # Validate password match
     if password != confirm_password:
-        return HTMLResponse(content="❌ Passwords do not match", status_code=400)
-   
+        return error_block("Passwords do not match.")
+
+    # ... proceed with user creation
     new_user = User(
         f_name=f_name,
         l_name=l_name,
-        email=email, 
-        hashed_password=hash_password(password), 
+        email=email,
+        hashed_password=hash_password(password),
         role=role,
-        is_verified=False  # Default to unverified
+        is_verified=False
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
-    # Generate verification token and send email
+
+    # Send verification email
     token = generate_verification_token(email)
     base_url = get_base_url(request)
     link = f"{base_url}/auth/verify-email?token={token}"
     send_verification_email(email, link)
-    
-    return HTMLResponse(content="✅ User created successfully! Please check your email to verify your account.")
+
+    # Show success message as a toast/banner
+    return HTMLResponse(
+        content="""
+<div class="bg-green-100 border border-green-400 text-green-800 rounded px-4 py-3 mb-4 flex justify-between items-center">
+  <div>
+    <strong class="font-bold">Success! </strong>
+    User created successfully. Please check your email to verify your account. Please check spam if not found in email!
+  </div>
+</div>
+""",
+        status_code=200
+    )
 
 # === JSON API LOGIN ===
 @auth_router.post("/login", response_model=TokenResponse)

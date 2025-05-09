@@ -138,6 +138,7 @@
         hx-target="#toast"
         hx-swap="innerHTML"
         class="flex flex-col gap-5"
+        id="mySubmitForm"
       >
         <label for="file" class="font-semibold text-gray-700 leading-tight">📎 Upload your work</label>
         <input
@@ -149,9 +150,27 @@
         />
         <button
           type="submit"
+          id="submit-btn"
           class="w-full mt-1 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-lg"
         >Submit</button>
       </form>
+      <script>
+        // For normal HTML submit (or HTMX fallback)
+        document.getElementById('mySubmitForm').addEventListener('submit', function(){
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = true;
+            btn.innerText = "Submitting…";
+        });
+      
+        // For HTMX to re-enable (in case server returns error, optional)
+        document.body.addEventListener('htmx:afterRequest', function(evt) {
+          const btn = document.getElementById('submit-btn');
+          if (btn) {
+            btn.disabled = false;
+            btn.innerText = "Submit";
+          }
+        });
+      </script>
       <div class="mt-8 text-center">
         <a href="/ai/student/courses/{{ assignment.course_id }}/assignments"
            class="inline-block text-blue-700 bg-blue-50 px-5 py-2 rounded-lg font-medium hover:bg-blue-100 transition">

@@ -14,6 +14,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 #from sentence_transformers import SentenceTransformer
 from sqlalchemy.orm import Session
 #import urllib
+from backend.ai.aws_ai import S3_BUCKET_NAME, get_s3_client, load_faiss_vectorstore, upload_faiss_index_to_s3
 from backend.db.models import CourseMaterial, PDFQuotaUsage, ProcessedMaterial, TextChunk
 from backend.db.database import SessionLocal  # if you're using a unified DB setup
 from langchain.vectorstores import FAISS
@@ -37,9 +38,7 @@ from langchain.prompts import PromptTemplate
 
 def get_course_retriever(course_id: int):
     try:
-        index_path = f"faiss_index_{course_id}"
-        embeddings = OpenAIEmbeddings()
-        db = FAISS.load_local(index_path, embeddings, allow_dangerous_deserialization=True)
+        db = load_faiss_vectorstore(course_id, openai_api_key=None)
         return db.as_retriever(search_kwargs={"k": 10})
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"No existing knowledge base found for course {course_id}")
@@ -73,17 +72,81 @@ def sanitize_filename(filename: str):
 
 # ---------------------------------------------
 # 1. Extract Text from PDF
-def extract_text_from_pdf(pdf_path: str) -> str:
-    doc = fitz.open(pdf_path)
-    return "\n".join(page.get_text() for page in doc)
+def extract_text_from_pdf(file_path_or_key: str) -> str:
+    """Extract text from a PDF file - handles both local and S3 paths"""
+    
+    # Check if this is an S3 key (starts with "course_materials/")
+    if file_path_or_key.startswith("course_materials/"):
+        # Create a temporary file
+        temp_dir = "temp_pdfs"
+        os.makedirs(temp_dir, exist_ok=True)
+        local_path = f"{temp_dir}/{os.path.basename(file_path_or_key)}"
+        
+        # Download from S3
+        if not download_file_from_s3(file_path_or_key, local_path):
+            raise Exception(f"Failed to download file from S3: {file_path_or_key}")
+        
+        # Process the local file
+        doc = fitz.open(local_path)
+        text = "\n".join(page.get_text() for page in doc)
+        doc.close()
+        
+        # Clean up the temporary file
+        try:
+            os.remove(local_path)
+        except:
+            pass
+            
+        return text
+    else:
+        # Original local file handling
+        doc = fitz.open(file_path_or_key)
+        return "\n".join(page.get_text() for page in doc)
+
+def download_file_from_s3(s3_key: str, local_path: str) -> bool:
+    """Download a file from S3 to a local temporary path"""
+    s3_client = get_s3_client()
+    try:
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        s3_client.download_file(S3_BUCKET_NAME, s3_key, local_path)
+        return True
+    except Exception as e:
+        print(f"Error downloading file from S3: {e}")
+        return False
 
 
-def count_pdf_pages(pdf_path: str) -> int:
-    """Count the number of pages in a PDF file."""
-    doc = fitz.open(pdf_path)
-    page_count = len(doc)
-    doc.close()
-    return page_count
+def count_pdf_pages(file_path_or_key: str) -> int:
+    """Count the number of pages in a PDF file - handles both local and S3 paths"""
+    
+    # Check if this is an S3 key
+    if file_path_or_key.startswith("course_materials/"):
+        # Create a temporary file
+        temp_dir = "temp_pdfs"
+        os.makedirs(temp_dir, exist_ok=True)
+        local_path = f"{temp_dir}/{os.path.basename(file_path_or_key)}"
+        
+        # Download from S3
+        if not download_file_from_s3(file_path_or_key, local_path):
+            raise Exception(f"Failed to download file from S3: {file_path_or_key}")
+        
+        # Process the local file
+        doc = fitz.open(local_path)
+        page_count = len(doc)
+        doc.close()
+        
+        # Clean up
+        try:
+            os.remove(local_path)
+        except:
+            pass
+            
+        return page_count
+    else:
+        # Original local file handling
+        doc = fitz.open(file_path_or_key)
+        page_count = len(doc)
+        doc.close()
+        return page_count
 """
 # ---------------------------------------------
 # 2. Chunk Text into Manageable Pieces
@@ -199,17 +262,15 @@ def check_pdf_quota(course_id: int, pdf_path: str, db: Session) -> tuple[bool, i
 # 5. Process PDFs
 def process_materials_in_background(course_id: int, db: Session):
     materials = db.query(CourseMaterial).filter_by(course_id=course_id).all()
-    
+   
     # Track overall processing status
     processed_count = 0
     skipped_count = 0
     quota_exceeded_count = 0
     quota_remaining = None
-    
+   
     for material in materials:
-        file_path = f"backend/uploads/{material.filename}"
-        
-        # Skip already processed materials
+        # Check if the material has already been processed
         if db.query(ProcessedMaterial).filter_by(course_id=course_id, material_id=material.id).first():
             logging.info(f"⏭ Skipping {material.filename} (already processed)")
             print(f"⏭ Skipping {material.filename} (already processed)")
@@ -217,34 +278,63 @@ def process_materials_in_background(course_id: int, db: Session):
             continue
         
         try:
+            file_path = material.filepath
+            
+            # First check if the file exists locally
+            if not os.path.exists(file_path):
+                logging.info(f"📥 File not found locally: {file_path}, attempting to download from S3")
+                print(f"📥 File not found locally: {file_path}, attempting to download from S3")
+                
+                # Determine S3 path - assuming files are stored in course_materials/
+                s3_key = f"course_materials/{course_id}/{material.filename}"
+                
+                # Create temp directory for downloads if it doesn't exist
+                temp_dir = "temp_pdfs"
+                os.makedirs(temp_dir, exist_ok=True)
+                
+                # Set the local path for the downloaded file
+                file_path = f"{temp_dir}/{material.filename}"
+                
+                # Download from S3
+                s3_client = get_s3_client()
+                try:
+                    s3_client.download_file(S3_BUCKET_NAME, s3_key, file_path)
+                    logging.info(f"✅ Downloaded s3://{S3_BUCKET_NAME}/{s3_key} to {file_path}")
+                    print(f"✅ Downloaded s3://{S3_BUCKET_NAME}/{s3_key} to {file_path}")
+                except Exception as e:
+                    raise Exception(f"Failed to download file from S3: {s3_key}. Error: {e}")
+            
+            # Verify the file now exists
+            if not os.path.exists(file_path):
+                raise Exception(f"File not found after download attempt: {file_path}")
+            
             # Check quota before processing
             quota_ok, pages_count, remaining = check_pdf_quota(course_id, file_path, db)
             quota_remaining = remaining  # Store the latest remaining quota
-            
+           
             if not quota_ok:
                 logging.warning(f"⚠️ Quota exceeded for {material.filename} ({pages_count} pages, {remaining} remaining)")
                 print(f"⚠️ Quota exceeded for {material.filename} ({pages_count} pages, {remaining} remaining)")
                 quota_exceeded_count += 1
                 continue
-            
+           
             # Process the PDF if quota is OK
             text = extract_text_from_pdf(file_path)
             chunks = chunk_text(text)
-            #embeddings = embed_chunks(chunks)
             save_embeddings_to_faiss_openai(course_id, chunks, db)
-            
+           
             # Mark as processed
             db.add(ProcessedMaterial(course_id=course_id, material_id=material.id))
             db.commit()
             processed_count += 1
-            
+           
             logging.info(f"✅ Processed {material.filename} ({pages_count} pages, {remaining} remaining in quota)")
             print(f"✅ Processed {material.filename} ({pages_count} pages, {remaining} remaining in quota)")
-            
+           
         except Exception as e:
             logging.error(f"❌ Failed processing {material.filename}: {e}")
             print(f"❌ Failed processing {material.filename}: {e}")
-    
+   
     # Return summary statistics
     return {
         "processed": processed_count,
@@ -542,13 +632,16 @@ def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id:
             
         # Load FAISS index
         try:
-            index_path = f"faiss_index_{course_id}"
-            db = FAISS.load_local(index_path, OpenAIEmbeddings(), allow_dangerous_deserialization=True)
-            retriever = db.as_retriever(search_kwargs={"k": 5})
+            faiss_vectorstore = load_faiss_vectorstore(
+                course_id=course_id,
+                openai_api_key=os.getenv("OPENAI_API_KEY"),  # Or None to auto-pickup
+                temp_dir="tmp"  # Or whatever temp location you want
+            )
+            retriever = faiss_vectorstore.as_retriever(search_kwargs={"k": 5})
         except FileNotFoundError:
             raise ValueError(f"FAISS index not found for course ID: {course_id}")
         except Exception as e:
-            raise ConnectionError(f"Error loading FAISS index: {str(e)}")
+            raise ConnectionError(f"Error loading or downloading FAISS index: {str(e)}")
             
         # Chat history for memory
         session_id = f"{student_id}_{course_id}"
@@ -739,7 +832,7 @@ def save_embeddings_to_faiss_openai(course_id: int, chunks: list, db: Session):
     index_path = f"faiss_index_{course_id}"
     vectorstore.save_local(index_path)
     logging.info(f"📁 FAISS index saved to {index_path}")
-
+    upload_faiss_index_to_s3(index_path, course_id)
     # 7. Save chunks + embeddings to DB
     for chunk in normalized_chunks:
         try:
