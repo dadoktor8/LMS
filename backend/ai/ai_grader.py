@@ -80,32 +80,29 @@ rubric_grade_prompt = PromptTemplate(
     """
 )
 
-def evaluate_assignment_text(text: str, assignment_title: str, assignment_description: str, 
-                          rubric_criteria: List[Dict[str, Any]] = None) -> Tuple[float, str, Optional[List[Dict[str, Any]]]]:
+def evaluate_assignment_text(
+    text: str,
+    assignment_title: str,
+    assignment_description: str,
+    rubric_criteria: List[Dict[str, Any]] = None
+) -> Tuple[float, str, Optional[List[Dict[str, Any]]]]:
     """
     Evaluate a student's assignment text with or without a rubric.
-    
-    Args:
-        text: The student's submitted text
-        assignment_title: Title of the assignment
-        assignment_description: Description of the assignment
-        rubric_criteria: List of rubric criteria with their levels (optional)
-        
-    Returns:
-        tuple: (score, feedback, criteria_evaluations)
-        - score: Overall score (0-100)
-        - feedback: General feedback text
-        - criteria_evaluations: Detailed evaluation per criterion (None if no rubric was used)
+    Logs all input and output for debugging.
     """
     try:
+        logging.error("[AI GRADER] === INPUT BEGIN ===")
+        logging.error(f"Title: {assignment_title!r}")
+        logging.error(f"Desc: {assignment_description!r}")
+        logging.error(f"Text: {text[:300]!r}... (truncated)")
+        logging.error(f"Rubric criteria: {rubric_criteria!r}")
+        logging.error("[AI GRADER] === INPUT END ===")
         if not rubric_criteria:
-            # Use standard evaluation if no rubric is provided
             return _evaluate_standard(text, assignment_title, assignment_description)
         else:
-            # Use rubric-based evaluation
             return _evaluate_with_rubric(text, assignment_title, assignment_description, rubric_criteria)
     except Exception as e:
-        logging.error(f"AI grading failed: {e}")
+        logging.error(f"[AI GRADER] AI grading failed: {e}", exc_info=True)
         return 0, "AI evaluation failed. Please review manually.", None
 
 def _evaluate_standard(text: str, assignment_title: str, assignment_description: str) -> Tuple[float, str, None]:
@@ -115,18 +112,32 @@ def _evaluate_standard(text: str, assignment_title: str, assignment_description:
         assignment_title=assignment_title,
         assignment_description=assignment_description
     )
-    result = llm.predict(prompt).strip()
-   
+    logging.error(f"[AI GRADER] Prompt sent to LLM: {prompt!r}")
+    result = llm.predict(prompt).strip()  # CALLS THE AI
+    logging.error(f"[AI GRADER] Raw LLM result: {result!r}")
+
     # Parse the result to extract score and feedback
     lines = result.split('\n')
     score_line = next((line for line in lines if line.startswith("SCORE:")), "SCORE: 0")
-    score = int("".join([c for c in score_line if c.isdigit()]))
+    digits = "".join([c for c in score_line if c.isdigit()])
+    if not digits:
+        logging.error(f"[AI GRADER] 'SCORE:' line was not parseable from result! SCORE LINE: {score_line!r} | ALL LINES: {lines!r}")
+    try:
+        score = int(digits)
+    except ValueError:
+        logging.error(f"[AI GRADER] FAILED to convert digits '{digits}' to int. Defaulting to 0. Result: {result!r}")
+        score = 0
     score = max(0, min(score, 100))  # Clamp between 0-100
-   
+
     # Get feedback (everything after FEEDBACK:)
     feedback_index = result.find("FEEDBACK:")
-    feedback = result[feedback_index + 9:].strip() if feedback_index != -1 else "No feedback provided."
-   
+    if feedback_index == -1:
+        logging.error(f"[AI GRADER] FEEDBACK not found in LLM result! Returning 'No feedback provided.'")
+        feedback = "No feedback provided."
+    else:
+        feedback = result[feedback_index + 9:].strip()
+
+    logging.error(f"[AI GRADER] FINAL PARSED SCORE: {score}, FEEDBACK: {feedback!r}")
     return score, feedback, None
 
 def _evaluate_with_rubric(text: str, assignment_title: str, assignment_description: str, 
