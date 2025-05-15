@@ -22,3 +22,4 @@ openai
 boto3 
 botocore
 PyPDF2
+alembic
