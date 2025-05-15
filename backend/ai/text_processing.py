@@ -3,7 +3,9 @@ import logging
 import os
 import re
 from typing import Optional
+import PyPDF2
 from fastapi import HTTPException
+from PyPDF2 import PdfReader, PdfWriter
 import fitz  # PyMuPDF for PDF text extraction
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 #from nltk.tokenize import sent_tokenize
@@ -34,7 +36,13 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.prompts import PromptTemplate
 
 
-
+class PDFQuotaConfig:
+    # Maximum number of pages allowed to be processed per day per course
+    DAILY_PAGE_QUOTA = 100
+    # Maximum size of an individual file in bytes (50MB)
+    MAX_FILE_SIZE = 50 * 1024 * 1024
+    # Error return value for page count function
+    ERROR_PAGE_COUNT = 1000
 
 def get_course_retriever(course_id: int):
     try:
@@ -115,38 +123,88 @@ def download_file_from_s3(s3_key: str, local_path: str) -> bool:
         return False
 
 
-def count_pdf_pages(file_path_or_key: str) -> int:
-    """Count the number of pages in a PDF file - handles both local and S3 paths"""
+def count_pdf_pages(file_path: str) -> int:
+    """
+    Counts the number of pages in a PDF file.
+    Works with both local files and files that need to be downloaded from S3.
     
-    # Check if this is an S3 key
-    if file_path_or_key.startswith("course_materials/"):
-        # Create a temporary file
-        temp_dir = "temp_pdfs"
-        os.makedirs(temp_dir, exist_ok=True)
-        local_path = f"{temp_dir}/{os.path.basename(file_path_or_key)}"
+    Args:
+        file_path: Path to the PDF file (local or S3 key)
         
-        # Download from S3
-        if not download_file_from_s3(file_path_or_key, local_path):
-            raise Exception(f"Failed to download file from S3: {file_path_or_key}")
-        
-        # Process the local file
-        doc = fitz.open(local_path)
-        page_count = len(doc)
-        doc.close()
-        
-        # Clean up
-        try:
-            os.remove(local_path)
-        except:
-            pass
+    Returns:
+        int: Number of pages in the PDF, or PDFQuotaConfig.ERROR_PAGE_COUNT on error
+    """
+    local_path = file_path
+    temp_file_created = False
+    
+    try:
+        # Handle S3 paths if needed
+        if file_path.startswith("course_materials/") and not os.path.exists(file_path):
+            # Create temp directory for downloads if it doesn't exist
+            temp_dir = "temp_pdfs"
+            os.makedirs(temp_dir, exist_ok=True)
             
-        return page_count
-    else:
-        # Original local file handling
-        doc = fitz.open(file_path_or_key)
-        page_count = len(doc)
-        doc.close()
-        return page_count
+            # Set local path for the downloaded file
+            local_path = f"{temp_dir}/{os.path.basename(file_path)}"
+            temp_file_created = True
+            
+            # Download from S3
+            s3_client = get_s3_client()
+            try:
+                s3_client.download_file(S3_BUCKET_NAME, file_path, local_path)
+                logging.info(f"Downloaded s3://{S3_BUCKET_NAME}/{file_path} to {local_path}")
+            except Exception as e:
+                logging.error(f"Failed to download file from S3: {file_path}. Error: {e}")
+                return PDFQuotaConfig.ERROR_PAGE_COUNT
+        
+        # Verify the file now exists
+        if not os.path.exists(local_path):
+            logging.error(f"File not found: {local_path}")
+            return PDFQuotaConfig.ERROR_PAGE_COUNT
+            
+        # Count pages using PyPDF2
+        with open(local_path, "rb") as f:
+            pdf_reader = PdfReader(f)
+            return len(pdf_reader.pages)
+            
+    except Exception as e:
+        logging.error(f"Error counting PDF pages: {e}")
+        return PDFQuotaConfig.ERROR_PAGE_COUNT
+        
+    finally:
+        # Clean up temporary file if we created one
+        if temp_file_created and os.path.exists(local_path):
+            try:
+                os.remove(local_path)
+                logging.debug(f"Cleaned up temporary file: {local_path}")
+            except Exception as e:
+                logging.warning(f"Failed to clean up temporary file {local_path}: {e}")
+
+def validate_pdf_for_upload(file_path: str) -> tuple[bool, str, Optional[int]]:
+    """
+    Validates if a PDF is eligible for upload based on page count limits.
+    
+    Args:
+        file_path: Path to the PDF file
+        
+    Returns:
+        tuple: (is_valid, message, page_count)
+            - is_valid: Boolean indicating if file is valid for upload
+            - message: Validation message
+            - page_count: Number of pages in the PDF, or None if error
+    """
+    # Count pages in the PDF
+    page_count = count_pdf_pages(file_path)
+    
+    # Error counting pages
+    if page_count == PDFQuotaConfig.ERROR_PAGE_COUNT:
+        return False, "Could not determine page count - file may be corrupted", None
+    
+    # Check if page count exceeds daily quota
+    if page_count > PDFQuotaConfig.DAILY_PAGE_QUOTA:
+        return False, f"File contains {page_count} pages, exceeding the maximum of {PDFQuotaConfig.DAILY_PAGE_QUOTA} pages, You can go to PDF-Exteractor.com and select only the neccesary pages.", page_count
+    
+    return True, f"File contains {page_count} pages", page_count
 """
 # ---------------------------------------------
 # 2. Chunk Text into Manageable Pieces
@@ -212,27 +270,29 @@ def save_embeddings_to_faiss(course_id: int, embeddings: torch.Tensor, chunks: l
 
 '''
 
-def check_pdf_quota(course_id: int, pdf_path: str, db: Session) -> tuple[bool, int, int]:
+def check_pdf_quota(course_id: int, pdf_path: str, db: Session, daily_page_quota: int = 100) -> tuple[bool, int, int]:
     """
-    Check if processing a PDF would exceed the daily quota.
-    
+    Checks if processing a PDF would exceed the daily course quota.
+
+    Args:
+        course_id: Course identifier.
+        pdf_path: Path to the PDF file.
+        db: SQLAlchemy Session.
+        daily_page_quota: The per-day page quota.
+
     Returns:
-        tuple: (quota_ok, pages_to_process, remaining_quota)
+        tuple: (quota_ok, pdf_page_count, remaining_quota_after_processing)
     """
-    # Set daily quota limit (pages per course)
-    DAILY_PAGE_QUOTA = 100
-    
-    # Count pages in the PDF
+    # Count pages in PDF (with error fallback)
     page_count = count_pdf_pages(pdf_path)
-    
-    # Get today's usage for this course
+
     today = date.today()
     quota_usage = db.query(PDFQuotaUsage).filter(
         PDFQuotaUsage.course_id == course_id,
         PDFQuotaUsage.usage_date == today
     ).first()
-    
-    # If no record exists for today, create one
+
+    # If no record, create one with 0 pages used
     if not quota_usage:
         quota_usage = PDFQuotaUsage(
             course_id=course_id,
@@ -242,20 +302,25 @@ def check_pdf_quota(course_id: int, pdf_path: str, db: Session) -> tuple[bool, i
         db.add(quota_usage)
         db.commit()
         db.refresh(quota_usage)
-    
-    # Calculate remaining quota
+
     used_pages = quota_usage.pages_processed
-    remaining_quota = DAILY_PAGE_QUOTA - used_pages
-    
-    # Check if processing would exceed the quota
+    remaining_quota = daily_page_quota - used_pages
+
     if page_count > remaining_quota:
-        return False, page_count, remaining_quota
-    
-    # Update quota usage
-    quota_usage.pages_processed += page_count
-    db.commit()
-    
-    return True, page_count, remaining_quota - page_count
+        # Not enough quota to process entire PDF
+        quota_ok = False
+        pages_we_can_process = remaining_quota  # Could process only this many
+    else:
+        quota_ok = True
+        pages_we_can_process = page_count
+
+    # If quota_ok, update the record to account for processed pages
+    if quota_ok and pages_we_can_process > 0:
+        quota_usage.pages_processed += pages_we_can_process
+        db.commit()
+
+    # Return results: (is full file processable, total pages in file, remaining quota AFTER run)
+    return quota_ok, page_count, remaining_quota - pages_we_can_process if quota_ok else remaining_quota
 
 
 # ---------------------------------------------
@@ -268,33 +333,44 @@ def process_materials_in_background(course_id: int, db: Session):
     skipped_count = 0
     quota_exceeded_count = 0
     quota_remaining = None
+    
+    # Get today's quota usage
+    today = date.today()
+    quota_usage = db.query(PDFQuotaUsage).filter(
+        PDFQuotaUsage.course_id == course_id,
+        PDFQuotaUsage.usage_date == today
+    ).first()
+    
+    used_pages = quota_usage.pages_processed if quota_usage else 0
+    remaining_quota = PDFQuotaConfig.DAILY_PAGE_QUOTA - used_pages
    
     for material in materials:
         # Check if the material has already been processed
-        if db.query(ProcessedMaterial).filter_by(course_id=course_id, material_id=material.id).first():
+        processed_material = db.query(ProcessedMaterial).filter_by(course_id=course_id, material_id=material.id).first()
+        if processed_material:
             logging.info(f"⏭ Skipping {material.filename} (already processed)")
             print(f"⏭ Skipping {material.filename} (already processed)")
             skipped_count += 1
             continue
-        
+       
         try:
             file_path = material.filepath
-            
+           
             # First check if the file exists locally
             if not os.path.exists(file_path):
                 logging.info(f"📥 File not found locally: {file_path}, attempting to download from S3")
                 print(f"📥 File not found locally: {file_path}, attempting to download from S3")
-                
+               
                 # Determine S3 path - assuming files are stored in course_materials/
                 s3_key = f"course_materials/{course_id}/{material.filename}"
-                
+               
                 # Create temp directory for downloads if it doesn't exist
                 temp_dir = "temp_pdfs"
                 os.makedirs(temp_dir, exist_ok=True)
-                
+               
                 # Set the local path for the downloaded file
                 file_path = f"{temp_dir}/{material.filename}"
-                
+               
                 # Download from S3
                 s3_client = get_s3_client()
                 try:
@@ -303,23 +379,44 @@ def process_materials_in_background(course_id: int, db: Session):
                     print(f"✅ Downloaded s3://{S3_BUCKET_NAME}/{s3_key} to {file_path}")
                 except Exception as e:
                     raise Exception(f"Failed to download file from S3: {s3_key}. Error: {e}")
-            
+           
             # Verify the file now exists
             if not os.path.exists(file_path):
                 raise Exception(f"File not found after download attempt: {file_path}")
             
-            # Check quota before processing
-            quota_ok, pages_count, remaining = check_pdf_quota(course_id, file_path, db)
-            quota_remaining = remaining  # Store the latest remaining quota
-           
-            if not quota_ok:
-                logging.warning(f"⚠️ Quota exceeded for {material.filename} ({pages_count} pages, {remaining} remaining)")
-                print(f"⚠️ Quota exceeded for {material.filename} ({pages_count} pages, {remaining} remaining)")
+            # Count total pages using our consolidated function
+            total_pages = count_pdf_pages(file_path)
+            if total_pages == PDFQuotaConfig.ERROR_PAGE_COUNT:
+                raise Exception(f"Error counting pages in PDF: {file_path}")
+                
+            # Check if we have enough quota for the entire document
+            if total_pages > remaining_quota:
+                logging.warning(f"⚠️ Not enough quota to process {material.filename} ({total_pages} pages needed, {remaining_quota} remaining)")
+                print(f"⚠️ Not enough quota to process {material.filename} ({total_pages} pages needed, {remaining_quota} remaining)")
                 quota_exceeded_count += 1
                 continue
-           
-            # Process the PDF if quota is OK
+
+            # Update quota usage BEFORE processing the PDF
+            if quota_usage:
+                quota_usage.pages_processed += total_pages
+            else:
+                quota_usage = PDFQuotaUsage(
+                    course_id=course_id,
+                    usage_date=today,
+                    pages_processed=total_pages
+                )
+                db.add(quota_usage)
+            
+            db.commit()
+            
+            # Update remaining quota
+            remaining_quota = PDFQuotaConfig.DAILY_PAGE_QUOTA - quota_usage.pages_processed
+            quota_remaining = remaining_quota
+
+            # Process entire PDF
             text = extract_text_from_pdf(file_path)
+            
+            # Process the text and save embeddings
             chunks = chunk_text(text)
             save_embeddings_to_faiss_openai(course_id, chunks, db)
            
@@ -327,13 +424,17 @@ def process_materials_in_background(course_id: int, db: Session):
             db.add(ProcessedMaterial(course_id=course_id, material_id=material.id))
             db.commit()
             processed_count += 1
-           
-            logging.info(f"✅ Processed {material.filename} ({pages_count} pages, {remaining} remaining in quota)")
-            print(f"✅ Processed {material.filename} ({pages_count} pages, {remaining} remaining in quota)")
+            logging.info(f"✅ Processed {material.filename} ({total_pages} pages, {remaining_quota} remaining in quota)")
+            print(f"✅ Processed {material.filename} ({total_pages} pages, {remaining_quota} remaining in quota)")
            
         except Exception as e:
             logging.error(f"❌ Failed processing {material.filename}: {e}")
             print(f"❌ Failed processing {material.filename}: {e}")
+            
+            # If there was an error during processing, rollback any quota usage
+            if 'total_pages' in locals() and quota_usage:
+                quota_usage.pages_processed -= total_pages
+                db.commit()
    
     # Return summary statistics
     return {
@@ -342,7 +443,6 @@ def process_materials_in_background(course_id: int, db: Session):
         "quota_exceeded": quota_exceeded_count,
         "remaining_quota": quota_remaining
     }
-
 '''
 # ---------------------------------------------
 # 6. FAISS Search

@@ -105,7 +105,7 @@
       <ul class="space-y-4">
         {% for material in materials %}
         <li>
-          <a href="/{{ material.filepath }}" download class="text-blue-700 hover:underline font-medium">{{ material.title }}</a>
+          <a href="/ai/courses/{{ course_id }}/materials/{{ material.id }}/download" download class="text-blue-700 hover:underline font-medium">{{ material.title }}</a>
           <br>
           <span class="text-xs text-gray-500 block">Uploaded on {{ material.uploaded_at.strftime('%Y-%m-%d') }}</span>
         </li>

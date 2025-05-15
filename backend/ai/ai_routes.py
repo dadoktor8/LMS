@@ -22,11 +22,11 @@ from backend.ai.aws_ai import S3_BUCKET_NAME, generate_presigned_url, generate_s
 from backend.ai.open_notes_system import check_quiz_quota, generate_quiz_export, generate_study_material, generate_study_material_quiz, increment_quiz_quota, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, Enrollment, FlashcardUsage, PDFQuotaUsage, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity, StudyGuideUsage  # Make sure this is correct
+from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, CourseUploadQuota, Enrollment, FlashcardUsage, PDFQuotaUsage, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity, StudyGuideUsage  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
-from .text_processing import extract_text_from_pdf, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background,sanitize_filename
+from .text_processing import PDFQuotaConfig, extract_text_from_pdf, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background,sanitize_filename, validate_pdf_for_upload
 from langchain.memory.chat_message_histories import SQLChatMessageHistory
 from langchain.schema import AIMessage, HumanMessage
 from fastapi import FastAPI
@@ -79,6 +79,77 @@ async def upload_course_material(
     if not course:
         return HTMLResponse("❌ Course not found", status_code=404)
 
+    # Define daily limits
+    DAILY_FILE_LIMIT = 5  # Max 5 files per day
+    DAILY_SIZE_LIMIT = 100 * 1024 * 1024  # 100 MB per day
+    
+    # Get today's upload quota usage
+    today = date.today()
+    upload_quota = db.query(CourseUploadQuota).filter(
+        CourseUploadQuota.course_id == course_id,
+        CourseUploadQuota.usage_date == today
+    ).first()
+    
+    # Create new upload quota record if it doesn't exist
+    if not upload_quota:
+        upload_quota = CourseUploadQuota(
+            course_id=course_id,
+            usage_date=today,
+            files_uploaded=0,
+            bytes_uploaded=0
+        )
+        db.add(upload_quota)
+        db.commit()
+    
+    # Check file count limit
+    if upload_quota.files_uploaded >= DAILY_FILE_LIMIT:
+        return HTMLResponse(
+            content=f"<div class='toast error'>❌ Daily upload limit reached (maximum {DAILY_FILE_LIMIT} files per day)</div>",
+            status_code=200
+        )
+    
+    # Read the file content to check size
+    contents = await file.read()
+    file_size = len(contents)
+    
+    # Reset file position after reading
+    await file.seek(0)
+    
+    # Check file size limit
+    if upload_quota.bytes_uploaded + file_size > DAILY_SIZE_LIMIT:
+        remaining_bytes = DAILY_SIZE_LIMIT - upload_quota.bytes_uploaded
+        readable_remaining = f"{remaining_bytes / (1024 * 1024):.2f} MB"
+        return HTMLResponse(
+            content=f"<div class='toast error'>❌ Daily size limit exceeded. Remaining: {readable_remaining}</div>",
+            status_code=200
+        )
+    
+    # For PDF files, check page count against quota
+    if file.filename.lower().endswith(".pdf"):
+        # Save to temporary file for validation
+        temp_dir = "temp_pdfs"
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_file_path = f"{temp_dir}/temp_{file.filename}"
+        
+        with open(temp_file_path, "wb") as temp_file:
+            temp_file.write(contents)
+            
+        # Validate PDF page count
+        is_valid, message, page_count = validate_pdf_for_upload(temp_file_path)
+        
+        # Remove temporary file
+        try:
+            os.remove(temp_file_path)
+        except Exception as e:
+            pass  # Continue even if cleanup fails
+        
+        if not is_valid:
+            return HTMLResponse(
+                content=f"<div class='toast error'>❌ {message}</div>",
+                status_code=200
+            )
+    
+    # Proceed with file upload
     filename = f"{datetime.utcnow().timestamp()}_{sanitize_filename(file.filename)}"
     s3_key = f"course_materials/{course_id}/{filename}"
     
@@ -89,23 +160,39 @@ async def upload_course_material(
     
     # Generate a presigned URL that expires in 1 hour
     presigned_url = generate_presigned_url(s3_key)
-    #save_path = f"backend/uploads/{filename}"
-    #os.makedirs("backend/uploads", exist_ok=True)
-    #with open(save_path, "wb") as f:
-       # contents = await file.read()
-        #f.write(contents)
+    
+    # Record the material
     material = CourseMaterial(
         course_id=course_id,
         title=file.filename,
         filename=filename,
-        filepath=f"uploads/{filename}",  # <--- changed to match static serving
+        filepath=f"uploads/{filename}",
         uploaded_by=user["user_id"]
     )
     db.add(material)
+    
+    # Update upload quota usage
+    upload_quota.files_uploaded += 1
+    upload_quota.bytes_uploaded += file_size
     db.commit()
-
+    
+    # Calculate remaining quota
+    files_remaining = DAILY_FILE_LIMIT - upload_quota.files_uploaded
+    bytes_remaining = DAILY_SIZE_LIMIT - upload_quota.bytes_uploaded
+    mb_remaining = bytes_remaining / (1024 * 1024)
+    
+    # Include page count information in success message if PDF
+    pdf_info = f" ({page_count} pages)" if file.filename.lower().endswith(".pdf") and 'page_count' in locals() and page_count else ""
+    
     return HTMLResponse(
-        content="<div class='toast success'>✅ File uploaded successfully!</div>",
+        content=f"""
+        <div class='toast success'>
+            ✅ File uploaded successfully!{pdf_info}
+            <div class="text-xs mt-1 text-gray-600">
+                Daily quota remaining: {files_remaining} files / {mb_remaining:.2f} MB
+            </div>
+        </div>
+        """,
         status_code=200
     )
 
@@ -116,17 +203,31 @@ async def show_upload_form(request: Request, course_id: int, user: dict = Depend
     teacher_id = user["user_id"]
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
     
-    # Get quota information for today
+    # Constants for upload size limit
+    DAILY_UPLOAD_SIZE_LIMIT = 100 * 1024 * 1024  # 100 MB in bytes
+    
+    # Get today's date
     today = date.today()
+    
+    # Get processing quota information for today
     quota_usage = db.query(PDFQuotaUsage).filter(
         PDFQuotaUsage.course_id == course_id,
         PDFQuotaUsage.usage_date == today
     ).first()
     
-    # Set quota values
-    DAILY_PAGE_QUOTA = 100
+    # Set processing quota values - using our centralized config
     quota_used = quota_usage.pages_processed if quota_usage else 0
-    quota_remaining = DAILY_PAGE_QUOTA - quota_used
+    quota_remaining = PDFQuotaConfig.DAILY_PAGE_QUOTA - quota_used
+    
+    # Get upload quota information for today
+    upload_quota = db.query(CourseUploadQuota).filter(
+        CourseUploadQuota.course_id == course_id,
+        CourseUploadQuota.usage_date == today
+    ).first()
+    
+    # Set upload quota values
+    upload_files_used = upload_quota.files_uploaded if upload_quota else 0
+    upload_bytes_used = upload_quota.bytes_uploaded if upload_quota else 0
     
     # Return template with quota information
     return templates.TemplateResponse("upload_materials.html", {
@@ -137,7 +238,10 @@ async def show_upload_form(request: Request, course_id: int, user: dict = Depend
         "courses": courses,
         "quota_used": quota_used,
         "quota_remaining": quota_remaining,
-        "quota_total": DAILY_PAGE_QUOTA
+        "quota_total": PDFQuotaConfig.DAILY_PAGE_QUOTA,
+        "upload_files_used": upload_files_used,
+        "upload_bytes_used": upload_bytes_used,
+        "upload_bytes_total": DAILY_UPLOAD_SIZE_LIMIT
     })
 
 @ai_router.post("/courses/{course_id}/process_materials")
@@ -149,9 +253,8 @@ async def process_materials(course_id: int, background_tasks: BackgroundTasks, d
         PDFQuotaUsage.usage_date == today
     ).first()
     
-    DAILY_PAGE_QUOTA = 100
     used_pages = quota_usage.pages_processed if quota_usage else 0
-    remaining_quota = DAILY_PAGE_QUOTA - used_pages
+    remaining_quota = PDFQuotaConfig.DAILY_PAGE_QUOTA - used_pages
     
     # Process materials in foreground instead of background for immediate feedback
     # This change gives instant feedback to the user
@@ -164,7 +267,7 @@ async def process_materials(course_id: int, background_tasks: BackgroundTasks, d
     ).first()
     
     used_pages = quota_usage.pages_processed if quota_usage else 0
-    remaining_quota = DAILY_PAGE_QUOTA - used_pages
+    remaining_quota = PDFQuotaConfig.DAILY_PAGE_QUOTA - used_pages
     
     return HTMLResponse(
         content=f"""
@@ -190,7 +293,7 @@ async def process_materials(course_id: int, background_tasks: BackgroundTasks, d
     )
 
 @ai_router.get("/courses/{course_id}/materials/{material_id}/download")
-async def download_material(course_id: int, material_id: int, db: Session = Depends(get_db), user=Depends(require_teacher_or_ta())):
+async def download_material(course_id: int, material_id: int, db: Session = Depends(get_db)):
     # Get the material info from DB
     material = db.query(CourseMaterial).filter_by(id=material_id, course_id=course_id).first()
     if not material:
@@ -378,10 +481,11 @@ async def show_student_tutor(
     remaining_messages = 100 - message_count if message_count < 100 else 0
 
     print(f"{remaining_messages} to get!")
-    
+    print("COURSE ID:", course_id)
     return templates.TemplateResponse("student_ai_tutor.html", {
         "request": request,
         "course": course,
+        "course_id": course_id,
         "materials": materials,
         "messages": messages,
         "courses": courses,

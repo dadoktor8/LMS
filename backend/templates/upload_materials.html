@@ -87,6 +87,28 @@
     </nav>
 
   <main class="max-w-3xl mx-auto px-4">
+    <!-- PDF Constraints Warning Box -->
+    <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6 mt-6 rounded-md shadow">
+      <div class="flex items-center">
+        <div class="flex-shrink-0">
+          <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+          </svg>
+        </div>
+        <div class="ml-3">
+          <h3 class="text-sm font-bold text-yellow-800">Important PDF Constraints</h3>
+          <div class="mt-1 text-sm text-yellow-700">
+            <ul class="list-disc ml-4 space-y-1">
+              <li><strong>Only PDFs are processed</strong> - other file types will be ignored</li>
+              <li><strong>Each PDF must be processed completely</strong> - ensure your PDFs don't exceed your daily quota</li>
+              <li><strong>Current daily quota:</strong> {{ quota_total }} pages per course</li>
+              <li><strong>Large PDFs will be rejected</strong> if they exceed your remaining quota</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="grid md:grid-cols-2 gap-8">
       <!-- Upload Material Card -->
       <div class="bg-white rounded-xl shadow p-7 border border-gray-100 flex flex-col justify-center">
@@ -153,26 +175,71 @@
         <div id="process-status" class="mt-4"></div>
       </div>
     </div>
-    <div class="mt-4 px-4 py-3 bg-blue-50 rounded-lg border border-blue-100">
-      <h4 class="font-semibold text-blue-800 flex items-center gap-1">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-        </svg>
-        Daily Processing Quota
-      </h4>
-      
-      <div class="flex items-center mt-2">
-        <div class="w-full bg-gray-200 rounded-full h-2.5">
-          <div class="bg-blue-600 h-2.5 rounded-full" style="width: {{ (quota_used / 100) * 100 }} %"></div>
-        </div>
-        <span class="ml-2 text-xs font-medium text-gray-600">{{ quota_remaining }}/100 pages</span>
+<!-- Upload and Processing Quotas -->
+<div class="mt-4 grid gap-4 grid-cols-1 md:grid-cols-2">
+  <!-- Processing Quota Card -->
+  <div class="px-5 py-4 bg-blue-50 rounded-lg border border-blue-200 shadow-sm">
+    <h4 class="font-bold text-blue-800 flex items-center gap-1 text-base">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+      </svg>
+      Daily Processing Quota
+    </h4>
+    
+    <div class="flex items-center mt-3">
+      <div class="w-full bg-gray-200 rounded-full h-3">
+        <div class="bg-blue-600 h-3 rounded-full" style="width: {{ (quota_used / quota_total) * 100 }}%"></div>
       </div>
-      
-      <p class="text-xs text-gray-500 mt-1">
-        Each course has a daily limit of 100 PDF pages for AI processing.
-        <br>Quota resets at midnight.
+      <span class="ml-2 text-sm font-medium text-gray-700">{{ quota_remaining }}/{{ quota_total }} pages</span>
+    </div>
+    
+    <div class="mt-3 p-2 bg-white rounded border border-blue-100">
+      <p class="text-sm text-blue-800 font-medium">
+        <strong>IMPORTANT:</strong> PDFs must be processed completely or not at all.
+      </p>
+      <p class="text-sm text-gray-600 mt-1">
+        A PDF with more pages than your remaining quota will be skipped.
       </p>
     </div>
+  </div>
+
+  <!-- Upload Quota Card -->
+  <div class="px-5 py-4 bg-green-50 rounded-lg border border-green-200 shadow-sm">
+    <h4 class="font-bold text-green-800 flex items-center gap-1 text-base">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+      </svg>
+      Daily Upload Quota
+    </h4>
+    
+    <div class="flex flex-col gap-3 mt-3">
+      <!-- Files counter -->
+      <div class="flex items-center">
+        <div class="w-full bg-gray-200 rounded-full h-3">
+          <div class="bg-green-600 h-3 rounded-full" style="width: {{ (upload_files_used / 5) * 100 }}%"></div>
+        </div>
+        <span class="ml-2 text-sm font-medium text-gray-700">{{ 5 - upload_files_used }}/5 files</span>
+      </div>
+      
+      <!-- Size counter -->
+      <div class="flex items-center">
+        <div class="w-full bg-gray-200 rounded-full h-3">
+          <div class="bg-green-600 h-3 rounded-full" style="width: {{ (upload_bytes_used / upload_bytes_total) * 100 }}%"></div>
+        </div>
+        <span class="ml-2 text-sm font-medium text-gray-700">{{ (upload_bytes_total - upload_bytes_used) / (1024 * 1024) | round(2) }}/100 MB</span>
+      </div>
+    </div>
+    
+    <div class="mt-3 p-2 bg-white rounded border border-green-100">
+      <p class="text-sm text-green-800 font-medium">
+        <strong>Daily upload limits:</strong>
+      </p>
+      <p class="text-sm text-gray-600">
+        Max 5 files and 100 MB total upload size per course
+      </p>
+    </div>
+  </div>
+</div>
     
     <!-- Status Toast Template for Process Results -->
     <template id="process-result-template">

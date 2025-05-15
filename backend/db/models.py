@@ -1,7 +1,7 @@
 # backend/db/models.py
 from datetime import date, datetime
 import traceback
-from sqlalchemy import Column, Date, DateTime, Float, Integer, String, Boolean, ForeignKey, Table, Text, func
+from sqlalchemy import BigInteger, Column, Date, DateTime, Float, Integer, String, Boolean, ForeignKey, Table, Text, UniqueConstraint, func
 from backend.db.database import Base
 from sqlalchemy.orm import relationship
 
@@ -309,7 +309,7 @@ class QuizQuota(Base):
     __tablename__ = "quiz_quotas"
     
     id = Column(Integer, primary_key=True, index=True)
-    teacher_id = Column(String, index=True)
+    teacher_id = Column(Integer, index=True) 
     course_id = Column(Integer, ForeignKey("courses.id"), index=True)
     date = Column(Date, default=date.today, index=True)
     count = Column(Integer, default=0)
@@ -334,3 +334,16 @@ class StudyGuideUsage(Base):
     course_id = Column(Integer, index=True)
     usage_date = Column(Date, default=date.today)
     count = Column(Integer, default=1)
+
+class CourseUploadQuota(Base):
+    __tablename__ = "course_upload_quotas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"))
+    usage_date = Column(Date, default=datetime.utcnow().date)
+    files_uploaded = Column(Integer, default=0)  # Number of files uploaded today
+    bytes_uploaded = Column(BigInteger, default=0)  # Total bytes uploaded today
+    
+    __table_args__ = (
+        UniqueConstraint('course_id', 'usage_date', name='uix_course_date'),
+    )
