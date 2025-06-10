@@ -8,6 +8,20 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- HTMX (optional, if you use it for AJAX) -->
   <script src="https://unpkg.com/htmx.org@1.9.2"></script>
+  <style>
+    .expand-transition {
+      transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out;
+      overflow: hidden;
+    }
+    .collapsed {
+      max-height: 0;
+      opacity: 0;
+    }
+    .expanded {
+      max-height: 1000px;
+      opacity: 1;
+    }
+  </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
   <!-- Navbar -->
@@ -90,50 +104,264 @@
       </ul>
     </nav>
 
-  <main class="max-w-lg mx-auto my-10 bg-white shadow-md rounded-xl px-8 py-8 border border-gray-100">
+  <main class="max-w-4xl mx-auto my-10 bg-white shadow-md rounded-xl px-8 py-8 border border-gray-100">
     <h2 class="text-2xl font-bold text-red-600 mb-6 text-center">➕ Create a New Course</h2>
+    
     <form
       hx-post="/auth/courses"
       hx-target="#message"
       hx-swap="innerHTML"
       method="post"
-      onsubmit="this.querySelector('button').disabled = true;"
-      class="space-y-5"
+      onsubmit="this.querySelector('button[type=submit]').disabled = true;"
+      class="space-y-6"
     >
-      <div>
-        <label class="block mb-1 font-medium text-gray-700" for="title">📘 Course Title</label>
-        <input
-          type="text"
-          name="title"
-          id="title"
-          required
-          class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+      <!-- Basic Information Section -->
+      <div class="bg-blue-50 p-6 rounded-lg border border-blue-200">
+        <h3 class="text-lg font-semibold text-blue-800 mb-4 flex items-center">
+          📚 Basic Information
+        </h3>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block mb-1 font-medium text-gray-700" for="title">📘 Course Title</label>
+            <input
+              type="text"
+              name="title"
+              id="title"
+              required
+              placeholder="e.g., Introduction to Computer Science"
+              class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+            >
+          </div>
+          
+          <div>
+            <label class="block mb-1 font-medium text-gray-700" for="course_code">🔢 Course Code</label>
+            <input
+              type="text"
+              name="course_code"
+              id="course_code"
+              placeholder="e.g., CS-101"
+              class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+            >
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <label class="block mb-1 font-medium text-gray-700" for="short_description">📝 Short Description</label>
+          <textarea
+            name="short_description"
+            id="short_description"
+            rows="2"
+            required
+            placeholder="A brief overview of the course (will be displayed on course cards)"
+            class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-gray-800"
+          ></textarea>
+        </div>
+      </div>
+
+      <!-- Institution Information Section -->
+      <div class="bg-green-50 p-6 rounded-lg border border-green-200">
+        <h3 class="text-lg font-semibold text-green-800 mb-4 flex items-center">
+          🏫 Institution Information
+        </h3>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block mb-1 font-medium text-gray-700" for="university">🎓 University/Institution</label>
+            <input
+              type="text"
+              name="university"
+              id="university"
+              placeholder="e.g., Stanford University"
+              class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-gray-800"
+            >
+          </div>
+          
+          <div>
+            <label class="block mb-1 font-medium text-gray-700" for="location">📍 Location</label>
+            <input
+              type="text"
+              name="location"
+              id="location"
+              placeholder="e.g., California, USA"
+              class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-gray-800"
+            >
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+          <div>
+            <label class="block mb-1 font-medium text-gray-700" for="semester">📅 Semester</label>
+            <select
+              name="semester"
+              id="semester"
+              class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-gray-800"
+            >
+              <option value="">Select Semester</option>
+              <option value="Spring">Spring</option>
+              <option value="Summer">Summer</option>
+              <option value="Fall">Fall</option>
+              <option value="Winter">Winter</option>
+            </select>
+          </div>
+          
+          <div>
+            <label class="block mb-1 font-medium text-gray-700" for="year">📆 Academic Year</label>
+            <input
+              type="number"
+              name="year"
+              id="year"
+              min="2020"
+              max="2030"
+              placeholder="e.g., 2024"
+              class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-gray-800"
+            >
+          </div>
+        </div>
+      </div>
+
+      <!-- Expandable Sections -->
+      <!-- Detailed Description -->
+      <div class="border border-gray-200 rounded-lg">
+        <button
+          type="button"
+          onclick="toggleSection('detailed-desc')"
+          class="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-t-lg transition-colors"
         >
+          <span class="text-lg font-semibold text-gray-700 flex items-center">
+            📄 Detailed Description <span class="text-sm font-normal text-gray-500 ml-2">(Optional)</span>
+          </span>
+          <svg id="detailed-desc-arrow" class="w-5 h-5 text-gray-500 transform transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        <div id="detailed-desc-content" class="expand-transition collapsed">
+          <div class="p-4">
+            <textarea
+              name="detailed_description"
+              id="detailed_description"
+              rows="4"
+              placeholder="Provide a comprehensive description of the course content, structure, and expectations..."
+              class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-gray-800"
+            ></textarea>
+          </div>
+        </div>
       </div>
-      <div>
-        <label class="block mb-1 font-medium text-gray-700" for="description">📝 Description</label>
-        <textarea
-          name="description"
-          id="description"
-          rows="4"
-          required
-          class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-gray-800"
-        ></textarea>
+
+      <!-- Course Objectives -->
+      <div class="border border-gray-200 rounded-lg">
+        <button
+          type="button"
+          onclick="toggleSection('objectives')"
+          class="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-t-lg transition-colors"
+        >
+          <span class="text-lg font-semibold text-gray-700 flex items-center">
+            🎯 Course Objectives <span class="text-sm font-normal text-gray-500 ml-2">(Optional)</span>
+          </span>
+          <svg id="objectives-arrow" class="w-5 h-5 text-gray-500 transform transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        <div id="objectives-content" class="expand-transition collapsed">
+          <div class="p-4">
+            <textarea
+              name="objectives"
+              id="objectives"
+              rows="4"
+              placeholder="List the main objectives and goals of this course..."
+              class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-gray-800"
+            ></textarea>
+          </div>
+        </div>
       </div>
+
+      <!-- Learning Outcomes -->
+      <div class="border border-gray-200 rounded-lg">
+        <button
+          type="button"
+          onclick="toggleSection('outcomes')"
+          class="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-t-lg transition-colors"
+        >
+          <span class="text-lg font-semibold text-gray-700 flex items-center">
+            🌟 Learning Outcomes <span class="text-sm font-normal text-gray-500 ml-2">(Optional)</span>
+          </span>
+          <svg id="outcomes-arrow" class="w-5 h-5 text-gray-500 transform transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        <div id="outcomes-content" class="expand-transition collapsed">
+          <div class="p-4">
+            <textarea
+              name="learning_outcomes"
+              id="learning_outcomes"
+              rows="4"
+              placeholder="Describe what students will be able to do after completing this course..."
+              class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-gray-800"
+            ></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Textbooks -->
+      <div class="border border-gray-200 rounded-lg">
+        <button
+          type="button"
+          onclick="toggleSection('textbooks')"
+          class="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-t-lg transition-colors"
+        >
+          <span class="text-lg font-semibold text-gray-700 flex items-center">
+            📚 Textbooks & Resources <span class="text-sm font-normal text-gray-500 ml-2">(Optional)</span>
+          </span>
+          <svg id="textbooks-arrow" class="w-5 h-5 text-gray-500 transform transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        <div id="textbooks-content" class="expand-transition collapsed">
+          <div class="p-4">
+            <textarea
+              name="textbooks"
+              id="textbooks"
+              rows="4"
+              placeholder="List required and recommended textbooks, resources, and materials..."
+              class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-gray-800"
+            ></textarea>
+          </div>
+        </div>
+      </div>
+
       <button
         type="submit"
-        class="w-full py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition flex justify-center items-center gap-2"
+        class="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition flex justify-center items-center gap-2"
       >
         🚀 Create Course
       </button>
     </form>
+    
     <div class="mt-6 flex justify-between items-center">
       <a href="/auth/teacher/dashboard"
          class="flex items-center gap-1 text-blue-700 hover:underline text-sm"
       >⬅️ Back to Dashboard</a>
     </div>
+    
     <div id="course-message" class="mt-5 text-center"></div>
     <div id="message" style="margin-top: 1.5rem;"></div>
   </main>
+
+  <script>
+    function toggleSection(sectionId) {
+      const content = document.getElementById(sectionId + '-content');
+      const arrow = document.getElementById(sectionId + '-arrow');
+      
+      if (content.classList.contains('collapsed')) {
+        content.classList.remove('collapsed');
+        content.classList.add('expanded');
+        arrow.style.transform = 'rotate(180deg)';
+      } else {
+        content.classList.remove('expanded');
+        content.classList.add('collapsed');
+        arrow.style.transform = 'rotate(0deg)';
+      }
+    }
+  </script>
 </body>
 </html>

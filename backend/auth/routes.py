@@ -4,7 +4,7 @@ import io
 import random
 import re
 import string
-from fastapi import APIRouter, HTTPException, Depends, Query, Request, Form
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, Form, Response, logger
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -183,67 +183,99 @@ def signup_form(
     l_name: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    # Helper for error block (reuse this for all errors)
-    def error_block(message):
+    def create_response_block(message: str, block_type: str = "error") -> HTMLResponse:
+        """Create standardized response blocks"""
+        if block_type == "error":
+            bg_color = "bg-red-50"
+            border_color = "border-red-200"
+            text_color = "text-red-800"
+            button_bg = "bg-red-100 hover:bg-red-200"
+            icon = "⚠️"
+        else:  # success
+            bg_color = "bg-green-50"
+            border_color = "border-green-200"
+            text_color = "text-green-800"
+            button_bg = "bg-green-100 hover:bg-green-200"
+            icon = "✅"
+        
         return HTMLResponse(
             content=f"""
-<div class="bg-red-100 border border-red-400 text-red-700 rounded px-4 py-3 mb-4 flex justify-between items-center">
-  <div>
-    <strong class="font-bold">Error: </strong> {message}
-  </div>
-  <button onclick="window.location.reload()" class="bg-red-200 text-red-800 font-semibold px-2 py-1 ml-4 rounded hover:bg-red-300">Refresh</button>
-</div>
-""",
+            <div class="{bg_color} border {border_color} {text_color} rounded-lg px-6 py-4 mb-4 shadow-sm">
+                <div class="flex items-start justify-between">
+                    <div class="flex">
+                        <span class="text-lg mr-3">{icon}</span>
+                        <div>
+                            <p class="font-medium">{message}</p>
+                        </div>
+                    </div>
+                    <button 
+                        onclick="window.location.reload()" 
+                        class="{button_bg} {text_color} font-medium px-3 py-1 rounded-md text-sm transition-colors duration-200"
+                    >
+                        Refresh
+                    </button>
+                </div>
+            </div>
+            """,
             status_code=200
         )
-
-    # Check if user already exists
-    existing_user = db.query(User).filter(User.email == email).first()
-    if existing_user:
-        return error_block("A user with this email already exists.")
-
-    # Validate password strength
-    if not is_valid_password(password):
-        return error_block(
-            "Password must be at least 8 characters with at least one lowercase letter, "
-            "one uppercase letter, one number, and one special character."
+    
+    try:
+        # Validation checks
+        existing_user = db.query(User).filter(User.email == email).first()
+        if existing_user:
+            return create_response_block("An account with this email address already exists. Please use a different email or try logging in.")
+        
+        if not is_valid_password(password):
+            return create_response_block(
+                "Password must be at least 8 characters long and contain at least one lowercase letter, "
+                "one uppercase letter, one number, and one special character."
+            )
+        
+        if password != confirm_password:
+            return create_response_block("The passwords you entered do not match. Please try again.")
+        
+        # Create new user
+        new_user = User(
+            f_name=f_name,
+            l_name=l_name,
+            email=email,
+            hashed_password=hash_password(password),
+            role=role,
+            is_verified=False
+        )
+        
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        
+        # Send verification email
+        token = generate_verification_token(email)
+        base_url = get_base_url(request)
+        verification_link = f"{base_url}/auth/verify-email?token={token}"
+        
+        email_sent = send_verification_email(email, verification_link)
+        
+        if email_sent:
+            success_message = (
+                f"Account created successfully! We've sent a verification email to {email}. "
+                "Please check your inbox and click the verification link to activate your account. "
+                "Don't forget to check your spam folder if you don't see the email within a few minutes."
+            )
+        else:
+            success_message = (
+                "Account created successfully! However, we encountered an issue sending the verification email. "
+                "Please contact support for assistance with email verification."
+            )
+        
+        return create_response_block(success_message, "success")
+        
+    except Exception as e:
+        logger.error(f"Error during user registration: {str(e)}")
+        return create_response_block(
+            "An unexpected error occurred during registration. Please try again or contact support if the problem persists."
         )
 
-    # Validate password match
-    if password != confirm_password:
-        return error_block("Passwords do not match.")
-
-    # ... proceed with user creation
-    new_user = User(
-        f_name=f_name,
-        l_name=l_name,
-        email=email,
-        hashed_password=hash_password(password),
-        role=role,
-        is_verified=False
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-
-    # Send verification email
-    token = generate_verification_token(email)
-    base_url = get_base_url(request)
-    link = f"{base_url}/auth/verify-email?token={token}"
-    send_verification_email(email, link)
-
-    # Show success message as a toast/banner
-    return HTMLResponse(
-        content="""
-<div class="bg-green-100 border border-green-400 text-green-800 rounded px-4 py-3 mb-4 flex justify-between items-center">
-  <div>
-    <strong class="font-bold">Success! </strong>
-    User created successfully. Please check your email to verify your account. Please check spam if not found in email!
-  </div>
-</div>
-""",
-        status_code=200
-    )
 
 # === JSON API LOGIN ===
 @auth_router.post("/login", response_model=TokenResponse)
@@ -634,31 +666,186 @@ def resend_verification(request: Request, email: str, db: Session = Depends(get_
 
 @auth_router.post("/courses")
 def create_course(
+    # Basic Information (required)
     title: str = Form(...),
-    description: str = Form(...),
+    short_description: str = Form(...),
+    
+    # Basic Information (optional)
+    course_code: Optional[str] = Form(None),
+    
+    # Institution Information (optional)
+    university: Optional[str] = Form(None),
+    location: Optional[str] = Form(None),
+    semester: Optional[str] = Form(None),
+    year: Optional[int] = Form(None),
+    
+    # Detailed Information (optional)
+    detailed_description: Optional[str] = Form(None),
+    objectives: Optional[str] = Form(None),
+    learning_outcomes: Optional[str] = Form(None),
+    textbooks: Optional[str] = Form(None),
+    
+    # Dependencies
     db: Session = Depends(get_db),
     user=Depends(require_role("teacher"))
 ):
-    # Count existing courses by this teacher
+    # Count existing courses by this teacher (keep existing limit logic)
     existing_courses_count = db.query(Course).filter(Course.teacher_id == user["user_id"]).count()
-    
+   
     # Check if the teacher already has 15 courses
     if existing_courses_count >= 15:
         return HTMLResponse(
             content='<div class="toast error">❌ You can create a maximum of 15 courses per account.</div>',
             status_code=400
         )
+   
+    # Clean up empty strings to None for optional fields
+    def clean_optional_field(field_value):
+        return field_value.strip() if field_value and field_value.strip() else None
     
-    # If under the limit, create the new course
-    new_course = Course(title=title, description=description, teacher_id=user["user_id"])
-    db.add(new_course)
-    db.commit()
-    db.refresh(new_course)
-    
-    return HTMLResponse(
-        content='<div class="toast success">✅ Course created successfully!</div>',
-        status_code=200
+    # Create the new course with all fields
+    new_course = Course(
+        # Required fields
+        title=title.strip(),
+        teacher_id=user["user_id"],
+        
+        # Basic information
+        course_code=clean_optional_field(course_code),
+        short_description=short_description.strip(),
+        description=short_description.strip(),  # Keep for backward compatibility
+        
+        # Institution information
+        university=clean_optional_field(university),
+        location=clean_optional_field(location),
+        semester=clean_optional_field(semester),
+        year=year if year and year > 0 else None,
+        
+        # Detailed information
+        detailed_description=clean_optional_field(detailed_description),
+        objectives=clean_optional_field(objectives),
+        learning_outcomes=clean_optional_field(learning_outcomes),
+        textbooks=clean_optional_field(textbooks),
     )
+    
+    try:
+        db.add(new_course)
+        db.commit()
+        db.refresh(new_course)
+        
+        # Redirect to success page instead of returning toast
+        response = Response(status_code=200)
+        response.headers["HX-Redirect"] = f"/auth/courses/{new_course.id}/success"
+        return response
+        
+    except Exception as e:
+        db.rollback()
+        return HTMLResponse(
+            content='<div class="toast error">❌ Error creating course. Please try again.</div>',
+            status_code=500
+        )
+
+@auth_router.get("/courses/{course_id}/edit", response_class=HTMLResponse)
+def edit_course_form(
+    course_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
+    """Display the edit course form"""
+    # Verify the course belongs to this teacher
+    course = db.query(Course).filter(
+        Course.id == course_id,
+        Course.teacher_id == user["user_id"]
+    ).first()
+    
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    
+    return templates.TemplateResponse("edit_course.html", {
+        "request": request,
+        "course": course
+    })
+
+
+@auth_router.post("/courses/{course_id}/edit")
+def update_course(
+    course_id: int,
+    # Basic Information (required)
+    title: str = Form(...),
+    short_description: str = Form(...),
+    
+    # Basic Information (optional)
+    course_code: Optional[str] = Form(None),
+    
+    # Institution Information (optional)
+    university: Optional[str] = Form(None),
+    location: Optional[str] = Form(None),
+    semester: Optional[str] = Form(None),
+    year: Optional[int] = Form(None),
+    
+    # Detailed Information (optional)
+    detailed_description: Optional[str] = Form(None),
+    objectives: Optional[str] = Form(None),
+    learning_outcomes: Optional[str] = Form(None),
+    textbooks: Optional[str] = Form(None),
+    
+    # Dependencies
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
+    """Update course information"""
+    # Verify the course belongs to this teacher
+    course = db.query(Course).filter(
+        Course.id == course_id,
+        Course.teacher_id == user["user_id"]
+    ).first()
+    
+    if not course:
+        return HTMLResponse(
+            content='<div class="toast error bg-red-100 border border-red-300 text-red-700 px-4 py-3 rounded-lg shadow-lg">❌ Course not found or access denied</div>',
+            status_code=404
+        )
+    
+    # Clean up empty strings to None for optional fields
+    def clean_optional_field(field_value):
+        return field_value.strip() if field_value and field_value.strip() else None
+    
+    try:
+        # Update course fields
+        course.title = title.strip()
+        course.short_description = short_description.strip()
+        course.description = short_description.strip()  # Keep for backward compatibility
+        
+        # Update optional fields
+        course.course_code = clean_optional_field(course_code)
+        course.university = clean_optional_field(university)
+        course.location = clean_optional_field(location)
+        course.semester = clean_optional_field(semester)
+        course.year = year if year and year > 0 else None
+        course.detailed_description = clean_optional_field(detailed_description)
+        course.objectives = clean_optional_field(objectives)
+        course.learning_outcomes = clean_optional_field(learning_outcomes)
+        course.textbooks = clean_optional_field(textbooks)
+        
+        db.commit()
+        
+        # Return success toast with redirect
+        response = HTMLResponse(
+            content='<div class="toast success bg-green-100 border border-green-300 text-green-700 px-4 py-3 rounded-lg shadow-lg">✅ Course updated successfully!</div>',
+            status_code=200
+        )
+        # Add redirect header to go back to dashboard after a short delay
+        response.headers["HX-Redirect"] = "/auth/teacher/dashboard"
+        return response
+        
+    except Exception as e:
+        db.rollback()
+        return HTMLResponse(
+            content='<div class="toast error bg-red-100 border border-red-300 text-red-700 px-4 py-3 rounded-lg shadow-lg">❌ Error updating course. Please try again.</div>',
+            status_code=500
+        )
+
+
 
 @auth_router.post("/courses/{course_id}/upload-students", response_class=HTMLResponse)
 def upload_students(course_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -723,6 +910,27 @@ def invite_student_page(request: Request, course_id: int,user=Depends(require_te
     return templates.TemplateResponse("invite_student.html", {
         "request": request,
         "course_id": course_id
+    })
+
+@auth_router.get("/courses/{course_id}/success", response_class=HTMLResponse)
+def course_success(
+    course_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("teacher"))
+):
+    # Verify the course belongs to this teacher
+    course = db.query(Course).filter(
+        Course.id == course_id,
+        Course.teacher_id == user["user_id"]
+    ).first()
+    
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    
+    return templates.TemplateResponse("course_success.html", {
+        "request": request,
+        "course": course
     })
 
 @auth_router.post("/courses/{course_id}/invite-student", response_class=HTMLResponse)
@@ -840,12 +1048,13 @@ def teacher_dashboard(
     teacher_id = user["user_id"]
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
     teacher = db.query(User).filter(User.id == teacher_id).first()
-    
+   
     return templates.TemplateResponse("teacher_dashboard.html", {
         "request": request,
         "courses": courses,
-        "teacher_name":teacher.f_name
+        "teacher_name": teacher.f_name
     })
+
 
 @auth_router.get("/debug/invites")
 def debug_invites(db: Session = Depends(get_db)):

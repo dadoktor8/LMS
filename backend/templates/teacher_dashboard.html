@@ -108,24 +108,44 @@
            class="inline-block mt-auto px-4 py-2 text-white bg-blue-600 font-medium rounded-lg hover:bg-blue-700 transition text-center"
         >Create</a>
       </div>
+      
       <!-- Courses Cards -->
       {% for course in courses %}
-      <div class="flex flex-col p-6 bg-white rounded-xl shadow border border-gray-100 hover:border-blue-500 transition">
-        <h4 class="text-lg font-semibold mb-1 break-words">{{ course.title }}</h4>
-        <p class="text-gray-500 mb-4 break-words">{{ course.description }}</p>
-        <div class="flex flex-col gap-2 mt-auto">
-          <a href="/auth/courses/{{ course.id }}/enroll"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">👥 Enroll Students</a>
-          <a href="/auth/courses/{{ course.id }}/attendance"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">📝 Mark/View Attendance</a>
-          <a href="/ai/teacher/{{course.id}}/assignments"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">✏️ Manage Assignments</a>
-          <a href="/ai/courses/{{course.id}}/upload_materials"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">📤 Upload Materials</a>
-          <a href="/auth/courses/{{ course.id }}/invite-ta"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">🎓 Invite TA</a>
-          <a href="/ai/courses/{{ course.id }}/quiz/create"
-             class="text-blue-700 hover:text-blue-900 inline-flex items-center gap-1 font-medium">🎓 Create Quiz</a>
+      <div class="flex flex-col p-6 bg-white rounded-xl shadow border border-gray-100 hover:border-blue-500 transition cursor-pointer group"
+           onclick="openCourseModal('{{ course.id }}')">
+        <div class="mb-4">
+          <h4 class="text-lg font-semibold mb-2 break-words group-hover:text-blue-700 transition">{{ course.title }}</h4>
+          
+          <!-- Essential Info Only -->
+          <div class="space-y-2">
+            {% if course.course_code %}
+            <span class="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">{{ course.course_code }}</span>
+            {% endif %}
+            
+            {% if course.semester and course.year %}
+            <div class="flex items-center gap-1 text-sm text-gray-600">
+              <span>📅</span>
+              <span>{{ course.semester }} {{ course.year }}</span>
+            </div>
+            {% endif %}
+          </div>
+          
+          <!-- Short Description (very brief) -->
+          <p class="text-gray-500 text-sm mt-3 line-clamp-2">
+            {% if course.short_description %}
+              {{ course.short_description[:60] }}{% if course.short_description|length > 60 %}...{% endif %}
+            {% else %}
+              {{ course.description[:60] }}{% if course.description|length > 60 %}...{% endif %}
+            {% endif %}
+          </p>
+        </div>
+        
+        <!-- Click to view more hint -->
+        <div class="mt-auto pt-3 border-t border-gray-100">
+          <p class="text-xs text-blue-600 group-hover:text-blue-800 flex items-center gap-1">
+            <span>👁️</span>
+            <span>Click to view details & actions</span>
+          </p>
         </div>
       </div>
       {% endfor %}
@@ -135,5 +155,182 @@
       ✨ Built with <span class="text-pink-500">❤️</span> for dedicated teachers — Intellaica
     </div>
   </main>
+
+  <!-- Modal Overlay -->
+  <div id="modal-overlay" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <!-- Modal Header -->
+      <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl">
+        <h3 id="modal-title" class="text-xl font-bold text-gray-900"></h3>
+        <button onclick="closeCourseModal()" class="text-gray-400 hover:text-gray-600 transition">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      
+      <!-- Modal Content -->
+      <div class="p-6">
+        <div id="modal-content">
+          <!-- Content will be populated by JavaScript -->
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="mt-6 pt-6 border-t border-gray-200">
+          <h4 class="text-lg font-semibold mb-3 text-gray-800">Quick Actions</h4>
+          <div id="modal-actions" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <!-- Action buttons will be populated by JavaScript -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Course data embedded directly
+    let coursesData = [
+      {% for course in courses %}
+      {
+        id: "{{ course.id }}",
+        title: {{ course.title|tojson }},
+        course_code: {{ (course.course_code or '')|tojson }},
+        semester: {{ (course.semester or '')|tojson }},
+        year: {{ (course.year or '')|tojson }},
+        university: {{ (course.university or '')|tojson }},
+        location: {{ (course.location or '')|tojson }},
+        short_description: {{ (course.short_description or '')|tojson }},
+        description: {{ (course.description or '')|tojson }},
+        detailed_description: {{ (course.detailed_description or '')|tojson }},
+        objectives: {{ (course.objectives or '')|tojson }},
+        learning_outcomes: {{ (course.learning_outcomes or '')|tojson }},
+        textbooks: {{ (course.textbooks or '')|tojson }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ];
+
+    function openCourseModal(courseId) {
+      console.log('Opening modal for course:', courseId);
+      console.log('Available courses:', coursesData);
+      
+      const course = coursesData.find(c => c.id === courseId);
+      if (!course) {
+        console.error('Course not found:', courseId);
+        return;
+      }
+      
+      // Set modal title
+      document.getElementById('modal-title').textContent = course.title;
+      
+      // Build modal content
+      let content = '';
+      
+      // Basic Info Section
+      content += '<div class="mb-6">';
+      content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">📋 Course Information</h5>';
+      content += '<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">';
+      
+      if (course.course_code) {
+        content += `<div><span class="font-medium text-gray-700">Course Code:</span> <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium">${course.course_code}</span></div>`;
+      }
+      if (course.semester && course.year) {
+        content += `<div><span class="font-medium text-gray-700">Semester:</span> <span class="text-gray-600">${course.semester} ${course.year}</span></div>`;
+      }
+      if (course.university) {
+        content += `<div><span class="font-medium text-gray-700">University:</span> <span class="text-gray-600">${course.university}</span></div>`;
+      }
+      if (course.location) {
+        content += `<div><span class="font-medium text-gray-700">Location:</span> <span class="text-gray-600">${course.location}</span></div>`;
+      }
+      content += '</div></div>';
+      
+      // Descriptions Section
+      if (course.short_description || course.description) {
+        content += '<div class="mb-6">';
+        content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">📝 Description</h5>';
+        const desc = course.short_description || course.description;
+        content += `<p class="text-gray-700 leading-relaxed">${desc}</p>`;
+        content += '</div>';
+      }
+      
+      if (course.detailed_description) {
+        content += '<div class="mb-6">';
+        content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">📄 Detailed Description</h5>';
+        content += `<p class="text-gray-700 leading-relaxed">${course.detailed_description}</p>`;
+        content += '</div>';
+      }
+      
+      if (course.objectives) {
+        content += '<div class="mb-6">';
+        content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">🎯 Objectives</h5>';
+        content += `<p class="text-gray-700 leading-relaxed">${course.objectives}</p>`;
+        content += '</div>';
+      }
+      
+      if (course.learning_outcomes) {
+        content += '<div class="mb-6">';
+        content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">🌟 Learning Outcomes</h5>';
+        content += `<p class="text-gray-700 leading-relaxed">${course.learning_outcomes}</p>`;
+        content += '</div>';
+      }
+      
+      if (course.textbooks) {
+        content += '<div class="mb-6">';
+        content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">📚 Textbooks</h5>';
+        content += `<p class="text-gray-700 leading-relaxed">${course.textbooks}</p>`;
+        content += '</div>';
+      }
+      
+      document.getElementById('modal-content').innerHTML = content;
+      
+      // Build action buttons
+      const actions = [
+        { href: `/auth/courses/${courseId}/edit`, icon: '👥', text: 'Edit Course' },
+        { href: `/auth/courses/${courseId}/enroll`, icon: '👥', text: 'Enroll Students' },
+        { href: `/auth/courses/${courseId}/attendance`, icon: '📝', text: 'Attendance' },
+        { href: `/ai/teacher/${courseId}/assignments`, icon: '✏️', text: 'Manage Assignments' },
+        { href: `/ai/courses/${courseId}/upload_materials`, icon: '📤', text: 'Upload Materials' },
+        { href: `/auth/courses/${courseId}/invite-ta`, icon: '🎓', text: 'Invite TA' },
+        { href: `/ai/courses/${courseId}/quiz/create`, icon: '🎓', text: 'Create Quiz' }
+      ];
+      
+      let actionsHTML = '';
+      actions.forEach(action => {
+        actionsHTML += `
+          <a href="${action.href}" 
+             class="flex items-center justify-center gap-2 px-4 py-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition font-medium text-sm">
+            <span>${action.icon}</span>
+            <span>${action.text}</span>
+          </a>
+        `;
+      });
+      
+      document.getElementById('modal-actions').innerHTML = actionsHTML;
+      
+      // Show modal
+      document.getElementById('modal-overlay').classList.remove('hidden');
+      document.getElementById('modal-overlay').classList.add('flex');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeCourseModal() {
+      document.getElementById('modal-overlay').classList.add('hidden');
+      document.getElementById('modal-overlay').classList.remove('flex');
+      document.body.style.overflow = 'auto';
+    }
+
+    // Close modal when clicking overlay
+    document.getElementById('modal-overlay').addEventListener('click', function(e) {
+      if (e.target === this) {
+        closeCourseModal();
+      }
+    });
+
+    // Close modal with Escape key
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        closeCourseModal();
+      }
+    });
+  </script>
 </body>
 </html>

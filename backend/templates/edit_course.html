@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Edit Course - Intellaica</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <!-- Navbar -->
+  <nav class="bg-white px-6 py-4 shadow">
+    <div class="max-w-5xl mx-auto flex items-center justify-between">
+      <div class="font-bold text-xl text-blue-700 flex items-center">
+        <a href="/auth/teacher/dashboard" class="hover:text-blue-800 transition">Intellaica</a>
+        <span class="text-gray-400 text-lg mx-2">|</span>
+        <span class="text-gray-700 font-semibold">Edit Course</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <a href="/auth/teacher/dashboard" class="text-blue-600 hover:text-blue-800 font-medium">← Back to Dashboard</a>
+        <a href="/auth/logout" class="py-2 px-4 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition">
+          🚪 Logout
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-4xl mx-auto px-4 py-8">
+    <div class="bg-white rounded-xl shadow-lg">
+      <!-- Header -->
+      <div class="px-8 py-6 border-b border-gray-200">
+        <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <span>✏️</span>
+          <span>Edit Course</span>
+        </h1>
+        <p class="text-gray-600 mt-2">Update your course information below</p>
+      </div>
+
+      <!-- Toast Container -->
+      <div id="toast-container" class="fixed top-4 right-4 z-50"></div>
+
+      <!-- Form -->
+      <form hx-post="/auth/courses/{{ course.id }}/edit" 
+            hx-target="#toast-container" 
+            hx-swap="innerHTML"
+            class="p-8 space-y-8">
+        
+        <!-- Basic Information Section -->
+        <div class="space-y-6">
+          <h2 class="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2">
+            📋 Basic Information
+          </h2>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Course Title -->
+            <div class="md:col-span-2">
+              <label for="title" class="block text-sm font-medium text-gray-700 mb-2">
+                Course Title <span class="text-red-500">*</span>
+              </label>
+              <input type="text" id="title" name="title" required
+                     value="{{ course.title }}"
+                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                     placeholder="e.g., Introduction to Computer Science">
+            </div>
+
+            <!-- Course Code -->
+            <div>
+              <label for="course_code" class="block text-sm font-medium text-gray-700 mb-2">
+                Course Code
+              </label>
+              <input type="text" id="course_code" name="course_code"
+                     value="{{ course.course_code or '' }}"
+                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                     placeholder="e.g., CS101">
+            </div>
+
+            <!-- Semester -->
+            <div>
+              <label for="semester" class="block text-sm font-medium text-gray-700 mb-2">
+                Semester
+              </label>
+              <select id="semester" name="semester"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                <option value="">Select Semester</option>
+                <option value="Fall" {% if course.semester == 'Fall' %}selected{% endif %}>Fall</option>
+                <option value="Spring" {% if course.semester == 'Spring' %}selected{% endif %}>Spring</option>
+                <option value="Summer" {% if course.semester == 'Summer' %}selected{% endif %}>Summer</option>
+                <option value="Winter" {% if course.semester == 'Winter' %}selected{% endif %}>Winter</option>
+              </select>
+            </div>
+
+            <!-- Year -->
+            <div>
+              <label for="year" class="block text-sm font-medium text-gray-700 mb-2">
+                Year
+              </label>
+              <input type="number" id="year" name="year" min="2020" max="2030"
+                     value="{{ course.year or '' }}"
+                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                     placeholder="e.g., 2024">
+            </div>
+
+            <!-- University -->
+            <div>
+              <label for="university" class="block text-sm font-medium text-gray-700 mb-2">
+                University/Institution
+              </label>
+              <input type="text" id="university" name="university"
+                     value="{{ course.university or '' }}"
+                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                     placeholder="e.g., Stanford University">
+            </div>
+
+            <!-- Location -->
+            <div>
+              <label for="location" class="block text-sm font-medium text-gray-700 mb-2">
+                Location
+              </label>
+              <input type="text" id="location" name="location"
+                     value="{{ course.location or '' }}"
+                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+                     placeholder="e.g., Room 101, Building A">
+            </div>
+          </div>
+
+          <!-- Short Description -->
+          <div>
+            <label for="short_description" class="block text-sm font-medium text-gray-700 mb-2">
+              Short Description <span class="text-red-500">*</span>
+            </label>
+            <textarea id="short_description" name="short_description" required rows="3"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition resize-y"
+                      placeholder="Brief overview of the course (2-3 sentences)">{{ course.short_description or course.description or '' }}</textarea>
+          </div>
+        </div>
+
+        <!-- Detailed Information Section -->
+        <div class="space-y-6">
+          <h2 class="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2">
+            📄 Detailed Information
+          </h2>
+
+          <!-- Detailed Description -->
+          <div>
+            <label for="detailed_description" class="block text-sm font-medium text-gray-700 mb-2">
+              Detailed Description
+            </label>
+            <textarea id="detailed_description" name="detailed_description" rows="4"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition resize-y"
+                      placeholder="Comprehensive description of the course content, structure, and approach">{{ course.detailed_description or '' }}</textarea>
+          </div>
+
+          <!-- Objectives -->
+          <div>
+            <label for="objectives" class="block text-sm font-medium text-gray-700 mb-2">
+              Course Objectives
+            </label>
+            <textarea id="objectives" name="objectives" rows="4"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition resize-y"
+                      placeholder="What are the main goals and objectives of this course?">{{ course.objectives or '' }}</textarea>
+          </div>
+
+          <!-- Learning Outcomes -->
+          <div>
+            <label for="learning_outcomes" class="block text-sm font-medium text-gray-700 mb-2">
+              Learning Outcomes
+            </label>
+            <textarea id="learning_outcomes" name="learning_outcomes" rows="4"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition resize-y"
+                      placeholder="What will students be able to do after completing this course?">{{ course.learning_outcomes or '' }}</textarea>
+          </div>
+
+          <!-- Textbooks -->
+          <div>
+            <label for="textbooks" class="block text-sm font-medium text-gray-700 mb-2">
+              Textbooks & Resources
+            </label>
+            <textarea id="textbooks" name="textbooks" rows="3"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition resize-y"
+                      placeholder="List required and recommended textbooks, resources, or materials">{{ course.textbooks or '' }}</textarea>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center justify-between pt-6 border-t border-gray-200">
+          <a href="/auth/teacher/dashboard" 
+             class="px-6 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition font-medium">
+            Cancel
+          </a>
+          <button type="submit" 
+                  class="px-8 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium flex items-center gap-2">
+            <span>💾</span>
+            <span>Update Course</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <script>
+    // Auto-hide toasts after 3 seconds
+    function autoHideToast() {
+      const toasts = document.querySelectorAll('.toast');
+      toasts.forEach(toast => {
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          setTimeout(() => toast.remove(), 300);
+        }, 3000);
+      });
+    }
+
+    // Listen for new toasts and auto-hide them
+    document.addEventListener('htmx:afterSwap', function(evt) {
+      if (evt.target.id === 'toast-container') {
+        autoHideToast();
+      }
+    });
+
+    // Form validation
+    document.querySelector('form').addEventListener('submit', function(e) {
+      const title = document.getElementById('title').value.trim();
+      const shortDesc = document.getElementById('short_description').value.trim();
+      
+      if (!title) {
+        e.preventDefault();
+        document.getElementById('toast-container').innerHTML = 
+          '<div class="toast error bg-red-100 border border-red-300 text-red-700 px-4 py-3 rounded-lg shadow-lg">❌ Course title is required</div>';
+        autoHideToast();
+        return;
+      }
+      
+      if (!shortDesc) {
+        e.preventDefault();
+        document.getElementById('toast-container').innerHTML = 
+          '<div class="toast error bg-red-100 border border-red-300 text-red-700 px-4 py-3 rounded-lg shadow-lg">❌ Short description is required</div>';
+        autoHideToast();
+        return;
+      }
+    });
+  </script>
+
+  <style>
+    .toast {
+      animation: slideIn 0.3s ease-out;
+    }
+    
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+  </style>
+</body>
+</html>

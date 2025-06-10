@@ -8,7 +8,7 @@
   <script src="https://unpkg.com/htmx.org@1.9.6"></script>
 </head>
 <body class="bg-gray-100 min-h-screen">
-  <!-- Peer toggle, must be before everything -->
+  <!-- Sidebar toggle -->
   <input id="sidebar-toggle" type="checkbox" class="hidden peer" />
 
   <!-- Sidebar (fixed to the left, slides over, X to close) -->
@@ -23,7 +23,7 @@
         </svg>
       </label>
     </div>
-    <!-- Sidebar nav: copy your <nav>/sidebar links here -->
+    <!-- Sidebar nav -->
     <nav class="mt-2">
       <ul class="space-y-2">
         <li>
@@ -66,7 +66,6 @@
 
   <!-- Main content wrapper, shifts right -->
   <div class="transition-all duration-200 ml-0 peer-checked:ml-64">
-
     <!-- Navbar (hamburger is left, then logo/title, then nav items right) -->
     <nav class="bg-white px-6 py-4 shadow flex flex-row items-center gap-3">
       <!-- Hamburger: always inline, hides when sidebar is open -->
@@ -75,130 +74,429 @@
           <path stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
         </svg>
       </label>
-
       <!-- Logo/title left -->
       <div class="font-bold text-xl text-blue-700 flex items-center">
         Intellaica
         <span class="hidden sm:inline text-gray-400 text-lg mx-2">|</span>
         <span class="hidden md:inline text-gray-700 font-semibold">Student Portal</span>
       </div>
-
       <!-- Nav items right -->
-      <ul class="flex gap-6 items-center text-base ml-auto">
+      <ul class="flex gap-4 items-center text-base ml-auto">
         <li>
           <details class="relative">
-            <summary class="cursor-pointer inline-flex items-center">🔔 <span class="ml-2">Course Invites</span></summary>
-            <ul class="absolute bg-white shadow rounded-lg overflow-hidden mt-2 min-w-[220px] z-30 border border-gray-100">
+            <summary class="cursor-pointer py-2 px-3 text-sm font-medium bg-blue-50 text-blue-600 rounded-lg border border-blue-100 hover:bg-blue-100 transition flex items-center gap-2">
+              🔔 <span>Course Invites</span>
+              {% if pending_invites %}
+              <span class="bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{{ pending_invites|length }}</span>
+              {% endif %}
+            </summary>
+            <ul class="absolute bg-white shadow-lg rounded-lg overflow-hidden mt-2 min-w-[280px] z-30 border border-gray-100 right-0">
               {% for invite in pending_invites %}
-                <li class="px-4 py-2 hover:bg-blue-50">
-                  <a href="{{ invite.link }}" class="text-blue-700">📩 Accept invite for {{ invite.course.title }}</a>
+                <li class="px-4 py-3 hover:bg-blue-50 border-b border-gray-50">
+                  <div class="text-sm font-medium text-gray-800 mb-1">{{ invite.course.title }}</div>
+                  <a href="{{ invite.link }}" class="text-blue-600 hover:text-blue-800 text-xs font-medium">📩 Accept Invitation</a>
                 </li>
               {% else %}
-                <li class="px-4 py-2 text-gray-500">No new invites</li>
+                <li class="px-4 py-3 text-gray-500 text-sm">No new invites</li>
               {% endfor %}
             </ul>
           </details>
         </li>
         <li>
           <details class="relative">
-            <summary class="cursor-pointer inline-flex items-center">🧑‍🏫 <span class="ml-2">TA Invites</span></summary>
-            <ul class="absolute bg-white shadow rounded-lg overflow-hidden mt-2 min-w-[220px] z-30 border border-gray-100">
+            <summary class="cursor-pointer py-2 px-3 text-sm font-medium bg-green-50 text-green-600 rounded-lg border border-green-100 hover:bg-green-100 transition flex items-center gap-2">
+              🧑‍🏫 <span>TA Invites</span>
+              {% if ta_invites %}
+              <span class="bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{{ ta_invites|length }}</span>
+              {% endif %}
+            </summary>
+            <ul class="absolute bg-white shadow-lg rounded-lg overflow-hidden mt-2 min-w-[280px] z-30 border border-gray-100 right-0">
               {% for ta in ta_invites %}
-                <li class="px-4 py-2">
+                <li class="px-4 py-3 border-b border-gray-50">
+                  <div class="text-sm font-medium text-gray-800 mb-2">{{ ta.course.title }}</div>
                   <form method="post"
                     hx-post="/auth/courses/{{ ta.course.id }}/accept-ta"
                     hx-target="#code-display"
                     hx-swap="innerHTML"
-                    class="m-0 flex">
-                    <button type="submit" class="text-blue-700 hover:underline text-left w-full">
-                      ✅ Accept TA role for {{ ta.course.title }}
+                    class="m-0">
+                    <button type="submit" class="text-green-600 hover:text-green-800 text-xs font-medium">
+                      ✅ Accept TA Role
                     </button>
                   </form>
                 </li>
               {% else %}
-                <li class="px-4 py-2 text-gray-500">No TA invites</li>
+                <li class="px-4 py-3 text-gray-500 text-sm">No TA invites</li>
               {% endfor %}
             </ul>
           </details>
         </li>
-        <li><a href="/auth/logout" class="text-red-600 hover:underline">Logout</a></li>
+        <li>
+          <a href="/auth/logout" class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition flex items-center">
+            🚪 Logout
+          </a>
+        </li>
       </ul>
     </nav>
-  <main class="max-w-5xl mx-auto px-4 py-8">
-    <h2 class="text-3xl font-bold text-blue-700 text-center mb-2">🎓 Welcome, {{ user.f_name }}!</h2>
-    <p class="text-center mb-6 text-gray-700">Here are your enrolled courses and attendance details:</p>
-    
-    <h3 class="font-semibold text-lg mb-2 text-gray-800">📚 Your Courses</h3>
-    <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 mb-8" id="course-list">
-      {% for course in courses %}
-        <div class="bg-white shadow rounded-xl p-6 border border-gray-100 flex flex-col justify-between">
-          <div>
-            <h4 class="font-bold text-blue-900 mb-1">{{ course.title }}</h4>
-            <p class="text-gray-600 mb-3">{{ course.description }}</p>
+
+    <main class="max-w-5xl mx-auto px-4 py-10">
+      <div class="text-center mb-9">
+        <h2 class="text-3xl font-bold text-gray-900">Welcome, {{ user.f_name }} 👋</h2>
+        <p class="mt-2 text-gray-600 text-lg">Ready to learn something new today?</p>
+      </div>
+
+      <!-- Enrolled Courses Section -->
+      <h3 class="text-xl font-semibold text-gray-800 mb-3 flex items-center gap-2">
+        <span>📚 Your Enrolled Courses</span>
+        <span class="w-2 h-2 bg-blue-600 rounded-full inline-block"></span>
+      </h3>
+
+      <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 mb-12">
+        {% for course in courses %}
+        <div class="flex flex-col p-6 bg-white rounded-xl shadow border border-gray-100 hover:border-blue-500 transition cursor-pointer group"
+             onclick="openCourseModal('{{ course.id }}', 'student')">
+          <div class="mb-4">
+            <h4 class="text-lg font-semibold mb-2 break-words group-hover:text-blue-700 transition">{{ course.title }}</h4>
+            
+            <!-- Essential Info Only -->
+            <div class="space-y-2">
+              {% if course.course_code %}
+              <span class="inline-block px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">{{ course.course_code }}</span>
+              {% endif %}
+              
+              {% if course.semester and course.year %}
+              <div class="flex items-center gap-1 text-sm text-gray-600">
+                <span>📅</span>
+                <span>{{ course.semester }} {{ course.year }}</span>
+              </div>
+              {% endif %}
+            </div>
+            
+            <!-- Short Description -->
+            <p class="text-gray-500 text-sm mt-3 line-clamp-2">
+              {% if course.short_description %}
+                {{ course.short_description[:60] }}{% if course.short_description|length > 60 %}...{% endif %}
+              {% else %}
+                {{ course.description[:60] }}{% if course.description|length > 60 %}...{% endif %}
+              {% endif %}
+            </p>
           </div>
-          <div class="flex flex-col gap-2 mt-auto">
-            <a href="/auth/courses/{{ course.id }}/student-attendance" class="text-blue-700 hover:underline flex items-center gap-1">🎯 Check Attendance</a>
-            <a href="/ai/courses/{{ course.id }}/tutor" class="text-blue-700 hover:underline flex items-center gap-1">🧠 Ask AI Tutor</a>
-            <a href="/ai/student/courses/{{ course.id }}/assignments" class="text-blue-700 hover:underline flex items-center gap-1">📄 Go to Assignments</a>
-            <a href="/ai/student/courses/{{course.id}}/engagement" class="text-blue-700 hover:underline flex items-center gap-1">🗨️ Engagement Activities</a>
+          
+          <!-- Click to view more hint -->
+          <div class="mt-auto pt-3 border-t border-gray-100">
+            <p class="text-xs text-blue-600 group-hover:text-blue-800 flex items-center gap-1">
+              <span>👁️</span>
+              <span>Click to view details & actions</span>
+            </p>
           </div>
         </div>
-      {% else %}
-        <p class="col-span-full text-center text-gray-500">You haven't joined any courses yet.</p>
-      {% endfor %}
-    </div>
-    
-    {% if pending_invites %}
-    <section class="mt-12">
-      <h3 class="font-semibold text-lg mb-4 text-gray-800">📩 Pending Invites</h3>
-      <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-        {% for invite in pending_invites %}
-          <div class="bg-yellow-50 border-l-4 border-yellow-400 rounded-xl p-5">
-            <h4 class="font-bold text-yellow-800">{{ invite.course.title }}</h4>
-            <p class="text-gray-600 mb-3">You're invited to this course. Click below to accept:</p>
-            <form
-              method="get"
-              hx-get="/auth/accept-invite?token={{ invite.token }}&course_id={{ invite.course.id }}"
-              hx-target="#invite-{{ invite.course.id }}"
-              hx-swap="outerHTML"
-              id="invite-{{ invite.course.id }}"
-            >
-              <button type="submit" class="w-full py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition mt-2">
-                ✅ Accept Invite
-              </button>
-            </form>
-          </div>
+        {% else %}
+        <div class="col-span-full text-center py-12">
+          <div class="text-gray-400 text-6xl mb-4">📚</div>
+          <p class="text-gray-500 text-lg">You haven't joined any courses yet.</p>
+          <p class="text-gray-400 text-sm mt-2">Check your course invites above to get started!</p>
+        </div>
         {% endfor %}
       </div>
-    </section>
-    {% endif %}
 
-    <h3 class="font-semibold text-lg mt-12 mb-2 text-gray-800">🧑‍🏫 Courses You’re a TA For</h3>
-    <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-      {% for course in ta_courses %}
-        <div class="bg-white shadow rounded-xl p-6 border border-gray-100 flex flex-col justify-between">
-          <div>
-            <h4 class="font-bold text-blue-900 mb-1">{{ course.title }}</h4>
-            <p class="text-gray-600 mb-3">{{ course.description }}</p>
-          </div>
-          <div class="flex flex-col gap-2 mt-auto">
-            <a href="/auth/courses/{{ course.id }}/attendance" class="text-blue-700 hover:underline flex items-center gap-1">📝 Mark/View Attendance</a>
-            <a href="/auth/courses/{{ course.id }}/enroll" class="text-blue-700 hover:underline flex items-center gap-1">👥 Enroll Students</a>
-            <a href="/courses/{{ course.id }}/info" class="text-blue-700 hover:underline flex items-center gap-1">📄 Course Info</a>
-            <a href="/ai/courses/{{course.id}}/upload_materials" class="text-blue-700 hover:underline flex items-center gap-1">📤 Upload Materials</a>
+      <!-- TA Courses Section -->
+      {% if ta_courses %}
+      <h3 class="text-xl font-semibold text-gray-800 mb-3 flex items-center gap-2">
+        <span>🧑‍🏫 Courses You're a TA For</span>
+        <span class="w-2 h-2 bg-green-600 rounded-full inline-block"></span>
+      </h3>
+
+      <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 mb-12">
+        {% for course in ta_courses %}
+        <div class="flex flex-col p-6 bg-white rounded-xl shadow border border-gray-100 hover:border-green-500 transition cursor-pointer group"
+             onclick="openCourseModal('{{ course.id }}', 'ta')">
+          <div class="mb-4">
+            <div class="flex items-center gap-2 mb-2">
+              <h4 class="text-lg font-semibold break-words group-hover:text-green-700 transition">{{ course.title }}</h4>
+              <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-medium">TA</span>
+            </div>
             
+            <!-- Essential Info Only -->
+            <div class="space-y-2">
+              {% if course.course_code %}
+              <span class="inline-block px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-medium">{{ course.course_code }}</span>
+              {% endif %}
+              
+              {% if course.semester and course.year %}
+              <div class="flex items-center gap-1 text-sm text-gray-600">
+                <span>📅</span>
+                <span>{{ course.semester }} {{ course.year }}</span>
+              </div>
+              {% endif %}
+            </div>
+            
+            <!-- Short Description -->
+            <p class="text-gray-500 text-sm mt-3 line-clamp-2">
+              {% if course.short_description %}
+                {{ course.short_description[:60] }}{% if course.short_description|length > 60 %}...{% endif %}
+              {% else %}
+                {{ course.description[:60] }}{% if course.description|length > 60 %}...{% endif %}
+              {% endif %}
+            </p>
+          </div>
+          
+          <!-- Click to view more hint -->
+          <div class="mt-auto pt-3 border-t border-gray-100">
+            <p class="text-xs text-green-600 group-hover:text-green-800 flex items-center gap-1">
+              <span>👁️</span>
+              <span>Click to view TA actions</span>
+            </p>
           </div>
         </div>
-      {% else %}
-        <p class="col-span-full text-center text-gray-500">You're not a TA for any course yet.</p>
-      {% endfor %}
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Pending Invites Section -->
+      {% if pending_invites %}
+      <section class="mb-12">
+        <h3 class="text-xl font-semibold text-gray-800 mb-3 flex items-center gap-2">
+          <span>📩 Pending Course Invites</span>
+          <span class="w-2 h-2 bg-yellow-500 rounded-full inline-block animate-pulse"></span>
+        </h3>
+        <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+          {% for invite in pending_invites %}
+            <div class="bg-gradient-to-br from-yellow-50 to-orange-50 border border-yellow-200 rounded-xl p-6 shadow-sm">
+              <div class="flex items-start justify-between mb-3">
+                <h4 class="font-bold text-yellow-800 text-lg">{{ invite.course.title }}</h4>
+                <span class="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded-full font-medium">New</span>
+              </div>
+              <p class="text-gray-600 mb-4 text-sm">You're invited to join this course. Click below to accept and start learning!</p>
+              <form
+                method="get"
+                hx-get="/auth/accept-invite?token={{ invite.token }}&course_id={{ invite.course.id }}"
+                hx-target="#invite-{{ invite.course.id }}"
+                hx-swap="outerHTML"
+                id="invite-{{ invite.course.id }}"
+              >
+                <button type="submit" class="w-full py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-lg hover:from-blue-700 hover:to-blue-800 transition duration-200 shadow-md hover:shadow-lg">
+                  ✅ Accept Invitation
+                </button>
+              </form>
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      <div id="code-display" class="mt-8"></div>
+
+      <div class="mt-12 text-center text-gray-400 text-sm">
+        ✨ Built with <span class="text-pink-500">❤️</span> for curious learners — Intellaica
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal Overlay -->
+  <div id="modal-overlay" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <!-- Modal Header -->
+      <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl">
+        <h3 id="modal-title" class="text-xl font-bold text-gray-900"></h3>
+        <button onclick="closeCourseModal()" class="text-gray-400 hover:text-gray-600 transition">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      
+      <!-- Modal Content -->
+      <div class="p-6">
+        <div id="modal-content">
+          <!-- Content will be populated by JavaScript -->
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="mt-6 pt-6 border-t border-gray-200">
+          <h4 class="text-lg font-semibold mb-3 text-gray-800">Quick Actions</h4>
+          <div id="modal-actions" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <!-- Action buttons will be populated by JavaScript -->
+          </div>
+        </div>
+      </div>
     </div>
+  </div>
 
-    <div id="code-display" class="mt-8"></div>
+  <script>
+    // Course data embedded directly
+    let coursesData = [
+      {% for course in courses %}
+      {
+        id: "{{ course.id }}",
+        title: {{ course.title|tojson }},
+        course_code: {{ (course.course_code or '')|tojson }},
+        semester: {{ (course.semester or '')|tojson }},
+        year: {{ (course.year or '')|tojson }},
+        university: {{ (course.university or '')|tojson }},
+        location: {{ (course.location or '')|tojson }},
+        short_description: {{ (course.short_description or '')|tojson }},
+        description: {{ (course.description or '')|tojson }},
+        detailed_description: {{ (course.detailed_description or '')|tojson }},
+        objectives: {{ (course.objectives or '')|tojson }},
+        learning_outcomes: {{ (course.learning_outcomes or '')|tojson }},
+        textbooks: {{ (course.textbooks or '')|tojson }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ];
 
-    <footer class="mt-16 text-center text-gray-400 text-sm">
-      ✨ Stay curious, keep learning!
-    </footer>
-  </main>
+    // TA courses data
+    let taCourseData = [
+      {% for course in ta_courses %}
+      {
+        id: "{{ course.id }}",
+        title: {{ course.title|tojson }},
+        course_code: {{ (course.course_code or '')|tojson }},
+        semester: {{ (course.semester or '')|tojson }},
+        year: {{ (course.year or '')|tojson }},
+        university: {{ (course.university or '')|tojson }},
+        location: {{ (course.location or '')|tojson }},
+        short_description: {{ (course.short_description or '')|tojson }},
+        description: {{ (course.description or '')|tojson }},
+        detailed_description: {{ (course.detailed_description or '')|tojson }},
+        objectives: {{ (course.objectives or '')|tojson }},
+        learning_outcomes: {{ (course.learning_outcomes or '')|tojson }},
+        textbooks: {{ (course.textbooks or '')|tojson }}
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ];
+
+    function openCourseModal(courseId, userType = 'student') {
+      console.log('Opening modal for course:', courseId, 'as', userType);
+      
+      const course = (userType === 'ta' ? taCourseData : coursesData).find(c => c.id === courseId);
+      if (!course) {
+        console.error('Course not found:', courseId);
+        return;
+      }
+      
+      // Set modal title with role indicator
+      const roleIndicator = userType === 'ta' ? ' (Teaching Assistant)' : '';
+      document.getElementById('modal-title').textContent = course.title + roleIndicator;
+      
+      // Build modal content
+      let content = '';
+      
+      // Basic Info Section
+      content += '<div class="mb-6">';
+      content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">📋 Course Information</h5>';
+      content += '<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">';
+      
+      if (course.course_code) {
+        const badgeColor = userType === 'ta' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800';
+        content += `<div><span class="font-medium text-gray-700">Course Code:</span> <span class="${badgeColor} px-2 py-1 rounded text-xs font-medium">${course.course_code}</span></div>`;
+      }
+      if (course.semester && course.year) {
+        content += `<div><span class="font-medium text-gray-700">Semester:</span> <span class="text-gray-600">${course.semester} ${course.year}</span></div>`;
+      }
+      if (course.university) {
+        content += `<div><span class="font-medium text-gray-700">University:</span> <span class="text-gray-600">${course.university}</span></div>`;
+      }
+      if (course.location) {
+        content += `<div><span class="font-medium text-gray-700">Location:</span> <span class="text-gray-600">${course.location}</span></div>`;
+      }
+      content += '</div></div>';
+      
+      // Descriptions Section
+      if (course.short_description || course.description) {
+        content += '<div class="mb-6">';
+        content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">📝 Description</h5>';
+        const desc = course.short_description || course.description;
+        content += `<p class="text-gray-700 leading-relaxed">${desc}</p>`;
+        content += '</div>';
+      }
+      
+      if (course.detailed_description) {
+        content += '<div class="mb-6">';
+        content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">📄 Detailed Description</h5>';
+        content += `<p class="text-gray-700 leading-relaxed">${course.detailed_description}</p>`;
+        content += '</div>';
+      }
+      
+      if (course.objectives) {
+        content += '<div class="mb-6">';
+        content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">🎯 Objectives</h5>';
+        content += `<p class="text-gray-700 leading-relaxed">${course.objectives}</p>`;
+        content += '</div>';
+      }
+      
+      if (course.learning_outcomes) {
+        content += '<div class="mb-6">';
+        content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">🌟 Learning Outcomes</h5>';
+        content += `<p class="text-gray-700 leading-relaxed">${course.learning_outcomes}</p>`;
+        content += '</div>';
+      }
+      
+      if (course.textbooks) {
+        content += '<div class="mb-6">';
+        content += '<h5 class="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">📚 Textbooks</h5>';
+        content += `<p class="text-gray-700 leading-relaxed">${course.textbooks}</p>`;
+        content += '</div>';
+      }
+      
+      document.getElementById('modal-content').innerHTML = content;
+      
+      // Build action buttons based on user type
+      let actions = [];
+      if (userType === 'ta') {
+        actions = [
+          { href: `/auth/courses/${courseId}/attendance`, icon: '📝', text: 'Mark/View Attendance' },
+          { href: `/auth/courses/${courseId}/enroll`, icon: '👥', text: 'Enroll Students' },
+          { href: `/courses/${courseId}/info`, icon: '📄', text: 'Course Info' },
+          { href: `/ai/courses/${courseId}/upload_materials`, icon: '📤', text: 'Upload Materials' }
+        ];
+      } else {
+        actions = [
+          { href: `/auth/courses/${courseId}/student-attendance`, icon: '🎯', text: 'Check Attendance' },
+          { href: `/ai/courses/${courseId}/tutor`, icon: '🧠', text: 'Ask AI Tutor' },
+          { href: `/ai/student/courses/${courseId}/assignments`, icon: '📄', text: 'View Assignments' },
+          { href: `/ai/student/courses/${courseId}/engagement`, icon: '🗨️', text: 'Engagement Activities' }
+        ];
+      }
+      
+      let actionsHTML = '';
+      const buttonColor = userType === 'ta' ? 'bg-green-50 text-green-700 hover:bg-green-100' : 'bg-blue-50 text-blue-700 hover:bg-blue-100';
+      
+      actions.forEach(action => {
+        actionsHTML += `
+          <a href="${action.href}" 
+             class="flex items-center justify-center gap-2 px-4 py-3 ${buttonColor} rounded-lg transition font-medium text-sm">
+            <span>${action.icon}</span>
+            <span>${action.text}</span>
+          </a>
+        `;
+      });
+      
+      document.getElementById('modal-actions').innerHTML = actionsHTML;
+      
+      // Show modal
+      document.getElementById('modal-overlay').classList.remove('hidden');
+      document.getElementById('modal-overlay').classList.add('flex');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeCourseModal() {
+      document.getElementById('modal-overlay').classList.add('hidden');
+      document.getElementById('modal-overlay').classList.remove('flex');
+      document.body.style.overflow = 'auto';
+    }
+
+    // Close modal when clicking overlay
+    document.getElementById('modal-overlay').addEventListener('click', function(e) {
+      if (e.target === this) {
+        closeCourseModal();
+      }
+    });
+
+    // Close modal with Escape key
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        closeCourseModal();
+      }
+    });
+  </script>
 </body>
 </html>

@@ -24,11 +24,28 @@ class User(Base):
 
 class Course(Base):
     __tablename__ = "courses"
+    
+    # Core fields (existing)
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
-    description = Column(String)
+    description = Column(Text)  # Keep this for backward compatibility
     teacher_id = Column(Integer, ForeignKey("users.id"))
-
+    
+    # New fields to match frontend
+    course_code = Column(String, nullable=True)
+    short_description = Column(Text, nullable=True)
+    detailed_description = Column(Text, nullable=True)
+    objectives = Column(Text, nullable=True)
+    learning_outcomes = Column(Text, nullable=True)
+    textbooks = Column(Text, nullable=True)
+    
+    # Institution information
+    university = Column(String, nullable=True)
+    location = Column(String, nullable=True)
+    semester = Column(String, nullable=True)
+    year = Column(Integer, nullable=True)
+    
+    # Existing relationships (keep all as they are)
     teacher = relationship("User", back_populates="courses")
     enrollments = relationship("Enrollment", back_populates="course")
     attendance_codes = relationship("AttendanceCode", backref="course", cascade="all, delete-orphan")

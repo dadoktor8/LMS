@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Course Created Successfully | Intellaica</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    @keyframes bounceIn {
+      0% {
+        transform: scale(0.3);
+        opacity: 0;
+      }
+      50% {
+        transform: scale(1.05);
+      }
+      70% {
+        transform: scale(0.9);
+      }
+      100% {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+    
+    .fade-in-up {
+      animation: fadeInUp 0.6s ease-out;
+    }
+    
+    .bounce-in {
+      animation: bounceIn 0.8s ease-out;
+    }
+    
+    .success-card {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 via-white to-purple-50 min-h-screen">
+  <!-- Navbar -->
+  <nav class="bg-white px-6 py-4 shadow-sm">
+    <div class="max-w-6xl mx-auto flex items-center justify-between">
+      <div class="font-bold text-xl text-blue-700 flex items-center">
+        Intellaica
+        <span class="text-gray-400 text-lg mx-2">|</span>
+        <span class="text-gray-700 font-semibold">Teacher Portal</span>
+      </div>
+      <a href="/auth/logout" class="py-2 px-4 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition">
+        🚪 Logout
+      </a>
+    </div>
+  </nav>
+
+  <main class="max-w-4xl mx-auto px-4 py-16">
+    <!-- Success Card -->
+    <div class="success-card rounded-2xl p-8 text-white text-center mb-8 bounce-in">
+      <div class="text-6xl mb-4">🎉</div>
+      <h1 class="text-3xl font-bold mb-2">Course Created Successfully!</h1>
+      <p class="text-blue-100 text-lg">Your course has been set up and is ready for students</p>
+    </div>
+
+    <!-- Course Details Card -->
+    <div class="bg-white rounded-xl shadow-lg p-8 mb-8 fade-in-up">
+      <h2 class="text-2xl font-semibold text-gray-800 mb-6 flex items-center">
+        📋 Course Summary
+      </h2>
+      
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="space-y-4">
+          <div>
+            <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wide">Course Title</h3>
+            <p class="text-lg font-medium text-gray-800">{{ course.title }}</p>
+          </div>
+          
+          {% if course.course_code %}
+          <div>
+            <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wide">Course Code</h3>
+            <p class="text-lg font-medium text-gray-800">{{ course.course_code }}</p>
+          </div>
+          {% endif %}
+          
+          {% if course.short_description %}
+          <div>
+            <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wide">Short Description</h3>
+            <p class="text-gray-700">{{ course.short_description }}</p>
+          </div>
+          {% endif %}
+        </div>
+        
+        <div class="space-y-4">
+          {% if course.semester or course.year %}
+          <div>
+            <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wide">Academic Period</h3>
+            <p class="text-lg font-medium text-gray-800">
+              {% if course.semester %}{{ course.semester }}{% endif %}
+              {% if course.year %} {{ course.year }}{% endif %}
+            </p>
+          </div>
+          {% endif %}
+          
+          {% if course.university %}
+          <div>
+            <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wide">Institution</h3>
+            <p class="text-lg font-medium text-gray-800">{{ course.university }}</p>
+          </div>
+          {% endif %}
+          
+          {% if course.location %}
+          <div>
+            <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wide">Location</h3>
+            <p class="text-lg font-medium text-gray-800">{{ course.location }}</p>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Actions Card -->
+    <div class="bg-white rounded-xl shadow-lg p-8 mb-8 fade-in-up" style="animation-delay: 0.2s;">
+      <h2 class="text-2xl font-semibold text-gray-800 mb-6 flex items-center">
+        🚀 Quick Actions
+      </h2>
+      
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <a href="/auth/courses/{{ course.id }}/enroll" 
+           class="flex items-center p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition group">
+          <div class="flex-shrink-0 w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <span class="text-white text-lg">👥</span>
+          </div>
+          <div class="ml-4">
+            <h3 class="font-semibold text-gray-800">Enroll Students</h3>
+            <p class="text-sm text-gray-600">Add students to your course</p>
+          </div>
+        </a>
+        
+        <a href="/ai/courses/{{ course.id }}/upload_materials" 
+           class="flex items-center p-4 bg-green-50 rounded-lg hover:bg-green-100 transition group">
+          <div class="flex-shrink-0 w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <span class="text-white text-lg">📤</span>
+          </div>
+          <div class="ml-4">
+            <h3 class="font-semibold text-gray-800">Upload Materials</h3>
+            <p class="text-sm text-gray-600">Add course content</p>
+          </div>
+        </a>
+        
+        <a href="/ai/teacher/{{ course.id }}/assignments" 
+           class="flex items-center p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition group">
+          <div class="flex-shrink-0 w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <span class="text-white text-lg">✏️</span>
+          </div>
+          <div class="ml-4">
+            <h3 class="font-semibold text-gray-800">Create Assignment</h3>
+            <p class="text-sm text-gray-600">Set up coursework</p>
+          </div>
+        </a>
+        
+        <a href="/ai/courses/{{ course.id }}/quiz/create" 
+           class="flex items-center p-4 bg-yellow-50 rounded-lg hover:bg-yellow-100 transition group">
+          <div class="flex-shrink-0 w-10 h-10 bg-yellow-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <span class="text-white text-lg">🎓</span>
+          </div>
+          <div class="ml-4">
+            <h3 class="font-semibold text-gray-800">Create Quiz</h3>
+            <p class="text-sm text-gray-600">Design assessments</p>
+          </div>
+        </a>
+        
+        <a href="/auth/courses/{{ course.id }}/invite-ta" 
+           class="flex items-center p-4 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition group">
+          <div class="flex-shrink-0 w-10 h-10 bg-indigo-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <span class="text-white text-lg">🎓</span>
+          </div>
+          <div class="ml-4">
+            <h3 class="font-semibold text-gray-800">Invite TA</h3>
+            <p class="text-sm text-gray-600">Add teaching assistants</p>
+          </div>
+        </a>
+        
+        <a href="/auth/courses/{{ course.id }}/attendance" 
+           class="flex items-center p-4 bg-red-50 rounded-lg hover:bg-red-100 transition group">
+          <div class="flex-shrink-0 w-10 h-10 bg-red-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+            <span class="text-white text-lg">📝</span>
+          </div>
+          <div class="ml-4">
+            <h3 class="font-semibold text-gray-800">Attendance</h3>
+            <p class="text-sm text-gray-600">Track student presence</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation Buttons -->
+    <div class="flex flex-col sm:flex-row gap-4 justify-center fade-in-up" style="animation-delay: 0.4s;">
+      <a href="/auth/teacher/dashboard" 
+         class="flex items-center justify-center px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition">
+        <span class="mr-2">🏠</span>
+        Back to Dashboard
+      </a>
+      
+      <a href="/auth/courses/new" 
+         class="flex items-center justify-center px-6 py-3 bg-gray-600 text-white font-semibold rounded-lg hover:bg-gray-700 transition">
+        <span class="mr-2">➕</span>
+        Create Another Course
+      </a>
+    </div>
+
+    <!-- Success Tips -->
+    <div class="mt-12 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 fade-in-up" style="animation-delay: 0.6s;">
+      <h3 class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+        💡 Next Steps
+      </h3>
+      <ul class="space-y-2 text-gray-700">
+        <li class="flex items-start">
+          <span class="text-blue-500 mr-2">1.</span>
+          <span>Enroll students by sharing the course code or invitation link</span>
+        </li>
+        <li class="flex items-start">
+          <span class="text-blue-500 mr-2">2.</span>
+          <span>Upload course materials, syllabus, and reading materials</span>
+        </li>
+        <li class="flex items-start">
+          <span class="text-blue-500 mr-2">3.</span>
+          <span>Create your first assignment or quiz to engage students</span>
+        </li>
+        <li class="flex items-start">
+          <span class="text-blue-500 mr-2">4.</span>
+          <span>Set up attendance tracking for your classes</span>
+        </li>
+      </ul>
+    </div>
+  </main>
+  <script>
+  // Optional: Show a countdown timer and auto-redirect after 10 seconds
+  let countdown = 10;
+  const countdownElement = document.createElement('div');
+  countdownElement.className = 'fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg';
+  countdownElement.innerHTML = `
+    <div class="flex items-center space-x-2">
+      <span>Redirecting to dashboard in <strong id="countdown">${countdown}</strong>s</span>
+      <button onclick="clearInterval(timer); this.parentElement.parentElement.remove();" class="ml-2 text-blue-200 hover:text-white">✕</button>
+    </div>
+  `;
+  document.body.appendChild(countdownElement);
+
+  const timer = setInterval(() => {
+    countdown--;
+    document.getElementById('countdown').textContent = countdown;
+    if (countdown <= 0) {
+      clearInterval(timer);
+      window.location.href = '/auth/teacher/dashboard';
+    }
+  }, 1000);
+
+  // Optional: Add confetti effect for celebration
+  function createConfetti() {
+    const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#feca57'];
+    
+    for (let i = 0; i < 50; i++) {
+      setTimeout(() => {
+        const confetti = document.createElement('div');
+        confetti.style.cssText = `
+          position: fixed;
+          top: -10px;
+          left: ${Math.random() * 100}vw;
+          width: 10px;
+          height: 10px;
+          background: ${colors[Math.floor(Math.random() * colors.length)]};
+          animation: confetti-fall ${2 + Math.random() * 3}s linear forwards;
+          z-index: 1000;
+          pointer-events: none;
+        `;
+        document.body.appendChild(confetti);
+        
+        setTimeout(() => confetti.remove(), 5000);
+      }, i * 20);
+    }
+  }
+
+  // Add confetti CSS animation
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes confetti-fall {
+      to {
+        transform: translateY(100vh) rotate(360deg);
+        opacity: 0;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+
+  // Trigger confetti on page load
+  createConfetti();
+</script>
+</body>
+</html>
