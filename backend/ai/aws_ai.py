@@ -18,6 +18,27 @@ def get_s3_client():
         aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
         region_name=S3_REGION
     )
+async def delete_file_from_s3(s3_key: str) -> bool:
+    """
+    Delete a file from S3 bucket
+    Returns True if successful, False otherwise
+    """
+    try:
+        # Assuming you have boto3 setup
+        import boto3
+        from botocore.exceptions import ClientError
+        
+        s3_client = get_s3_client()
+        bucket_name = S3_BUCKET_NAME  # Replace with your actual bucket name
+        
+        s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
+        return True
+    except ClientError as e:
+        print(f"Error deleting file from S3: {e}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error deleting file from S3: {e}")
+        return False
 
 async def upload_file_to_s3(file: UploadFile, s3_key: str) -> bool:
     """Upload a file to AWS S3 bucket"""

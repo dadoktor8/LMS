@@ -18,11 +18,11 @@ from datetime import date, datetime, time, timedelta
 
 import urllib
 from backend.ai.ai_grader import evaluate_assignment_text, prepare_rubric_for_ai
-from backend.ai.aws_ai import S3_BUCKET_NAME, generate_presigned_url, generate_s3_download_link, get_s3_client, upload_file_to_s3
+from backend.ai.aws_ai import S3_BUCKET_NAME, delete_file_from_s3, generate_presigned_url, generate_s3_download_link, get_s3_client, upload_file_to_s3
 from backend.ai.open_notes_system import check_quiz_quota, generate_quiz_export, generate_study_material, generate_study_material_quiz, increment_quiz_quota, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, CourseUploadQuota, Enrollment, FlashcardUsage, PDFQuotaUsage, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity, StudyGuideUsage  # Make sure this is correct
+from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, CourseUploadQuota, Enrollment, FlashcardUsage, PDFQuotaUsage, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity, StudyGuideUsage, TextChunk  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
@@ -80,8 +80,8 @@ async def upload_course_material(
         return HTMLResponse("❌ Course not found", status_code=404)
 
     # Define daily limits
-    DAILY_FILE_LIMIT = 5  # Max 5 files per day
-    DAILY_SIZE_LIMIT = 100 * 1024 * 1024  # 100 MB per day
+    DAILY_FILE_LIMIT = 100  # Max 5 files per day
+    DAILY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024  # 100 MB per day
     
     # Get today's upload quota usage
     today = date.today()
@@ -125,6 +125,7 @@ async def upload_course_material(
         )
     
     # For PDF files, check page count against quota
+    page_count = None
     if file.filename.lower().endswith(".pdf"):
         # Save to temporary file for validation
         temp_dir = "temp_pdfs"
@@ -161,13 +162,14 @@ async def upload_course_material(
     # Generate a presigned URL that expires in 1 hour
     presigned_url = generate_presigned_url(s3_key)
     
-    # Record the material
+    # Record the material with file size
     material = CourseMaterial(
         course_id=course_id,
         title=file.filename,
         filename=filename,
         filepath=f"uploads/{filename}",
-        uploaded_by=user["user_id"]
+        uploaded_by=user["user_id"],
+        file_size=file_size  # Store the file size
     )
     db.add(material)
     
@@ -182,7 +184,7 @@ async def upload_course_material(
     mb_remaining = bytes_remaining / (1024 * 1024)
     
     # Include page count information in success message if PDF
-    pdf_info = f" ({page_count} pages)" if file.filename.lower().endswith(".pdf") and 'page_count' in locals() and page_count else ""
+    pdf_info = f" ({page_count} pages)" if page_count else ""
     
     return HTMLResponse(
         content=f"""
@@ -192,10 +194,15 @@ async def upload_course_material(
                 Daily quota remaining: {files_remaining} files / {mb_remaining:.2f} MB
             </div>
         </div>
+        <script>
+            // Refresh the page after successful upload to show the new material in the table
+            setTimeout(() => {{
+                window.location.reload();
+            }}, 2000);
+        </script>
         """,
         status_code=200
     )
-
 @ai_router.get("/courses/{course_id}/upload_materials", response_class=HTMLResponse)
 async def show_upload_form(request: Request, course_id: int, user: dict = Depends(require_teacher_or_ta()), db: Session = Depends(get_db)):
     # Get course materials as before
@@ -204,7 +211,7 @@ async def show_upload_form(request: Request, course_id: int, user: dict = Depend
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
     
     # Constants for upload size limit
-    DAILY_UPLOAD_SIZE_LIMIT = 100 * 1024 * 1024  # 100 MB in bytes
+    DAILY_UPLOAD_SIZE_LIMIT = 2 * 1024  * 1024 * 1024  # 100 MB in bytes
     
     # Get today's date
     today = date.today()
@@ -243,6 +250,152 @@ async def show_upload_form(request: Request, course_id: int, user: dict = Depend
         "upload_bytes_used": upload_bytes_used,
         "upload_bytes_total": DAILY_UPLOAD_SIZE_LIMIT
     })
+
+@ai_router.delete("/courses/{course_id}/materials/{material_id}", response_class=HTMLResponse)
+async def delete_course_material(
+    course_id: int,
+    material_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())  # ✅ Only teachers/TAs
+):
+    # Verify course exists
+    course = db.query(Course).filter_by(id=course_id).first()
+    if not course:
+        return HTMLResponse("❌ Course not found", status_code=404)
+    
+    # Get the material
+    material = db.query(CourseMaterial).filter(
+        CourseMaterial.id == material_id,
+        CourseMaterial.course_id == course_id
+    ).first()
+    
+    if not material:
+        return HTMLResponse("❌ Material not found", status_code=404)
+    
+    # Check if material has already been processed
+    processed_material = db.query(ProcessedMaterial).filter(
+        ProcessedMaterial.material_id == material_id
+    ).first()
+    
+    if processed_material:
+        return HTMLResponse(
+            content="<div class='toast error'>❌ Cannot delete processed materials. Material has already been processed.</div>",
+            status_code=400
+        )
+    
+    # Delete from S3 (if using S3 storage)
+    s3_key = f"course_materials/{course_id}/{material.filename}"
+    try:
+        # Assuming you have a delete_file_from_s3 function
+        delete_success = await delete_file_from_s3(s3_key)
+        if not delete_success:
+            return HTMLResponse(
+                content="<div class='toast error'>❌ Failed to delete file from storage</div>",
+                status_code=500
+            )
+    except Exception as e:
+        # Log the error but continue with database deletion
+        print(f"Warning: Failed to delete file from S3: {e}")
+    
+    # Update upload quota (reduce the counts since we're deleting)
+    today = date.today()
+    upload_quota = db.query(CourseUploadQuota).filter(
+        CourseUploadQuota.course_id == course_id,
+        CourseUploadQuota.usage_date == today
+    ).first()
+    
+    if upload_quota:
+        # Get file size from the stored material record
+        file_size = material.file_size if material.file_size else 0
+        
+        # Reduce quota usage
+        upload_quota.files_uploaded = max(0, upload_quota.files_uploaded - 1)
+        upload_quota.bytes_uploaded = max(0, upload_quota.bytes_uploaded - file_size)
+    
+    # Delete any related text chunks (if they exist)
+    db.query(TextChunk).filter(TextChunk.material_id == material_id).delete()
+    
+    # Delete the material record
+    db.delete(material)
+    db.commit()
+    
+    return HTMLResponse(
+        content="""
+        <div class='toast success'>
+            ✅ Material deleted successfully!
+            <div class="text-xs mt-1 text-gray-600">
+                Upload quota has been restored.
+            </div>
+        </div>
+        """,
+        status_code=200
+    )
+
+
+@ai_router.get("/courses/{course_id}/materials/refresh", response_class=HTMLResponse)
+async def refresh_materials_list(
+    course_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """
+    Returns just the materials table body HTML for HTMX updates
+    """
+    course = db.query(Course).filter_by(id=course_id).first()
+    if not course:
+        return HTMLResponse("❌ Course not found", status_code=404)
+    
+    # Get materials for this course
+    materials = db.query(CourseMaterial).filter(
+        CourseMaterial.course_id == course_id
+    ).order_by(CourseMaterial.uploaded_at.desc()).all()
+    
+    # Generate table rows HTML
+    if not materials:
+        table_html = '''
+        <tr id="no-materials-row">
+            <td colspan="3" class="text-center text-gray-400 py-4">No materials uploaded yet.</td>
+        </tr>
+        '''
+    else:
+        table_html = ""
+        for material in materials:
+            # Check if material is processed
+            is_processed = len(material.processed_materials) > 0
+            
+            if is_processed:
+                action_html = '''
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    ✓ Processed
+                </span>
+                '''
+            else:
+                action_html = f'''
+                <button
+                    onclick="confirmDelete({material.id}, '{material.title or material.filename}')"
+                    class="inline-flex items-center px-3 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
+                    title="Delete material">
+                    🗑️ Delete
+                </button>
+                '''
+            
+            table_html += f'''
+            <tr class="border-b" id="material-row-{material.id}">
+                <td class="px-4 py-2">
+                    <a href="/ai/courses/{course_id}/materials/{material.id}/download" target="_blank"
+                    class="text-blue-700 underline font-medium hover:text-blue-900">
+                    📄 {material.title or material.filename}
+                    </a>
+                </td>
+                <td class="px-4 py-2">{material.uploaded_at.strftime('%Y-%m-%d %H:%M')}</td>
+                <td class="px-4 py-2">
+                    {action_html}
+                </td>
+            </tr>
+            '''
+    
+    return HTMLResponse(content=table_html, status_code=200)
+
 
 @ai_router.post("/courses/{course_id}/process_materials")
 async def process_materials(course_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):

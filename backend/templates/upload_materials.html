@@ -118,12 +118,14 @@
               method="post"
               enctype="multipart/form-data"
               hx-target="#success-toast"
-              hx-swap="innerHTML">
+              hx-swap="innerHTML"
+              hx-indicator="#upload-loader">
           <input type="file" name="file" required
             class="block w-full text-sm text-gray-700 file:bg-blue-50 file:border-none file:rounded-lg file:px-4 file:py-2 file:text-blue-700 file:font-semibold file:mr-4"/>
           <button type="submit"
             class="w-full py-2 mt-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition flex items-center justify-center">
-            Upload
+            <span class="upload-button-text">Upload</span>
+            <div id="upload-loader" class="animate-spin ml-2 w-4 h-4 border-2 border-white border-t-transparent rounded-full hidden"></div>
           </button>
         </form>
         <div id="success-toast" class="mt-3"></div>
@@ -132,28 +134,44 @@
       <!-- Uploaded Materials Table -->
       <div class="bg-white rounded-xl shadow p-7 border border-gray-100">
         <h3 class="text-lg font-bold text-gray-800 mb-5">📚 Uploaded Materials</h3>
-        <div class="overflow-x-auto">
-          <table class="min-w-full mb-2 text-sm">
+        <div class="w-full">
+          <table class="w-full mb-2 text-sm table-fixed">
             <thead>
               <tr class="bg-gray-50">
-                <th class="font-semibold px-4 py-2">File</th>
-                <th class="font-semibold px-4 py-2">Date</th>
+                <th class="font-semibold px-3 py-2 text-left w-1/2">File</th>
+                <th class="font-semibold px-3 py-2 text-left w-1/4">Date</th>
+                <th class="font-semibold px-3 py-2 text-left w-1/4">Actions</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="materials-table-body">
               {% for material in materials %}
-              <tr class="border-b">
-                <td class="px-4 py-2">
+              <tr class="border-b" id="material-row-{{ material.id }}">
+                <td class="px-3 py-3">
                   <a href="/ai/courses/{{ course_id }}/materials/{{ material.id }}/download" target="_blank"
-                  class="text-blue-700 underline font-medium hover:text-blue-900">
+                  class="text-blue-700 underline font-medium hover:text-blue-900 truncate block">
                   📄 {{ material.title or material.filename }}
                </a>
                 </td>
-                <td class="px-4 py-2">{{ material.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td class="px-3 py-3 text-xs">{{ material.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td class="px-3 py-3">
+                  {% set is_processed = material.processed_materials|length > 0 %}
+                  {% if is_processed %}
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                      ✓ Processed
+                    </span>
+                  {% else %}
+                    <button
+                      onclick="confirmDelete({{ material.id }}, '{{ material.title or material.filename }}')"
+                      class="inline-flex items-center px-2 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
+                      title="Delete material">
+                      🗑️ Delete
+                    </button>
+                  {% endif %}
+                </td>
               </tr>
               {% else %}
-              <tr>
-                <td colspan="2" class="text-center text-gray-400 py-4">No materials uploaded yet.</td>
+              <tr id="no-materials-row">
+                <td colspan="3" class="text-center text-gray-400 py-4">No materials uploaded yet.</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -175,37 +193,12 @@
         <div id="process-status" class="mt-4"></div>
       </div>
     </div>
+
 <!-- Upload and Processing Quotas -->
 <div class="mt-4 grid gap-4 grid-cols-1 md:grid-cols-2">
-  <!-- Processing Quota Card -->
+  <!-- Daily Upload Quota Card - LEFT SIDE, BLUE -->
   <div class="px-5 py-4 bg-blue-50 rounded-lg border border-blue-200 shadow-sm">
     <h4 class="font-bold text-blue-800 flex items-center gap-1 text-base">
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-      </svg>
-      Daily Processing Quota
-    </h4>
-    
-    <div class="flex items-center mt-3">
-      <div class="w-full bg-gray-200 rounded-full h-3">
-        <div class="bg-blue-600 h-3 rounded-full" style="width: {{ (quota_used / quota_total) * 100 }}%"></div>
-      </div>
-      <span class="ml-2 text-sm font-medium text-gray-700">{{ quota_remaining }}/{{ quota_total }} pages</span>
-    </div>
-    
-    <div class="mt-3 p-2 bg-white rounded border border-blue-100">
-      <p class="text-sm text-blue-800 font-medium">
-        <strong>IMPORTANT:</strong> PDFs must be processed completely or not at all.
-      </p>
-      <p class="text-sm text-gray-600 mt-1">
-        A PDF with more pages than your remaining quota will be skipped.
-      </p>
-    </div>
-  </div>
-
-  <!-- Upload Quota Card -->
-  <div class="px-5 py-4 bg-green-50 rounded-lg border border-green-200 shadow-sm">
-    <h4 class="font-bold text-green-800 flex items-center gap-1 text-base">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
       </svg>
@@ -216,26 +209,52 @@
       <!-- Files counter -->
       <div class="flex items-center">
         <div class="w-full bg-gray-200 rounded-full h-3">
-          <div class="bg-green-600 h-3 rounded-full" style="width: {{ (upload_files_used / 5) * 100 }}%"></div>
+          <div class="bg-blue-600 h-3 rounded-full" style="width: {{ (upload_files_used / 100) * 100 }}%"></div>
         </div>
-        <span class="ml-2 text-sm font-medium text-gray-700">{{ 5 - upload_files_used }}/5 files</span>
+        <span class="ml-2 text-sm font-medium text-gray-700">{{ 100 - upload_files_used }}/100 files</span>
       </div>
       
       <!-- Size counter -->
       <div class="flex items-center">
         <div class="w-full bg-gray-200 rounded-full h-3">
-          <div class="bg-green-600 h-3 rounded-full" style="width: {{ (upload_bytes_used / upload_bytes_total) * 100 }}%"></div>
+          <div class="bg-blue-600 h-3 rounded-full" style="width: {{ (upload_bytes_used / upload_bytes_total) * 100 }}%"></div>
         </div>
-        <span class="ml-2 text-sm font-medium text-gray-700">{{ (upload_bytes_total - upload_bytes_used) / (1024 * 1024) | round(2) }}/100 MB</span>
+        <span class="ml-2 text-sm font-medium text-gray-700">{{ ((upload_bytes_total - upload_bytes_used) / (1024 * 1024 * 1024)) | round(1) }}/2.0 GB</span>
       </div>
+    </div>
+    
+    <div class="mt-3 p-2 bg-white rounded border border-blue-100">
+      <p class="text-sm text-blue-800 font-medium">
+        <strong>Daily upload limits:</strong>
+      </p>
+      <p class="text-sm text-gray-600">
+        Max 100 files and 2 GB total upload size per course
+      </p>
+    </div>
+  </div>
+
+  <!-- Processing Quota Card - RIGHT SIDE, GREEN -->
+  <div class="px-5 py-4 bg-green-50 rounded-lg border border-green-200 shadow-sm">
+    <h4 class="font-bold text-green-800 flex items-center gap-1 text-base">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+      </svg>
+      Daily Processing Quota
+    </h4>
+    
+    <div class="flex items-center mt-3">
+      <div class="w-full bg-gray-200 rounded-full h-3">
+        <div class="bg-green-600 h-3 rounded-full" style="width: {{ (quota_used / quota_total) * 100 }}%"></div>
+      </div>
+      <span class="ml-2 text-sm font-medium text-gray-700">{{ quota_remaining }}/2000 pages</span>
     </div>
     
     <div class="mt-3 p-2 bg-white rounded border border-green-100">
       <p class="text-sm text-green-800 font-medium">
-        <strong>Daily upload limits:</strong>
+        <strong>IMPORTANT:</strong> PDFs must be processed completely or not at all.
       </p>
-      <p class="text-sm text-gray-600">
-        Max 5 files and 100 MB total upload size per course
+      <p class="text-sm text-gray-600 mt-1">
+        A PDF with more pages than your remaining quota will be skipped.
       </p>
     </div>
   </div>
@@ -268,18 +287,165 @@
       {% endif %}
     </div>
   </main>
+
+  <!-- Delete Confirmation Modal -->
+  <div id="delete-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+      <div class="mt-3 text-center">
+        <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+          <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16c-.77.833.192 2.5 1.732 2.5z"/>
+          </svg>
+        </div>
+        <h3 class="text-lg font-medium text-gray-900 mt-2">Delete Material</h3>
+        <div class="mt-2 px-7 py-3">
+          <p class="text-sm text-gray-500">
+            Are you sure you want to delete "<span id="delete-filename"></span>"? This action cannot be undone.
+          </p>
+        </div>
+        <div class="items-center px-4 py-3">
+          <button
+            id="confirm-delete-btn"
+            class="px-4 py-2 bg-red-500 text-white text-base font-medium rounded-md w-24 mr-2 hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-300">
+            Delete
+          </button>
+          <button
+            onclick="closeDeleteModal()"
+            class="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md w-24 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Status Toast -->
+  <div id="delete-toast" class="fixed top-4 right-4 z-50"></div>
+
   <script>
-    // HTMX loader indicator for process materials
+    let materialToDelete = null;
+
+    // HTMX event handlers for upload feedback
     document.body.addEventListener('htmx:configRequest', function(evt) {
       if(evt.target.closest('[hx-indicator="#loader"]')) {
         document.getElementById('loader').classList.remove('hidden');
       }
+      if(evt.target.closest('[hx-indicator="#upload-loader"]')) {
+        document.getElementById('upload-loader').classList.remove('hidden');
+        document.querySelector('.upload-button-text').textContent = 'Uploading...';
+      }
     });
+
     document.body.addEventListener('htmx:afterSwap', function(evt) {
       if(evt.target.id === "process-status") {
         document.getElementById('loader').classList.add('hidden');
       }
+      if(evt.target.id === "success-toast") {
+        document.getElementById('upload-loader').classList.add('hidden');
+        document.querySelector('.upload-button-text').textContent = 'Upload';
+        
+        // Auto-refresh the page after successful upload to show updated materials
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      }
+    });
+
+    document.body.addEventListener('htmx:responseError', function(evt) {
+      if(evt.target.closest('[hx-indicator="#upload-loader"]')) {
+        document.getElementById('upload-loader').classList.add('hidden');
+        document.querySelector('.upload-button-text').textContent = 'Upload';
+      }
+    });
+
+    // Delete functionality
+    function confirmDelete(materialId, filename) {
+      materialToDelete = materialId;
+      document.getElementById('delete-filename').textContent = filename;
+      document.getElementById('delete-modal').classList.remove('hidden');
+    }
+
+    function closeDeleteModal() {
+      document.getElementById('delete-modal').classList.add('hidden');
+      materialToDelete = null;
+    }
+
+    // Handle confirm delete
+    document.getElementById('confirm-delete-btn').addEventListener('click', function() {
+      if (materialToDelete) {
+        deleteMaterial(materialToDelete);
+      }
+    });
+
+    function deleteMaterial(materialId) {
+      fetch(`/ai/courses/{{ course_id }}/materials/${materialId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+      .then(response => response.text())
+      .then(data => {
+        // Show the response in the delete toast
+        document.getElementById('delete-toast').innerHTML = data;
+        
+        // If successful, remove the row from the table
+        if (data.includes('success')) {
+          const row = document.getElementById(`material-row-${materialId}`);
+          if (row) {
+            row.remove();
+          }
+          
+          // Check if there are no more materials and show the "no materials" message
+          const tbody = document.getElementById('materials-table-body');
+          if (tbody.children.length === 0) {
+            tbody.innerHTML = '<tr id="no-materials-row"><td colspan="3" class="text-center text-gray-400 py-4">No materials uploaded yet.</td></tr>';
+          }
+        }
+        
+        // Auto-hide the toast after 5 seconds
+        setTimeout(() => {
+          document.getElementById('delete-toast').innerHTML = '';
+        }, 5000);
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('delete-toast').innerHTML = 
+          '<div class="toast error">❌ An error occurred while deleting the material.</div>';
+        
+        setTimeout(() => {
+          document.getElementById('delete-toast').innerHTML = '';
+        }, 5000);
+      });
+      
+      closeDeleteModal();
+    }
+
+    // Close modal when clicking outside
+    document.getElementById('delete-modal').addEventListener('click', function(e) {
+      if (e.target === this) {
+        closeDeleteModal();
+      }
+    });
+
+    // Close modal with Escape key
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && !document.getElementById('delete-modal').classList.contains('hidden')) {
+        closeDeleteModal();
+      }
     });
   </script>
+
+  <style>
+    .toast {
+      @apply px-4 py-3 rounded-lg shadow-lg;
+    }
+    .toast.success {
+      @apply bg-green-100 border border-green-400 text-green-700;
+    }
+    .toast.error {
+      @apply bg-red-100 border border-red-400 text-red-700;
+    }
+  </style>
 </body>
 </html>

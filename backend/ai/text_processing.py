@@ -38,9 +38,9 @@ from langchain.prompts import PromptTemplate
 
 class PDFQuotaConfig:
     # Maximum number of pages allowed to be processed per day per course
-    DAILY_PAGE_QUOTA = 100
+    DAILY_PAGE_QUOTA = 2000
     # Maximum size of an individual file in bytes (50MB)
-    MAX_FILE_SIZE = 50 * 1024 * 1024
+    MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024
     # Error return value for page count function
     ERROR_PAGE_COUNT = 1000
 

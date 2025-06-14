@@ -117,6 +117,7 @@ class CourseMaterial(Base):
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     filepath = Column(String, nullable=False)
     uploaded_by = Column(Integer, ForeignKey("users.id"))
+    file_size = Column(Integer, nullable=True, default=0)
 
     course = relationship("Course", back_populates="materials")
     processed_materials = relationship("ProcessedMaterial", back_populates="material")

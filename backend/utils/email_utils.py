@@ -1,9 +1,10 @@
 import yagmail
-import boto3
 import os
 import logging
+import time
+import random
+import socket
 from typing import Optional
-from botocore.exceptions import ClientError, NoCredentialsError
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,154 +13,76 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class EmailService:
-    def __init__(self):
-        # SES Configuration
-        self.ses_client = None
-        self.ses_region = os.getenv("AWS_REGION", "us-east-2")
-        self.sender_email = os.getenv("SENDER_EMAIL")
-        
-        # Yagmail Configuration (fallback)
-        self.yagmail_user = os.getenv("EMAIL_USER")
-        self.yagmail_password = os.getenv("EMAIL_PASSWORD")
-        
-        # Initialize SES client
-        self._initialize_ses()
-    
-    def _initialize_ses(self):
-        """Initialize Amazon SES client"""
-        try:
-            self.ses_client = boto3.client(
-                'ses',
-                region_name=self.ses_region,
-                aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-                aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY")
-            )
-            logger.info("✅ Amazon SES client initialized successfully")
-            print("✅ Amazon SES client initialized successfully")
-        except NoCredentialsError:
-            logger.warning("⚠️ AWS credentials not found. Will use yagmail as fallback.")
-            print("⚠️ AWS credentials not found. Will use yagmail as fallback.")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize SES client: {str(e)}")
-            print(f"❌ Failed to initialize SES client: {str(e)}")
-    
-    def _send_via_ses(self, to_email: str, subject: str, html_content: str, text_content: str) -> bool:
-        """Send email via Amazon SES"""
-        if not self.ses_client or not self.sender_email:
-            print(f"❌ SES not available: client={bool(self.ses_client)}, sender={bool(self.sender_email)}")
-            return False
-        
-        try:
-            response = self.ses_client.send_email(
-                Destination={'ToAddresses': [to_email]},
-                Message={
-                    'Body': {
-                        'Html': {'Charset': 'UTF-8', 'Data': html_content},
-                        'Text': {'Charset': 'UTF-8', 'Data': text_content}
-                    },
-                    'Subject': {'Charset': 'UTF-8', 'Data': subject}
-                },
-                Source=self.sender_email
-            )
-            logger.info(f"✅ Email sent via SES to {to_email}. Message ID: {response['MessageId']}")
-            print(f"✅ Email sent via SES to {to_email}. Message ID: {response['MessageId']}")
-            return True
-        except ClientError as e:
-            error_code = e.response['Error']['Code']
-            error_message = e.response['Error']['Message']
-            logger.error(f"❌ SES error sending to {to_email}: {error_code} - {error_message}")
-            print(f"❌ SES error sending to {to_email}: {error_code} - {error_message}")
-            return False
-        except Exception as e:
-            logger.error(f"❌ Unexpected error with SES: {str(e)}")
-            print(f"❌ Unexpected error with SES: {str(e)}")
-            return False
-    
-    def _send_via_yagmail(self, to_email: str, subject: str, html_content: str) -> bool:
-        """Send email via yagmail (fallback) - simplified version"""
-        if not self.yagmail_user or not self.yagmail_password:
-            logger.error("❌ Yagmail credentials not configured")
-            print("❌ Yagmail credentials not configured")
-            return False
-        
-        try:
-            print(f"🔄 Connecting to yagmail with user: {self.yagmail_user}")
-            
-            # Use your exact working code structure
-            yag = yagmail.SMTP(user=self.yagmail_user, password=self.yagmail_password)
-            
-            # Extract verification link from HTML (same as your working version)
-            verification_link = html_content.split('href="')[1].split('"')[0] if 'href="' in html_content else "Link not found"
-            content = f"Click the link to verify your email: {verification_link}"
-            
-            print(f"📧 Sending email...")
-            yag.send(to=to_email, subject=subject, contents=content)
-            
-            print(f"✅ Email sent to {to_email}")
-            logger.info(f"✅ Email sent via yagmail to {to_email}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to send email via yagmail: {str(e)}")
-            print(f"❌ Failed to send email via yagmail: {str(e)}")
-            print(f"❌ Error type: {type(e).__name__}")
-            return False
-    
-    def send_verification_email(self, to_email: str, verification_link: str) -> bool:
-        """Send professional verification email with SES/yagmail fallback"""
-        subject = "Verify Your Email Address"
-        
-        # Simple HTML template with inline styles only
-        html_content = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f4f4f4;">
-            <div style="max-width: 600px; margin: 0 auto; background-color: white; padding: 30px; border-radius: 8px;">
-                <h2 style="color: #333; text-align: center;">Verify Your Email Address</h2>
-                <p style="color: #555; line-height: 1.6;">Thank you for signing up! Please click the button below to verify your email address and activate your account.</p>
-                <div style="text-align: center; margin: 30px 0;">
-                    <a href="{verification_link}" style="display: inline-block; background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">Verify Email Address</a>
-                </div>
-                <p style="color: #666; font-size: 14px;">If the button doesn't work, copy and paste this link into your browser:</p>
-                <p style="color: #007bff; word-break: break-all; font-size: 14px;">{verification_link}</p>
-                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-                <p style="color: #999; font-size: 12px; text-align: center;">This verification link will expire in 1 hour for security purposes.</p>
-            </div>
-        </body>
-        </html>
-        """
-        
-        # Plain text version for better deliverability
-        text_content = f"""
-        Welcome! Please verify your email address
-        
-        Thank you for creating an account. To complete your registration, please verify your email address by clicking the link below:
-        
-        {verification_link}
-        
-        This verification link will expire in 1 hour for your security.
-        
-        If you didn't create this account, please ignore this email.
-        
-        ---
-        This is an automated message, please do not reply to this email.
-        """
-        
-        # Try SES first, then fallback to yagmail
-        print(f"🔍 Attempting to send email to {to_email}")
-        print(f"🔍 SES Client available: {bool(self.ses_client)}")
-        print(f"🔍 Sender email configured: {bool(self.sender_email)}")
-        
-        if self._send_via_ses(to_email, subject, html_content, text_content):
-            return True
-        
-        logger.info("🔄 Falling back to yagmail...")
-        print("🔄 Falling back to yagmail...")
-        return self._send_via_yagmail(to_email, subject, html_content)
+def send_verification_email(to_email: str, verification_link: str) -> bool:
+    """
+    Sends a verification email using Gmail SMTP + App Password.
+    The email is styled to appear professional and less spammy.
+    """
+    email_user = os.environ.get("EMAIL_USER", "intellaica@gmail.com")
+    email_password = os.environ.get("EMAIL_PASSWORD", "")
+    sender_name = os.environ.get("SENDER_NAME", "Intellaica Team")
+    company_name = os.environ.get("COMPANY_NAME", "Intellaica")
 
-# Initialize global email service
-email_service = EmailService()
+    if not email_user or not email_password:
+        logger.error("Missing EMAIL_USER or EMAIL_PASSWORD in environment.")
+        return False
 
-def send_verification_email(to_email: str, link: str) -> bool:
-    """Public function to send verification email"""
-    return email_service.send_verification_email(to_email, link)
+    subject = f"Verify Your {company_name} Account"
+
+    # A well-structured, mobile-friendly HTML with minimal spam triggers:
+    html_content = f"""\
+
+    <!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"/> <meta name="viewport" content="width=device-width,initial-scale=1.0"/> <title>Verify Your {company_name} Account</title> <style> body {{ font-family: Tahoma, sans-serif; background-color: #f2f2f2; margin: 0; padding: 0; color: #333; line-height: 1.5; }} .container {{ max-width: 600px; background-color: #ffffff; margin: 40px auto; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }} .header {{ background-color: #0069d9; color: #fff; padding: 20px 30px; text-align: center; }} .header h1 {{ margin: 0; font-size: 24px; }} .content {{ padding: 30px; }} .cta-button {{ display: inline-block; background-color: #0069d9; color: #fff; text-decoration: none; padding: 12px 24px; border-radius: 4px; font-weight: bold; margin: 20px 0 30px 0; }} .footer {{ background-color: #f8f9fa; padding: 15px 30px; text-align: center; font-size: 12px; color: #6c757d; }} a.unsubscribe {{ color: #6c757d; text-decoration: underline; }} </style> </head> <body> <div class="container"> <div class="header"> <h1>{company_name}</h1> </div> <div class="content"> <h2>Verify Your Email Address</h2> <p>Hello,</p> <p> Thank you for creating a {company_name} account! Please click the button below to verify your email address and complete your registration. </p> <p style="text-align:center;"> <a href="{verification_link}" class="cta-button">Verify Email</a> </p> <p> If the button above doesn’t work, you can also verify by copying and pasting this link into your browser: </p> <p style="word-wrap:break-word; color:#0069d9;"> {verification_link} </p> <p><strong>This link expires in 1 hour.</strong></p> <p> If you did not request this, please ignore this email or contact our support team. </p> </div> <div class="footer"> <p> © 2024 {company_name}. All rights reserved.<br/> <a class="unsubscribe" href="mailto:{email_user}?subject=Unsubscribe">Unsubscribe</a> </p> </div> </div> </body> </html> """
+
+    # Plain text fallback for better deliverability:
+    text_content = f"""\
+
+    {company_name} - Verify Your Account
+
+    Hello,
+
+    Please verify your email for {company_name} by clicking here:
+    {verification_link}
+
+    This link expires in 1 hour.
+
+    If you did not request this, you can ignore this email.
+
+    Best regards,
+    The {company_name} Team
+    © 2024 {company_name} - All rights reserved.
+    To unsubscribe, reply with "Unsubscribe".
+    """
+
+    # Configure yagmail (Gmail: port=587 with TLS)
+    try:
+        socket.setdefaulttimeout(30)  # 30-second overall timeout
+        yag = yagmail.SMTP(
+            user=email_user,
+            password=email_password,
+            host="smtp.gmail.com",
+            port=587,
+            smtp_starttls=True,
+            smtp_ssl=False  # For Gmail on port 587, use TLS (STARTTLS), not SSL
+        )
+        logger.info(f"Sending from {sender_name} <{email_user}> to {to_email} ...")
+        yag.send(
+            to=to_email,
+            subject=subject,
+            contents=html_content,
+            headers={
+                "From": f"{sender_name} <{email_user}>",
+                "Reply-To": email_user,
+                "X-Mailer": f"{company_name} Verification Service",
+                "List-Unsubscribe": f"<mailto:{email_user}?subject=Unsubscribe>",
+                "Precedence": "bulk",
+                "Auto-Submitted": "auto-generated"
+            }
+        )
+        logger.info("Verification email sent successfully!")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to send email: {e}")
+        return False
+
