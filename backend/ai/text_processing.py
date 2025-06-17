@@ -1,8 +1,8 @@
-from datetime import date
+from datetime import date, datetime
 import logging
 import os
 import re
-from typing import Optional
+from typing import List, Optional
 import PyPDF2
 from fastapi import HTTPException
 from PyPDF2 import PdfReader, PdfWriter
@@ -14,10 +14,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 #import faiss
 #import numpy as np
 #from sentence_transformers import SentenceTransformer
+from sqlalchemy.sql.elements import Tuple as SqlTuple
+from typing import Tuple
 from sqlalchemy.orm import Session
 #import urllib
 from backend.ai.aws_ai import S3_BUCKET_NAME, get_s3_client, load_faiss_vectorstore, upload_faiss_index_to_s3
-from backend.db.models import CourseMaterial, PDFQuotaUsage, ProcessedMaterial, TextChunk
+from backend.db.models import CourseMaterial, CourseModule, CourseSubmodule, ModuleTextChunk, PDFQuotaUsage, ProcessedMaterial, TextChunk
 from backend.db.database import SessionLocal  # if you're using a unified DB setup
 from langchain.vectorstores import FAISS
 #from langchain.embeddings import HuggingFaceEmbeddings
@@ -321,6 +323,274 @@ def check_pdf_quota(course_id: int, pdf_path: str, db: Session, daily_page_quota
 
     # Return results: (is full file processable, total pages in file, remaining quota AFTER run)
     return quota_ok, page_count, remaining_quota - pages_we_can_process if quota_ok else remaining_quota
+
+
+def extract_pdf_page_ranges(file_path: str) -> List[dict]:
+    """
+    Analyze PDF structure and suggest natural module divisions
+    Returns list of suggested modules with page ranges
+    """
+    try:
+        doc = fitz.open(file_path)
+        total_pages = len(doc)
+        
+        # Basic analysis - you can enhance this with more sophisticated detection
+        suggested_modules = []
+        
+        # Look for potential chapter/section breaks
+        chapter_pages = []
+        for page_num in range(total_pages):
+            page = doc[page_num]
+            text = page.get_text()
+            
+            # Simple heuristics for chapter detection
+            lines = text.split('\n')
+            for line in lines[:10]:  # Check first 10 lines of each page
+                line = line.strip().lower()
+                if any(keyword in line for keyword in ['chapter', 'section', 'unit', 'module', 'part']):
+                    chapter_pages.append({
+                        'page': page_num + 1,
+                        'title': line.strip(),
+                        'text_preview': ' '.join(lines[:3])
+                    })
+                    break
+        
+        # If no clear chapters found, divide by page count
+        if not chapter_pages:
+            pages_per_module = max(10, total_pages // 5)  # Aim for 5 modules max
+            for i in range(0, total_pages, pages_per_module):
+                end_page = min(i + pages_per_module, total_pages)
+                suggested_modules.append({
+                    'title': f'Module {len(suggested_modules) + 1}',
+                    'start_page': i + 1,
+                    'end_page': end_page,
+                    'page_count': end_page - i
+                })
+        else:
+            # Create modules based on detected chapters
+            for i, chapter in enumerate(chapter_pages):
+                start_page = chapter['page']
+                end_page = chapter_pages[i + 1]['page'] - 1 if i + 1 < len(chapter_pages) else total_pages
+                
+                suggested_modules.append({
+                    'title': chapter['title'] or f'Module {i + 1}',
+                    'start_page': start_page,
+                    'end_page': end_page,
+                    'page_count': end_page - start_page + 1
+                })
+        
+        doc.close()
+        return suggested_modules
+        
+    except Exception as e:
+        logging.error(f"Error analyzing PDF structure: {e}")
+        return []
+
+def extract_text_from_pdf_pages(file_path: str, start_page: int, end_page: int) -> str:
+    """Extract text from specific page range of a PDF"""
+    try:
+        doc = fitz.open(file_path)
+        text_content = []
+        
+        # Ensure page numbers are within bounds
+        start_page = max(1, start_page)
+        end_page = min(len(doc), end_page)
+        
+        for page_num in range(start_page - 1, end_page):  # PyMuPDF uses 0-based indexing
+            page = doc[page_num]
+            page_text = page.get_text()
+            if page_text.strip():  # Only add non-empty pages
+                text_content.append(f"[Page {page_num + 1}]\n{page_text}")
+        
+        doc.close()
+        return "\n\n".join(text_content)
+        
+    except Exception as e:
+        logging.error(f"Error extracting text from PDF pages {start_page}-{end_page}: {e}")
+        return ""
+
+def process_submodule_with_quota_check(
+    course_id: int, 
+    submodule_id: int, 
+    db: Session
+) -> Tuple[bool, str, int]:
+    """
+    Process a specific submodule, checking quota constraints
+    Returns: (success, message, pages_used)
+    """
+    submodule = db.query(CourseSubmodule).filter_by(id=submodule_id).first()
+    if not submodule:
+        return False, "Submodule not found", 0
+    
+    if submodule.is_processed:
+        return False, "Submodule already processed", 0
+    
+    # Parse page range
+    if not submodule.page_range:
+        return False, "No page range specified for submodule", 0
+    
+    try:
+        start_page, end_page = map(int, submodule.page_range.split('-'))
+        pages_needed = end_page - start_page + 1
+    except ValueError:
+        return False, "Invalid page range format", 0
+    
+    # Check quota
+    today = date.today()
+    quota_usage = db.query(PDFQuotaUsage).filter(
+        PDFQuotaUsage.course_id == course_id,
+        PDFQuotaUsage.usage_date == today
+    ).first()
+    
+    used_pages = quota_usage.pages_processed if quota_usage else 0
+    remaining_quota = PDFQuotaConfig.DAILY_PAGE_QUOTA - used_pages
+    
+    if pages_needed > remaining_quota:
+        return False, f"Not enough quota. Need {pages_needed} pages, have {remaining_quota}", 0
+    
+    try:
+        # Get the source material file path
+        material = submodule.material
+        if not material:
+            return False, "No source material linked to submodule", 0
+        
+        file_path = material.filepath
+        
+        # Handle S3 download if needed (using your existing logic)
+        if not os.path.exists(file_path):
+            s3_key = f"course_materials/{course_id}/{material.filename}"
+            temp_dir = "temp_pdfs"
+            os.makedirs(temp_dir, exist_ok=True)
+            file_path = f"{temp_dir}/{material.filename}"
+            
+            if not download_file_from_s3(s3_key, file_path):
+                return False, "Failed to download source file from S3", 0
+        
+        # Extract text from specified page range
+        text = extract_text_from_pdf_pages(file_path, start_page, end_page)
+        
+        if not text.strip():
+            return False, "No text content extracted from specified pages", 0
+        
+        # Process the text into chunks
+        chunks = chunk_text(text)
+        
+        # Save embeddings specifically for this submodule
+        save_submodule_embeddings(submodule_id, chunks, db)
+        
+        # Update quota usage
+        if quota_usage:
+            quota_usage.pages_processed += pages_needed
+        else:
+            quota_usage = PDFQuotaUsage(
+                course_id=course_id,
+                usage_date=today,
+                pages_processed=pages_needed
+            )
+            db.add(quota_usage)
+        
+        # Mark submodule as processed
+        submodule.is_processed = True
+        submodule.processed_at = datetime.utcnow()
+        submodule.metadata = {
+            'pages_processed': pages_needed,
+            'chunks_created': len(chunks),
+            'processing_date': datetime.utcnow().isoformat()
+        }
+        
+        db.commit()
+        
+        return True, f"Successfully processed {pages_needed} pages", pages_needed
+        
+    except Exception as e:
+        logging.error(f"Error processing submodule {submodule_id}: {e}")
+        return False, f"Processing failed: {str(e)}", 0
+
+def save_submodule_embeddings(submodule_id: int, chunks: List[str], db: Session):
+    """Save embeddings for a specific submodule"""
+    try:
+        # Clear existing chunks for this submodule
+        db.query(ModuleTextChunk).filter_by(submodule_id=submodule_id).delete()
+        
+        # Generate embeddings (using your existing embedding logic)
+        embeddings = embed_chunks_openai(chunks)  # Assuming you have this function
+        
+        # Save new chunks with embeddings
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            chunk_record = ModuleTextChunk(
+                submodule_id=submodule_id,
+                chunk_text=chunk,
+                chunk_index=i,
+                embedding=str(embedding.tolist()) if hasattr(embedding, 'tolist') else str(embedding)
+            )
+            db.add(chunk_record)
+        
+        db.commit()
+        logging.info(f"Saved {len(chunks)} chunks for submodule {submodule_id}")
+        
+    except Exception as e:
+        logging.error(f"Error saving submodule embeddings: {e}")
+        raise
+
+def embed_chunks_openai(chunks: List[str]) -> List[List[float]]:
+    """
+    Embed a list of text chunks using OpenAIEmbeddings and return
+    a list of embeddings (list of floats).
+    """
+    try:
+        embeddings_model = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
+        results = []
+        for chunk in chunks:
+            vector = embeddings_model.embed_query(chunk)
+            results.append(vector)
+        return results
+    except Exception as e:
+        logging.error(f"Error embedding chunks with OpenAI: {e}")
+    # Return an empty list or raise an exception as needed
+    return []
+
+def create_modules_from_pdf_analysis(
+    course_id: int, 
+    material_id: int, 
+    suggested_modules: List[dict], 
+    db: Session
+) -> int:
+    """
+    Create module structure based on PDF analysis
+    Returns the number of modules created
+    """
+    created_count = 0
+    
+    for i, module_data in enumerate(suggested_modules):
+        # Create the module
+        module = CourseModule(
+            course_id=course_id,
+            title=module_data['title'],
+            description=f"Auto-generated module covering pages {module_data['start_page']}-{module_data['end_page']}",
+            order_index=i
+        )
+        db.add(module)
+        db.flush()  # Get the ID
+        
+        # Create a submodule for this page range
+        submodule = CourseSubmodule(
+            module_id=module.id,
+            material_id=material_id,
+            title=f"{module_data['title']} - Content",
+            page_range=f"{module_data['start_page']}-{module_data['end_page']}",
+            order_index=0,
+            metadata={
+                'page_count': module_data['page_count'],
+                'auto_generated': True
+            }
+        )
+        db.add(submodule)
+        created_count += 1
+    
+    db.commit()
+    return created_count
+
+
 
 
 # ---------------------------------------------

@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Course Materials | Intellaica</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <style>
+    .toast {
+      @apply fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 max-w-sm;
+      animation: slideIn 0.3s ease-out;
+    }
+    .toast.success { @apply bg-green-100 border-l-4 border-green-500 text-green-700; }
+    .toast.error { @apply bg-red-100 border-l-4 border-red-500 text-red-700; }
+    .toast.info { @apply bg-blue-100 border-l-4 border-blue-500 text-blue-700; }
+    .progress-bar {
+      background: linear-gradient(90deg, #10B981 var(--progress, 0%), #E5E7EB var(--progress, 0%));
+    }
+    .simple-card {
+      @apply bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition-shadow;
+    }
+    .big-button {
+      @apply bg-blue-600 text-white px-8 py-4 rounded-lg hover:bg-blue-700 transition-colors text-lg font-medium;
+    }
+    .simple-button {
+      @apply bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors;
+    }
+    .htmx-indicator {
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+    }
+    .htmx-request .htmx-indicator {
+      opacity: 1;
+    }
+    .htmx-request.htmx-indicator {
+      opacity: 1;
+    }
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(100%); opacity: 0; }
+    }
+    .toast.removing {
+      animation: slideOut 0.3s ease-in;
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+  
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+  
+  <!-- Simple Top Navigation -->
+  <nav class="bg-white px-6 py-4 shadow-sm border-b">
+    <div class="flex items-center justify-between max-w-6xl mx-auto">
+      <div class="flex items-center space-x-4">
+        <h1 class="text-2xl font-bold text-blue-700">Intellaica</h1>
+        <span class="text-gray-400">|</span>
+        <span class="text-gray-700 font-medium">Course Materials</span>
+      </div>
+      <div class="flex items-center space-x-4">
+        <a href="/ai/courses/{{ course.id }}/upload_materials" class="simple-button">← Back to Course</a>
+        <a href="/auth/logout" class="text-red-600 hover:text-red-800 font-medium">Logout</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <div class="max-w-6xl mx-auto p-6">
+    
+    <!-- Course Header -->
+    <div class="mb-8">
+      <h2 class="text-3xl font-bold text-gray-900 mb-2">{{ course.title }}</h2>
+      <p class="text-gray-600">Manage your course materials and organize them into lessons</p>
+    </div>
+
+    <!-- Usage Quota (Simple Display) -->
+    <div class="simple-card mb-8" id="quota-section">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="font-medium text-gray-900">Daily Processing Limit</h3>
+          <p class="text-sm text-gray-600">Used {{ quota_used }} of {{ quota_total }} pages today</p>
+        </div>
+        <div class="w-32">
+          <div class="w-full bg-gray-200 rounded-full h-3">
+            <div class="progress-bar h-3 rounded-full" style="--progress: {{ (quota_used / quota_total * 100) }}%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Actions - Simple Layout -->
+    <div class="grid md:grid-cols-2 gap-6 mb-8">
+      
+      <!-- Upload New Material -->
+      <div class="simple-card text-center">
+        <div class="mb-4">
+          <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <svg class="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+            </svg>
+          </div>
+          <h3 class="text-xl font-semibold text-gray-900 mb-2">Upload New Material</h3>
+          <p class="text-gray-600 mb-4">Add PDF files, presentations, or documents</p>
+        </div>
+        <button onclick="showUploadModal()" class="big-button w-full">
+          Upload Files
+        </button>
+      </div>
+
+      <!-- Create Lesson Plan -->
+      <div class="simple-card text-center">
+        <div class="mb-4">
+          <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <svg class="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+            </svg>
+          </div>
+          <h3 class="text-xl font-semibold text-gray-900 mb-2">Create Lesson</h3>
+          <p class="text-gray-600 mb-4">Organize materials into structured lessons</p>
+        </div>
+        <button onclick="showCreateLessonModal()" class="big-button w-full">
+          New Lesson
+        </button>
+      </div>
+    </div>
+    <!-- 
+    <form method="POST" action="/ai/courses/{{course.id}}/modules/delete-all?_method=DELETE">
+    <button type="submit" onclick="return confirm('Are you sure you want to delete ALL modules?')">
+        Delete All Modules
+    </button>
+    </form> -->
+    <!-- Existing Lessons -->
+    <div class="mb-6" id="lessons-section">
+      <h3 class="text-2xl font-bold text-gray-900 mb-4">Your Lessons</h3>
+      
+      {% if modules %}
+        <div class="space-y-4">
+          {% for module in modules %}
+          <div class="simple-card" data-module-id="{{ module.id }}">
+            <div class="flex items-center justify-between">
+              <div class="flex-1">
+                <h4 class="text-xl font-semibold text-gray-900 mb-1">{{ module.title }}</h4>
+                {% if module.description %}
+                <p class="text-gray-600 mb-3">{{ module.description }}</p>
+                {% endif %}
+                <div class="flex items-center text-sm text-gray-500">
+                  <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-medium">
+                    {{ module.submodules|length }} parts
+                  </span>
+                  {% if module.submodules and module.submodules|selectattr('is_processed', 'equalto', True)|list %}
+                  <span class="ml-2 bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium">
+                    Ready to teach
+                  </span>
+                  {% endif %}
+                </div>
+              </div>
+              
+              <div class="flex items-center space-x-3">
+                <button onclick="toggleLessonDetails({{ module.id }})" class="simple-button">
+                  View Details
+                </button>
+                {% if module.submodules and module.submodules|selectattr('is_processed', 'equalto', False)|list %}
+                <button 
+                  hx-post="/ai/courses/{{ course.id }}/modules/{{ module.id }}/process_all"
+                  hx-target="closest .simple-card"
+                  hx-swap="none"
+                  hx-indicator="#process-all-{{ module.id }}-indicator"
+                  class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors relative">
+                  Process All
+                  <div id="process-all-{{ module.id }}-indicator" class="htmx-indicator absolute inset-0 flex items-center justify-center bg-green-600 rounded-lg">
+                    <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  </div>
+                </button>
+                {% endif %}
+                <button 
+                  hx-post="/ai/courses/{{course.id}}/modules/{{module.id}}?_method=DELETE"
+                  hx-target="closest .simple-card"
+                  hx-swap="delete"
+                  hx-confirm="Are you sure you want to delete this lesson?"
+                  class="bg-red-100 text-red-600 px-4 py-2 rounded-lg hover:bg-red-200 transition-colors">
+                  Delete
+                </button>
+              </div>
+            </div>
+            
+            <!-- Lesson Details (Hidden by default) -->
+            <div id="lesson-details-{{ module.id }}" class="hidden mt-4 pt-4 border-t">
+              {% if module.submodules %}
+                <h5 class="font-medium text-gray-900 mb-3">Lesson Parts:</h5>
+                <div class="space-y-2">
+                  {% for submodule in module.submodules %}
+                  <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                      <span class="font-medium text-gray-900">{{ submodule.title }}</span>
+                      {% if submodule.page_range %}
+                      <span class="text-sm text-gray-500 ml-2">(Pages {{ submodule.page_range }})</span>
+                      {% endif %}
+                      {% if submodule.is_processed %}
+                      <span class="ml-2 text-green-600 text-sm">✓ Ready</span>
+                      {% else %}
+                      <span class="ml-2 text-yellow-600 text-sm">⏳ Pending</span>
+                      {% endif %}
+                    </div>
+                    {% if not submodule.is_processed and submodule.page_range %}
+                    <button 
+                      hx-post="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/process"
+                      hx-target="this"
+                      hx-swap="none"
+                      hx-indicator="#process-{{ submodule.id }}-indicator"
+                      class="simple-button text-sm relative">
+                      Process
+                      <div id="process-{{ submodule.id }}-indicator" class="htmx-indicator absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
+                        <svg class="animate-spin h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24">
+                          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      </div>
+                    </button>
+                    {% endif %}
+                  </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <p class="text-gray-500 text-center py-4">No parts added yet</p>
+              {% endif %}
+              
+              <div class="mt-4 pt-4 border-t">
+                <button onclick="showAddPartModal({{ module.id }})" class="simple-button">
+                  + Add Part to This Lesson
+                </button>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <!-- Empty State -->
+        <div class="simple-card text-center py-12">
+          <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg class="w-12 h-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+            </svg>
+          </div>
+          <h3 class="text-xl font-semibold text-gray-900 mb-2">No lessons yet</h3>
+          <p class="text-gray-600 mb-6">Start by uploading some materials or creating your first lesson</p>
+          <button onclick="showCreateLessonModal()" class="big-button">
+            Create First Lesson
+          </button>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Auto-Generate Section -->
+      <!-- 
+    {% if materials_without_modules %}
+    <div class="simple-card" id="auto-generate-section">
+      <h3 class="text-xl font-semibold text-gray-900 mb-4">Quick Setup</h3>
+      <p class="text-gray-600 mb-4">Let AI analyze your uploaded PDFs and create lessons automatically</p>
+      
+      <form hx-post="/ai/courses/{{ course.id }}/generate_lessons" 
+            hx-target="#lessons-section" 
+            hx-swap="outerHTML"
+            hx-indicator="#generate-indicator"
+            class="flex items-center space-x-4">
+        <select name="material_id" required class="flex-1 border rounded-lg p-3 text-lg">
+          <option value="">Choose a PDF to analyze...</option>
+          {% for material in materials_without_modules %}
+          <option value="{{ material.id }}">{{ material.filename }} ({{ material.page_count or 'Unknown' }} pages)</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition-colors relative">
+          Auto-Create Lessons
+          <div id="generate-indicator" class="htmx-indicator absolute inset-0 flex items-center justify-center bg-purple-600 rounded-lg">
+            <svg class="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          </div>
+        </button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+ -->
+  <!-- Upload Modal -->
+  <div id="upload-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-6 border w-96 shadow-lg rounded-lg bg-white">
+      <div class="flex items-center justify-between mb-6">
+        <h3 class="text-xl font-bold text-gray-900">Upload New Material</h3>
+        <button onclick="hideUploadModal()" class="text-gray-400 hover:text-gray-600">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      
+      <form hx-post="/ai/courses/{{ course.id }}/upload_materials" 
+            hx-encoding="multipart/form-data"
+            hx-indicator="#upload-indicator"
+            hx-on::after-request="handleUploadResponse(event)">
+        <div class="mb-6">
+          <label class="block text-gray-700 text-sm font-medium mb-2">Select File</label>
+          <input type="file" name="file" required accept=".pdf,.ppt,.pptx,.doc,.docx"
+                 class="w-full px-3 py-3 border rounded-lg focus:outline-none focus:border-blue-500 text-lg">
+          <p class="text-xs text-gray-500 mt-2">Supports: PDF, PowerPoint, Word documents</p>
+        </div>
+        
+        <div class="flex items-center justify-end space-x-3">
+          <button type="button" onclick="hideUploadModal()" class="simple-button">
+            Cancel
+          </button>
+          <button type="submit" class="big-button relative">
+            Upload
+            <div id="upload-indicator" class="htmx-indicator absolute inset-0 flex items-center justify-center bg-blue-600 rounded-lg">
+              <svg class="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </div>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Create Lesson Modal -->
+  <div id="create-lesson-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-6 border w-96 shadow-lg rounded-lg bg-white">
+      <div class="flex items-center justify-between mb-6">
+        <h3 class="text-xl font-bold text-gray-900">Create New Lesson</h3>
+        <button onclick="hideCreateLessonModal()" class="text-gray-400 hover:text-gray-600">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      
+        <form hx-post="/ai/courses/{{ course.id }}/modules/create"
+              hx-target="this"
+              hx-swap="none"
+              hx-on::after-request="handleCreateLessonResponse(event)">
+        <div class="mb-4">
+          <label class="block text-gray-700 text-sm font-medium mb-2">Lesson Title</label>
+          <input type="text" name="title" required 
+                 class="w-full px-3 py-3 border rounded-lg focus:outline-none focus:border-blue-500 text-lg"
+                 placeholder="e.g., Introduction to Biology">
+        </div>
+        
+        <div class="mb-6">
+          <label class="block text-gray-700 text-sm font-medium mb-2">Description (Optional)</label>
+          <textarea name="description" rows="3"
+                    class="w-full px-3 py-3 border rounded-lg focus:outline-none focus:border-blue-500"
+                    placeholder="What will students learn in this lesson?"></textarea>
+        </div>
+        
+        <div class="flex items-center justify-end space-x-3">
+          <button type="button" onclick="hideCreateLessonModal()" class="simple-button">
+            Cancel
+          </button>
+          <button type="submit" class="big-button">
+            Create Lesson
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Part Modal -->
+  <div id="add-part-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-6 border w-96 shadow-lg rounded-lg bg-white">
+      <div class="flex items-center justify-between mb-6">
+        <h3 class="text-xl font-bold text-gray-900">Add Part to Lesson</h3>
+        <button onclick="hideAddPartModal()" class="text-gray-400 hover:text-gray-600">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      
+        <form id="add-part-form" 
+              hx-target="this"
+              hx-swap="none"
+              hx-on::after-request="handleAddPartResponse(event)">
+        <div class="mb-4">
+          <label class="block text-gray-700 text-sm font-medium mb-2">Part Title</label>
+          <input type="text" name="title" required 
+                 class="w-full px-3 py-3 border rounded-lg focus:outline-none focus:border-blue-500 text-lg"
+                 placeholder="e.g., Cell Structure">
+        </div>
+        
+        <div class="mb-4">
+          <label class="block text-gray-700 text-sm font-medium mb-2">Source Material (Optional)</label>
+          <select name="material_id" class="w-full px-3 py-3 border rounded-lg focus:outline-none focus:border-blue-500">
+            <option value="">Choose material...</option>
+            {% for material in materials %}
+            <option value="{{ material.id }}">{{ material.filename }} ({{ material.page_count or 'Unknown' }} pages)</option>
+            {% endfor %}
+          </select>
+        </div>
+        
+        <div class="mb-6">
+          <label class="block text-gray-700 text-sm font-medium mb-2">Page Range (Optional)</label>
+          <input type="text" name="page_range" 
+                 class="w-full px-3 py-3 border rounded-lg focus:outline-none focus:border-blue-500"
+                 placeholder="e.g., 1-10">
+          <p class="text-xs text-gray-500 mt-1">Format: start-end (e.g., 1-10)</p>
+        </div>
+        
+        <div class="flex items-center justify-end space-x-3">
+          <button type="button" onclick="hideAddPartModal()" class="simple-button">
+            Cancel
+          </button>
+          <button type="submit" class="big-button">
+            Add Part
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // Toast management
+    function showToast(message, type = 'success') {
+      const toastContainer = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span>${message}</span>
+          <button onclick="removeToast(this)" class="ml-4 text-current opacity-70 hover:opacity-100">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      `;
+      
+      toastContainer.appendChild(toast);
+      
+      // Auto remove after 5 seconds
+      setTimeout(() => {
+        if (toast.parentNode) {
+          removeToast(toast.querySelector('button'));
+        }
+      }, 5000);
+    }
+
+    function removeToast(button) {
+      const toast = button.closest('.toast');
+      toast.classList.add('removing');
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.parentNode.removeChild(toast);
+        }
+      }, 300);
+    }
+
+    // Modal functions
+    function showUploadModal() {
+      document.getElementById('upload-modal').classList.remove('hidden');
+    }
+
+    function hideUploadModal() {
+      document.getElementById('upload-modal').classList.add('hidden');
+    }
+
+    function showCreateLessonModal() {
+      document.getElementById('create-lesson-modal').classList.remove('hidden');
+    }
+
+    function hideCreateLessonModal() {
+      document.getElementById('create-lesson-modal').classList.add('hidden');
+    }
+
+    function showAddPartModal(moduleId) {
+      const form = document.getElementById('add-part-form');
+      form.setAttribute('hx-post', `/ai/courses/{{ course.id }}/modules/${moduleId}/submodules/create`);
+      htmx.process(form);
+      document.getElementById('add-part-modal').classList.remove('hidden');
+    }
+
+    function hideAddPartModal() {
+      document.getElementById('add-part-modal').classList.add('hidden');
+    }
+
+    function toggleLessonDetails(moduleId) {
+      const details = document.getElementById('lesson-details-' + moduleId);
+      details.classList.toggle('hidden');
+    }
+
+    // HTMX response handlers
+    function handleUploadResponse(event) {
+      if (event.detail.xhr.status === 200) {
+        showToast('File uploaded successfully!', 'success');
+        hideUploadModal();
+        // Reset form
+        event.target.reset();
+        // Refresh page content
+        setTimeout(() => {
+          location.reload();
+        }, 1000);
+      } else {
+        showToast('Upload failed. Please try again.', 'error');
+      }
+    }
+
+    function handleCreateLessonResponse(event) {
+      if (event.detail.xhr.status === 200) {
+        showToast('Lesson created successfully!', 'success');
+        hideCreateLessonModal();
+        event.target.reset();
+        // Refresh the lessons section to show the new lesson
+        setTimeout(() => {
+          location.reload();
+        }, 1000);
+      } else {
+        showToast('Failed to create lesson. Please try again.', 'error');
+      }
+    }
+
+    function handleAddPartResponse(event) {
+      if (event.detail.xhr.status === 200) {
+        showToast('Part added to lesson successfully!', 'success');
+        hideAddPartModal();
+        event.target.reset();
+        // Refresh the lessons section to show the new part
+        setTimeout(() => {
+          location.reload();
+        }, 1000);
+      } else {
+        showToast('Failed to add part. Please try again.', 'error');
+      }
+    }
+
+    // HTMX event listeners for processing actions
+// Enhanced HTMX event listeners for processing actions
+document.body.addEventListener('htmx:afterRequest', function(event) {
+  const xhr = event.detail.xhr;
+  const target = event.detail.target;
+  
+  // Handle process responses
+  if (xhr.responseURL && xhr.responseURL.includes('/process')) {
+    if (xhr.status === 200) {
+      // Check if this was a "Process All" operation
+      if (xhr.responseURL.includes('/process_all')) {
+        showToast('All lesson parts have been processed and are ready to teach! 🎉', 'success');
+        const moduleMatch = xhr.responseURL.match(/modules\/(\d+)\/process_all/);
+        if (moduleMatch) {
+          const moduleId = moduleMatch[1];
+          updateModuleStatus(moduleId);
+        }
+        event.preventDefault();
+        return false;
+      } else {
+        // Individual submodule processing
+        showToast('Part processed successfully!', 'success');
+        const submoduleMatch = xhr.responseURL.match(/submodules\/(\d+)\/process/);
+        if (submoduleMatch) {
+          const button = event.detail.elt;
+          updateIndividualSubmoduleStatus(button);
+        }
+        event.preventDefault();
+        return false;
+      }
+    } else {
+      showToast('Processing failed. Please try again.', 'error');
+    }
+  }
+  
+  // Handle delete responses
+  if (xhr.responseURL && xhr.responseURL.includes('_method=DELETE')) {
+    if (xhr.status === 200) {
+      // Find the module card and remove it smoothly
+      const button = event.detail.elt; // The button that triggered the request
+      const moduleCard = button.closest('.simple-card');
+      
+      if (moduleCard) {
+        // Add fade out animation
+        moduleCard.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
+        moduleCard.style.opacity = '0';
+        moduleCard.style.transform = 'translateX(-20px)';
+        
+        // Remove the card after animation
+        setTimeout(() => {
+          moduleCard.remove();
+          
+          // Check if there are no more lessons and show empty state
+          const lessonsContainer = document.querySelector('#lessons-section .space-y-4');
+          if (lessonsContainer && lessonsContainer.children.length === 0) {
+            showEmptyLessonsState();
+          }
+        }, 300);
+      }
+      
+      showToast('Lesson deleted successfully!', 'success');
+      
+      // Prevent default swap behavior
+      event.preventDefault();
+      return false;
+    } else {
+      showToast('Failed to delete lesson. Please try again.', 'error');
+    }
+  }
+  
+  // Handle generate lessons responses
+  if (xhr.responseURL && xhr.responseURL.includes('/generate_lessons')) {
+    if (xhr.status === 200) {
+      showToast('Lessons generated successfully!', 'success');
+    } else {
+      showToast('Failed to generate lessons. Please try again.', 'error');
+    }
+  }
+});
+function updateIndividualSubmoduleStatus(processButton) {
+  // Find the parent submodule container
+  const submoduleContainer = processButton.closest('.flex.items-center.justify-between');
+  
+  if (submoduleContainer) {
+    // Update the status text
+    const statusSpan = submoduleContainer.querySelector('.text-yellow-600');
+    if (statusSpan && statusSpan.textContent.includes('⏳ Pending')) {
+      statusSpan.textContent = '✓ Ready';
+      statusSpan.className = 'ml-2 text-green-600 text-sm';
+    }
+    
+    // Remove the process button
+    processButton.remove();
+    
+    // Check if all submodules in this lesson are now processed
+    const lessonDetails = submoduleContainer.closest('[id^="lesson-details-"]');
+    if (lessonDetails) {
+      const remainingPendingStatuses = lessonDetails.querySelectorAll('.text-yellow-600');
+      const pendingCount = Array.from(remainingPendingStatuses).filter(status => 
+        status.textContent.includes('⏳ Pending')).length;
+      
+      if (pendingCount === 0) {
+        // All parts are processed, update the main lesson card
+        const moduleId = lessonDetails.id.replace('lesson-details-', '');
+        updateModuleStatus(moduleId);
+      }
+    }
+  }
+}
+// Function to update module status after processing
+function updateModuleStatus(moduleId) {
+  // Find the module card
+  const moduleCard = document.querySelector(`[data-module-id="${moduleId}"]`) || 
+                    document.querySelector(`button[hx-post*="modules/${moduleId}/process_all"]`)?.closest('.simple-card');
+  
+  if (moduleCard) {
+    // Update status badges
+    const statusArea = moduleCard.querySelector('.flex.items-center.text-sm.text-gray-500');
+    if (statusArea) {
+      // Remove old "Ready to teach" badge if it exists
+      const existingBadge = statusArea.querySelector('.bg-green-100');
+      if (existingBadge && existingBadge.textContent.includes('Ready to teach')) {
+        existingBadge.remove();
+      }
+      
+      // Add the "Ready to teach" badge
+      const readyBadge = document.createElement('span');
+      readyBadge.className = 'ml-2 bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium';
+      readyBadge.textContent = 'Ready to teach';
+      statusArea.appendChild(readyBadge);
+    }
+    
+    // Remove the "Process All" button
+    const processAllButton = moduleCard.querySelector('button[hx-post*="/process_all"]');
+    if (processAllButton) {
+      processAllButton.remove();
+    }
+    
+    // Update individual submodule statuses in details if they're visible
+    const detailsSection = moduleCard.querySelector(`#lesson-details-${moduleId}`);
+    if (detailsSection && !detailsSection.classList.contains('hidden')) {
+      const submoduleStatuses = detailsSection.querySelectorAll('.text-yellow-600');
+      submoduleStatuses.forEach(status => {
+        if (status.textContent.includes('⏳ Pending')) {
+          status.textContent = '✓ Ready';
+          status.className = 'ml-2 text-green-600 text-sm';
+        }
+      });
+      
+      // Remove individual "Process" buttons
+      const processButtons = detailsSection.querySelectorAll('button[hx-post*="/process"]');
+      processButtons.forEach(button => button.remove());
+    }
+  }
+}
+
+    // Show loading state for long operations
+    document.body.addEventListener('htmx:beforeRequest', function(event) {
+      const xhr = event.detail.xhr;
+      if (xhr.responseURL && (xhr.responseURL.includes('/process') || xhr.responseURL.includes('/generate_lessons'))) {
+        showToast('Processing started... This may take a few moments.', 'info');
+      }
+    });
+  </script>
+</body>
+</html>

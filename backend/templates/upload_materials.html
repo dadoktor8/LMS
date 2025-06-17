@@ -11,9 +11,11 @@
   <input id="sidebar-toggle" type="checkbox" class="hidden peer" />
 
   <!-- Sidebar (fixed to the left, slides over, X to close) -->
-  <aside class="fixed top-0 left-0 h-full w-64 z-40 bg-white border-r border-gray-100 shadow-lg
-                transform transition-transform duration-200
-                -translate-x-full peer-checked:translate-x-0">
+  <aside 
+    class="fixed top-0 left-0 h-full w-64 z-40 bg-white border-r border-gray-100 shadow-lg
+           transform transition-transform duration-200
+           -translate-x-full peer-checked:translate-x-0">
+
     <div class="px-6 pt-6 pb-2 flex items-center justify-between border-b">
       <span class="font-bold text-blue-700 text-lg">Intellaica LMS</span>
       <label for="sidebar-toggle" class="block cursor-pointer ml-3">
@@ -31,17 +33,59 @@
             {% for course in courses %}
             <li class="ml-6">
               <details class="group">
-                <summary class="cursor-pointer flex items-center py-2 rounded hover:bg-blue-50 text-blue-900 font-normal">
+                <summary 
+                  class="cursor-pointer flex items-center py-2 rounded hover:bg-blue-50 text-blue-900 font-normal">
                   <span>📖 {{ course.title }}</span>
-                  <svg class="h-4 w-4 ml-2 text-gray-400 group-open:rotate-90 transition-transform" fill="none" viewBox="0 0 20 20"><path stroke="currentColor" d="M7 7l3-3 3 3"/><path stroke="currentColor" d="M7 13l3 3 3-3"/></svg>
+                  <svg 
+                    class="h-4 w-4 ml-2 text-gray-400 group-open:rotate-90 transition-transform" 
+                    fill="none" viewBox="0 0 20 20">
+                    <path stroke="currentColor" d="M7 7l3-3 3 3"/>
+                    <path stroke="currentColor" d="M7 13l3 3 3-3"/>
+                  </svg>
                 </summary>
                 <ul class="ml-3">
-                  <li><a href="/auth/courses/{{ course.id }}/enroll" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">👥 Enroll Students</a></li>
-                  <li><a href="/auth/courses/{{ course.id }}/attendance" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">📝 Attendance</a></li>
-                  <li><a href="/ai/teacher/{{ course.id }}/assignments" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">✏️ Manage Assignments</a></li>
-                  <li><a href="/ai/courses/{{ course.id }}/upload_materials" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">📤 Upload Materials</a></li>
-                  <li><a href="/auth/courses/{{ course.id }}/invite-ta" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">🎓 Invite TA</a></li>
-                  <li><a href="/ai/courses/{{ course.id }}/quiz/create" class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">🎓 Create Quiz</a></li>
+                  <li>
+                    <a href="/auth/courses/{{ course.id }}/enroll"
+                       class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">
+                      👥 Enroll Students
+                    </a>
+                  </li>
+                  <li>
+                    <a href="/auth/courses/{{ course.id }}/attendance"
+                       class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">
+                      📝 Attendance
+                    </a>
+                  </li>
+                  <li>
+                    <a href="/ai/teacher/{{ course.id }}/assignments"
+                       class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">
+                      ✏️ Manage Assignments
+                    </a>
+                  </li>
+                  <li>
+                    <a href="/ai/courses/{{ course.id }}/upload_materials"
+                       class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">
+                      📤 Upload Materials
+                    </a>
+                  </li>
+                  <li>
+                    <a href="/ai/courses/{{ course.id }}/modules"
+                       class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">
+                      📚 Manage Modules
+                    </a>
+                  </li>
+                  <li>
+                    <a href="/auth/courses/{{ course.id }}/invite-ta"
+                       class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">
+                      🎓 Invite TA
+                    </a>
+                  </li>
+                  <li>
+                    <a href="/ai/courses/{{ course.id }}/quiz/create"
+                       class="flex items-center text-gray-700 px-2 py-1 rounded hover:bg-blue-100">
+                      🎓 Create Quiz
+                    </a>
+                  </li>
                 </ul>
               </details>
             </li>
@@ -51,13 +95,16 @@
           </ul>
         </li>
         <li>
-          <a href="/auth/logout" class="flex items-center px-6 py-2 hover:bg-red-100 text-red-600 font-semibold">
+          <a href="/auth/logout"
+             class="flex items-center px-6 py-2 hover:bg-red-100 text-red-600 font-semibold">
             🚪 <span class="ml-2">Logout</span>
           </a>
         </li>
       </ul>
     </nav>
-    <div class="mt-12 text-xs text-gray-400 px-6 text-center">✨ Inspire, teach, repeat!</div>
+    <div class="mt-12 text-xs text-gray-400 px-6 text-center">
+      ✨ Inspire, teach, repeat!
+    </div>
   </aside>
 
   <!-- Main content wrapper, shifts right -->
@@ -79,280 +126,518 @@
       <!-- Nav items right -->
       <ul class="flex gap-6 items-center text-base ml-auto">
         <li>
-          <a href="/auth/logout" class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition flex items-center">
+          <a href="/auth/logout"
+             class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition flex items-center">
             🚪 Logout
           </a>
         </li>
       </ul>
     </nav>
 
-  <main class="max-w-3xl mx-auto px-4">
-    <!-- PDF Constraints Warning Box -->
-    <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6 mt-6 rounded-md shadow">
-      <div class="flex items-center">
-        <div class="flex-shrink-0">
-          <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-          </svg>
+    <main class="max-w-4xl mx-auto px-4">
+      <!-- PDF Constraints Warning Box -->
+      <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6 mt-6 rounded-md shadow">
+        <div class="flex items-center">
+          <div class="flex-shrink-0">
+            <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd"
+                    d="M8.257 3.099c.765-1.36 2.722-1.36 
+                       3.486 0l5.58 9.92c.75 1.334-.213 
+                       2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 
+                       13a1 1 0 11-2 0 1 1 0 012 
+                       0zm-1-8a1 1 0 00-1 
+                       1v3a1 1 0 002 0V6a1 
+                       1 0 00-1-1z" 
+                    clip-rule="evenodd"/>
+            </svg>
+          </div>
+          <div class="ml-3">
+            <h3 class="text-sm font-bold text-yellow-800">Important PDF Constraints</h3>
+            <div class="mt-1 text-sm text-yellow-700">
+              <ul class="list-disc ml-4 space-y-1">
+                <li><strong>Only PDFs are processed</strong> - other file types will be ignored</li>
+                <li><strong>Each PDF must be processed completely</strong> - ensure your PDFs don't exceed your daily quota</li>
+                <li><strong>Current daily quota:</strong> {{ quota_total }} pages per course</li>
+                <li><strong>Large PDFs will be rejected</strong> if they exceed your remaining quota</li>
+              </ul>
+            </div>
+          </div>
         </div>
-        <div class="ml-3">
-          <h3 class="text-sm font-bold text-yellow-800">Important PDF Constraints</h3>
-          <div class="mt-1 text-sm text-yellow-700">
-            <ul class="list-disc ml-4 space-y-1">
-              <li><strong>Only PDFs are processed</strong> - other file types will be ignored</li>
-              <li><strong>Each PDF must be processed completely</strong> - ensure your PDFs don't exceed your daily quota</li>
-              <li><strong>Current daily quota:</strong> {{ quota_total }} pages per course</li>
-              <li><strong>Large PDFs will be rejected</strong> if they exceed your remaining quota</li>
-            </ul>
+      </div>
+
+      <!-- Quick Actions Navigation -->
+      <div class="bg-white rounded-xl shadow p-6 mb-6 border border-gray-100">
+        <h2 class="text-lg font-bold mb-4 text-gray-800 flex items-center gap-2">🚀 Quick Actions</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <a href="/ai/courses/{{ course_id }}/modules" 
+             class="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition group">
+            <div class="flex-shrink-0">
+              <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M19 11H5m14-7v16M9 11h6"/>
+              </svg>
+            </div>
+            <div>
+              <h3 class="font-semibold text-blue-800 group-hover:text-blue-900">Manage Modules</h3>
+              <p class="text-sm text-blue-600">Create and organize course modules</p>
+            </div>
+          </a>
+          
+          <button onclick="showModuleCreationOptions()" 
+                  class="flex items-center gap-3 p-4 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition group text-left">
+            <div class="flex-shrink-0">
+              <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+              </svg>
+            </div>
+            <div>
+              <h3 class="font-semibold text-green-800 group-hover:text-green-900">Create Modules</h3>
+              <p class="text-sm text-green-600">Auto-generate from PDFs or create manually</p>
+            </div>
+          </button>
+          
+          <div class="flex items-center gap-3 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+            <div class="flex-shrink-0">
+              <svg class="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 
+                         00-2 2v6a2 2 0 002 2h2a2 2 0 
+                         002-2zm0 0V9a2 2 0 012-2h2a2 2 
+                         0 012 2v10m-6 0a2 2 0 002 
+                         2h2a2 2 0 002-2m0 0V5a2 
+                         2 0 012-2h2a2 2 0 
+                         012 2v4a2 2 0 01-2 
+                         2h-2a2 2 0 01-2-2z"/>
+              </svg>
+            </div>
+            <div>
+              <h3 class="font-semibold text-purple-800">Processing Status</h3>
+              <p class="text-sm text-purple-600">{{ quota_remaining }}/{{ quota_total }} pages remaining</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-8">
+        <!-- Upload Material Card -->
+        <div class="bg-white rounded-xl shadow p-7 border border-gray-100 flex flex-col justify-center">
+          <h2 class="text-lg font-bold mb-4 text-gray-800 flex items-center gap-2">📤 Upload Course Material</h2>
+          <form class="space-y-4"
+                hx-post="/ai/courses/{{ course_id }}/upload_materials"
+                method="post"
+                enctype="multipart/form-data"
+                hx-target="#success-toast"
+                hx-swap="innerHTML"
+                hx-indicator="#upload-loader">
+            <input type="file" name="file" required
+                   class="block w-full text-sm text-gray-700 
+                          file:bg-blue-50 file:border-none file:rounded-lg file:px-4 file:py-2 
+                          file:text-blue-700 file:font-semibold file:mr-4"/>
+            <button type="submit"
+                    class="w-full py-2 mt-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition flex items-center justify-center">
+              <span class="upload-button-text">Upload</span>
+              <div id="upload-loader"
+                   class="animate-spin ml-2 w-4 h-4 border-2 border-white border-t-transparent rounded-full hidden"></div>
+            </button>
+          </form>
+          <div id="success-toast" class="mt-3"></div>
+        </div>
+
+        <!-- Uploaded Materials Table -->
+        <div class="bg-white rounded-xl shadow p-7 border border-gray-100">
+          <h3 class="text-lg font-bold text-gray-800 mb-5 flex items-center justify-between">
+            📚 Uploaded Materials
+            <span class="text-sm font-normal text-gray-500">({{ materials|length }} files)</span>
+          </h3>
+          <div class="w-full">
+            <table class="w-full mb-2 text-sm table-fixed">
+              <thead>
+                <tr class="bg-gray-50">
+                  <th class="font-semibold px-3 py-2 text-left w-2/5">File</th>
+                  <th class="font-semibold px-3 py-2 text-left w-1/5">Date</th>
+                  <th class="font-semibold px-3 py-2 text-left w-2/5">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="materials-table-body">
+                {% for material in materials %}
+                <tr class="border-b" id="material-row-{{ material.id }}">
+                  <td class="px-3 py-3">
+                    <a href="/ai/courses/{{ course_id }}/materials/{{ material.id }}/download"
+                       target="_blank"
+                       class="text-blue-700 underline font-medium hover:text-blue-900 truncate block">
+                      📄 {{ material.title or material.filename }}
+                    </a>
+                  </td>
+                  <td class="px-3 py-3 text-xs">{{ material.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                  <td class="px-3 py-3">
+                    {% set is_processed = material.processed_materials|length > 0 %}
+                    {% set has_modules = material.submodules|length > 0 %}
+                    <div class="flex flex-wrap gap-1">
+                      {% if is_processed %}
+                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium 
+                                     bg-green-100 text-green-800">
+                          ✓ Processed
+                        </span>
+                      {% else %}
+                        <button
+                          onclick="confirmDelete({{ material.id }}, '{{ material.title or material.filename }}')"
+                          class="inline-flex items-center px-2 py-1 text-xs font-medium text-red-600 bg-red-50 
+                                 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
+                          title="Delete material">
+                          🗑️ Delete
+                        </button>
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+                {% else %}
+                <tr id="no-materials-row">
+                  <td colspan="3" class="text-center text-gray-400 py-4">
+                    No materials uploaded yet.
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <!-- Process Materials Button -->
+          <div class="text-center mt-6">
+            <button
+              hx-post="/ai/courses/{{ course_id }}/process_materials"
+              hx-target="#process-status"
+              hx-indicator="#loader"
+              class="inline-flex items-center gap-2 px-5 py-2 bg-green-600 text-white 
+                     rounded-lg font-semibold hover:bg-green-700 transition"
+              hx-swap="outerHTML">
+              ⚙️ Process Materials
+            </button>
+            <div id="loader" 
+                 class="animate-spin mx-auto mt-2 w-6 h-6 border-4 border-blue-200 
+                        border-t-blue-600 rounded-full hidden">
+            </div>
+          </div>
+          <!-- Display status of the processing -->
+          <div id="process-status" class="mt-4"></div>
+        </div>
+      </div>
+
+      <!-- Module Creation Status -->
+      <div id="module-creation-status" class="mt-4"></div>
+
+      <!-- Upload and Processing Quotas -->
+      <div class="mt-4 grid gap-4 grid-cols-1 md:grid-cols-2">
+        <!-- Daily Upload Quota Card - LEFT SIDE, BLUE -->
+        <div class="px-5 py-4 bg-blue-50 rounded-lg border border-blue-200 shadow-sm">
+          <h4 class="font-bold text-blue-800 flex items-center gap-1 text-base">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6
+                       a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12">
+              </path>
+            </svg>
+            Daily Upload Quota
+          </h4>
+          <div class="flex flex-col gap-3 mt-3">
+            <!-- Files counter -->
+            <div class="flex items-center">
+              <div class="w-full bg-gray-200 rounded-full h-3">
+                <div class="bg-blue-600 h-3 rounded-full"
+                     style="width: {{ (upload_files_used / 100) * 100 }}%">
+                </div>
+              </div>
+              <span class="ml-2 text-sm font-medium text-gray-700">
+                {{ 100 - upload_files_used }}/100 files
+              </span>
+            </div>
+            <!-- Size counter -->
+            <div class="flex items-center">
+              <div class="w-full bg-gray-200 rounded-full h-3">
+                <div class="bg-blue-600 h-3 rounded-full"
+                     style="width: {{ (upload_bytes_used / upload_bytes_total) * 100 }}%">
+                </div>
+              </div>
+              <span class="ml-2 text-sm font-medium text-gray-700">
+                {{ ((upload_bytes_total - upload_bytes_used) / (1024 * 1024 * 1024)) | round(1) }}/2.0 GB
+              </span>
+            </div>
+          </div>
+          <div class="mt-3 p-2 bg-white rounded border border-blue-100">
+            <p class="text-sm text-blue-800 font-medium">
+              <strong>Daily upload limits:</strong>
+            </p>
+            <p class="text-sm text-gray-600">
+              Max 100 files and 2 GB total upload size per course
+            </p>
+          </div>
+        </div>
+
+        <!-- Processing Quota Card - RIGHT SIDE, GREEN -->
+        <div class="px-5 py-4 bg-green-50 rounded-lg border border-green-200 shadow-sm">
+          <h4 class="font-bold text-green-800 flex items-center gap-1 text-base">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 
+                       12a9 9 0 11-18 0 9 9 0 0118 
+                       0z">
+              </path>
+            </svg>
+            Daily Processing Quota
+          </h4>
+          <div class="flex items-center mt-3">
+            <div class="w-full bg-gray-200 rounded-full h-3">
+              <div class="bg-green-600 h-3 rounded-full"
+                   style="width: {{ (quota_used / quota_total) * 100 }}%">
+              </div>
+            </div>
+            <span class="ml-2 text-sm font-medium text-gray-700">
+              {{ quota_remaining }}/2000 pages
+            </span>
+          </div>
+          <div class="mt-3 p-2 bg-white rounded border border-green-100">
+            <p class="text-sm text-green-800 font-medium">
+              <strong>IMPORTANT:</strong> PDFs must be processed completely or not at all.
+            </p>
+            <p class="text-sm text-gray-600 mt-1">
+              A PDF with more pages than your remaining quota will be skipped.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Status Toast Template for Process Results -->
+      <template id="process-result-template">
+        <div class="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4 mt-4">
+          <h3 class="font-semibold text-blue-700">📊 Processing Results</h3>
+          <ul class="mt-2 text-sm text-blue-600 space-y-1">
+            <li>✅ Processed: <span id="processed-count">0</span> materials</li>
+            <li>⏭️ Skipped: <span id="skipped-count">0</span> (already processed)</li>
+            <li>⚠️ Quota exceeded: <span id="quota-exceeded-count">0</span> materials</li>
+          </ul>
+          <p class="mt-2 text-xs text-blue-700">
+            Daily quota remaining: <span id="remaining-quota">0</span> pages
+          </p>
+        </div>
+      </template>
+
+      <div class="text-center mt-12">
+        {% if role == "teacher" %}
+          <a href="/auth/teacher/dashboard" class="text-blue-700 hover:underline inline-flex items-center gap-1">
+            ⬅ Back to Dashboard
+          </a>
+        {% else %}
+          <a href="/auth/student/courses" class="text-blue-700 hover:underline inline-flex items-center gap-1">
+            ⬅ Back to Dashboard
+          </a>
+        {% endif %}
+      </div>
+    </main>
+
+    <!-- Module Creation Options Modal -->
+    <div id="module-creation-modal"
+         class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+      <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3">
+          <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100">
+            <svg class="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+            </svg>
+          </div>
+          <h3 class="text-lg font-medium text-gray-900 mt-2 text-center">
+            Create Modules
+          </h3>
+          <div class="mt-4 space-y-3">
+            <button
+              onclick="showManualModuleForm()"
+              class="w-full px-4 py-3 bg-green-500 text-white rounded-md hover:bg-green-600
+                     focus:outline-none focus:ring-2 focus:ring-green-300 text-left">
+              <div class="font-medium">✏️ Create Manual Module</div>
+              <div class="text-sm text-green-100">
+                Create a custom module with your own title and content
+              </div>
+            </button>
+            <a href="/ai/courses/{{ course_id }}/modules"
+               class="w-full px-4 py-3 bg-purple-500 text-white rounded-md hover:bg-purple-600
+                      focus:outline-none focus:ring-2 focus:ring-purple-300 text-left block">
+              <div class="font-medium">🔧 Advanced Module Management</div>
+              <div class="text-sm text-purple-100">
+                Full module management interface with processing controls
+              </div>
+            </a>
+          </div>
+          <div class="mt-4 text-center">
+            <button
+              onclick="closeModuleCreationModal()"
+              class="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md hover:bg-gray-600 
+                     focus:outline-none focus:ring-2 focus:ring-gray-300">
+              Cancel
+            </button>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="grid md:grid-cols-2 gap-8">
-      <!-- Upload Material Card -->
-      <div class="bg-white rounded-xl shadow p-7 border border-gray-100 flex flex-col justify-center">
-        <h2 class="text-lg font-bold mb-4 text-gray-800 flex items-center gap-2">📤 Upload Course Material</h2>
-        <form class="space-y-4"
-              hx-post="/ai/courses/{{ course_id }}/upload_materials"
-              method="post"
-              enctype="multipart/form-data"
-              hx-target="#success-toast"
-              hx-swap="innerHTML"
-              hx-indicator="#upload-loader">
-          <input type="file" name="file" required
-            class="block w-full text-sm text-gray-700 file:bg-blue-50 file:border-none file:rounded-lg file:px-4 file:py-2 file:text-blue-700 file:font-semibold file:mr-4"/>
-          <button type="submit"
-            class="w-full py-2 mt-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition flex items-center justify-center">
-            <span class="upload-button-text">Upload</span>
-            <div id="upload-loader" class="animate-spin ml-2 w-4 h-4 border-2 border-white border-t-transparent rounded-full hidden"></div>
-          </button>
-        </form>
-        <div id="success-toast" class="mt-3"></div>
-      </div>
-
-      <!-- Uploaded Materials Table -->
-      <div class="bg-white rounded-xl shadow p-7 border border-gray-100">
-        <h3 class="text-lg font-bold text-gray-800 mb-5">📚 Uploaded Materials</h3>
-        <div class="w-full">
-          <table class="w-full mb-2 text-sm table-fixed">
-            <thead>
-              <tr class="bg-gray-50">
-                <th class="font-semibold px-3 py-2 text-left w-1/2">File</th>
-                <th class="font-semibold px-3 py-2 text-left w-1/4">Date</th>
-                <th class="font-semibold px-3 py-2 text-left w-1/4">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="materials-table-body">
-              {% for material in materials %}
-              <tr class="border-b" id="material-row-{{ material.id }}">
-                <td class="px-3 py-3">
-                  <a href="/ai/courses/{{ course_id }}/materials/{{ material.id }}/download" target="_blank"
-                  class="text-blue-700 underline font-medium hover:text-blue-900 truncate block">
-                  📄 {{ material.title or material.filename }}
-               </a>
-                </td>
-                <td class="px-3 py-3 text-xs">{{ material.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                <td class="px-3 py-3">
-                  {% set is_processed = material.processed_materials|length > 0 %}
-                  {% if is_processed %}
-                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                      ✓ Processed
-                    </span>
-                  {% else %}
-                    <button
-                      onclick="confirmDelete({{ material.id }}, '{{ material.title or material.filename }}')"
-                      class="inline-flex items-center px-2 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors"
-                      title="Delete material">
-                      🗑️ Delete
-                    </button>
-                  {% endif %}
-                </td>
-              </tr>
-              {% else %}
-              <tr id="no-materials-row">
-                <td colspan="3" class="text-center text-gray-400 py-4">No materials uploaded yet.</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        <!-- Process Materials Button -->
-        <div class="text-center mt-6">
-          <button
-            hx-post="/ai/courses/{{ course_id }}/process_materials"
-            hx-target="#process-status"
-            hx-indicator="#loader"
-            class="inline-flex items-center gap-2 px-5 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition"
-            hx-swap="outerHTML">
-            ⚙️ Process Materials
-          </button>
-          <div id="loader" class="animate-spin mx-auto mt-2 w-6 h-6 border-4 border-blue-200 border-t-blue-600 rounded-full hidden"></div>
-        </div>
-        <!-- Display status of the processing -->
-        <div id="process-status" class="mt-4"></div>
-      </div>
-    </div>
-
-<!-- Upload and Processing Quotas -->
-<div class="mt-4 grid gap-4 grid-cols-1 md:grid-cols-2">
-  <!-- Daily Upload Quota Card - LEFT SIDE, BLUE -->
-  <div class="px-5 py-4 bg-blue-50 rounded-lg border border-blue-200 shadow-sm">
-    <h4 class="font-bold text-blue-800 flex items-center gap-1 text-base">
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-      </svg>
-      Daily Upload Quota
-    </h4>
-    
-    <div class="flex flex-col gap-3 mt-3">
-      <!-- Files counter -->
-      <div class="flex items-center">
-        <div class="w-full bg-gray-200 rounded-full h-3">
-          <div class="bg-blue-600 h-3 rounded-full" style="width: {{ (upload_files_used / 100) * 100 }}%"></div>
-        </div>
-        <span class="ml-2 text-sm font-medium text-gray-700">{{ 100 - upload_files_used }}/100 files</span>
-      </div>
-      
-      <!-- Size counter -->
-      <div class="flex items-center">
-        <div class="w-full bg-gray-200 rounded-full h-3">
-          <div class="bg-blue-600 h-3 rounded-full" style="width: {{ (upload_bytes_used / upload_bytes_total) * 100 }}%"></div>
-        </div>
-        <span class="ml-2 text-sm font-medium text-gray-700">{{ ((upload_bytes_total - upload_bytes_used) / (1024 * 1024 * 1024)) | round(1) }}/2.0 GB</span>
-      </div>
-    </div>
-    
-    <div class="mt-3 p-2 bg-white rounded border border-blue-100">
-      <p class="text-sm text-blue-800 font-medium">
-        <strong>Daily upload limits:</strong>
-      </p>
-      <p class="text-sm text-gray-600">
-        Max 100 files and 2 GB total upload size per course
-      </p>
-    </div>
-  </div>
-
-  <!-- Processing Quota Card - RIGHT SIDE, GREEN -->
-  <div class="px-5 py-4 bg-green-50 rounded-lg border border-green-200 shadow-sm">
-    <h4 class="font-bold text-green-800 flex items-center gap-1 text-base">
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-      </svg>
-      Daily Processing Quota
-    </h4>
-    
-    <div class="flex items-center mt-3">
-      <div class="w-full bg-gray-200 rounded-full h-3">
-        <div class="bg-green-600 h-3 rounded-full" style="width: {{ (quota_used / quota_total) * 100 }}%"></div>
-      </div>
-      <span class="ml-2 text-sm font-medium text-gray-700">{{ quota_remaining }}/2000 pages</span>
-    </div>
-    
-    <div class="mt-3 p-2 bg-white rounded border border-green-100">
-      <p class="text-sm text-green-800 font-medium">
-        <strong>IMPORTANT:</strong> PDFs must be processed completely or not at all.
-      </p>
-      <p class="text-sm text-gray-600 mt-1">
-        A PDF with more pages than your remaining quota will be skipped.
-      </p>
-    </div>
-  </div>
-</div>
-    
-    <!-- Status Toast Template for Process Results -->
-    <template id="process-result-template">
-      <div class="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4 mt-4">
-        <h3 class="font-semibold text-blue-700">📊 Processing Results</h3>
-        <ul class="mt-2 text-sm text-blue-600 space-y-1">
-          <li>✅ Processed: <span id="processed-count">0</span> materials</li>
-          <li>⏭️ Skipped: <span id="skipped-count">0</span> (already processed)</li>
-          <li>⚠️ Quota exceeded: <span id="quota-exceeded-count">0</span> materials</li>
-        </ul>
-        <p class="mt-2 text-xs text-blue-700">
-          Daily quota remaining: <span id="remaining-quota">0</span> pages
-        </p>
-      </div>
-    </template>
-
-    <div class="text-center mt-12">
-      {% if role == "teacher" %}
-        <a href="/auth/teacher/dashboard" class="text-blue-700 hover:underline inline-flex items-center gap-1">
-          ⬅ Back to Dashboard
-        </a>
-      {% else %}
-        <a href="/auth/student/courses" class="text-blue-700 hover:underline inline-flex items-center gap-1">
-          ⬅ Back to Dashboard
-        </a>
-      {% endif %}
-    </div>
-  </main>
-
-  <!-- Delete Confirmation Modal -->
-  <div id="delete-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
-    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-      <div class="mt-3 text-center">
-        <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
-          <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16c-.77.833.192 2.5 1.732 2.5z"/>
-          </svg>
-        </div>
-        <h3 class="text-lg font-medium text-gray-900 mt-2">Delete Material</h3>
-        <div class="mt-2 px-7 py-3">
-          <p class="text-sm text-gray-500">
-            Are you sure you want to delete "<span id="delete-filename"></span>"? This action cannot be undone.
-          </p>
-        </div>
-        <div class="items-center px-4 py-3">
-          <button
-            id="confirm-delete-btn"
-            class="px-4 py-2 bg-red-500 text-white text-base font-medium rounded-md w-24 mr-2 hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-300">
-            Delete
-          </button>
-          <button
-            onclick="closeDeleteModal()"
-            class="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md w-24 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300">
-            Cancel
-          </button>
+    <!-- Manual Module Creation Form Modal -->
+    <div id="manual-module-modal"
+         class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+      <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3">
+          <h3 class="text-lg font-medium text-gray-900 mb-4 text-center">
+            Create Manual Module
+          </h3>
+          <form id="manual-module-form" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Module Title
+              </label>
+              <input type="text" name="title" required
+                     class="w-full px-3 py-2 border border-gray-300 rounded-md
+                            focus:outline-none focus:ring-2 focus:ring-blue-500"
+                     placeholder="Enter module title">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Description (Optional)
+              </label>
+              <textarea name="description" rows="3"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md
+                               focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Enter module description"></textarea>
+            </div>
+            <div class="flex gap-2">
+              <button type="submit"
+                      class="flex-1 px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600
+                             focus:outline-none focus:ring-2 focus:ring-green-300">
+                Create Module
+              </button>
+              <button type="button" onclick="closeManualModuleModal()"
+                      class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600
+                             focus:outline-none focus:ring-2 focus:ring-gray-300">
+                Cancel
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- Delete Status Toast -->
-  <div id="delete-toast" class="fixed top-4 right-4 z-50"></div>
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal"
+         class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+      <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3 text-center">
+          <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+            <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 9v2m0 4h.01m-6.938 
+                       4h13.856c1.54 0 2.502-1.667 
+                       1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 
+                       0L3.732 16c-.77.833.192 2.5 
+                       1.732 2.5z"/>
+            </svg>
+          </div>
+          <h3 class="text-lg font-medium text-gray-900 mt-2">
+            Delete Material
+          </h3>
+          <div class="mt-2 px-7 py-3">
+            <p class="text-sm text-gray-500">
+              Are you sure you want to delete "<span id="delete-filename"></span>"?
+              This action cannot be undone.
+            </p>
+          </div>
+          <div class="items-center px-4 py-3">
+            <button id="confirm-delete-btn"
+                    class="px-4 py-2 bg-red-500 text-white text-base font-medium rounded-md w-24 mr-2
+                           hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-300">
+              Delete
+            </button>
+            <button onclick="closeDeleteModal()"
+                    class="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md w-24
+                           hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
+    <!-- Delete Status Toast -->
+    <div id="delete-toast" class="fixed top-4 right-4 z-50"></div>
+  </div><!-- end main content area -->
+
+  <!-- Scripts -->
   <script>
+    // Track which material the user wants to delete
     let materialToDelete = null;
 
-    // HTMX event handlers for upload feedback
+    // Show the “Module Creation” modal
+    function showModuleCreationOptions() {
+      document.getElementById('module-creation-modal').classList.remove('hidden');
+    }
+    function closeModuleCreationModal() {
+      document.getElementById('module-creation-modal').classList.add('hidden');
+    }
+    function showManualModuleForm() {
+      closeModuleCreationModal();
+      document.getElementById('manual-module-modal').classList.remove('hidden');
+    }
+    function closeManualModuleModal() {
+      document.getElementById('manual-module-modal').classList.add('hidden');
+    }
+
+    // Stub for auto-generate modules from all PDFs
+    function createModuleFromAllPDFs() {
+      alert("Auto-generating modules from all PDFs (stub)...");
+      // In your real code, you'd do something like:
+      // htmx.ajax('POST', `/ai/courses/{{ course_id }}/modules/create_from_all`, '#module-creation-status');
+      closeModuleCreationModal();
+    }
+
+    // Manual module form submission
+    document.getElementById('manual-module-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      let formData = new FormData(this);
+      // Post to your endpoint
+      htmx.ajax('POST', `/ai/courses/{{ course_id }}/modules/create`, {
+        target: '#module-creation-status',
+        swap: 'innerHTML',
+        headers: { 'HX-Request': 'true' },
+        values: Object.fromEntries(formData.entries())
+      });
+      closeManualModuleModal();
+    });
+
+    // HTMX event handlers for upload/process feedback
     document.body.addEventListener('htmx:configRequest', function(evt) {
-      if(evt.target.closest('[hx-indicator="#loader"]')) {
+      if (evt.target.closest('[hx-indicator="#loader"]')) {
         document.getElementById('loader').classList.remove('hidden');
       }
-      if(evt.target.closest('[hx-indicator="#upload-loader"]')) {
+      if (evt.target.closest('[hx-indicator^="#module-loader-"]')) {
+        evt.target.querySelector('.inline-flex')?.classList.add('hidden'); // hide button
+        const loaderId = evt.target.getAttribute('hx-indicator');
+        document.querySelector(loaderId).classList.remove('hidden');
+      }
+      if (evt.target.closest('[hx-indicator="#upload-loader"]')) {
         document.getElementById('upload-loader').classList.remove('hidden');
         document.querySelector('.upload-button-text').textContent = 'Uploading...';
       }
     });
 
     document.body.addEventListener('htmx:afterSwap', function(evt) {
-      if(evt.target.id === "process-status") {
+      if (evt.target.id === "process-status" || evt.target.id === "module-creation-status") {
         document.getElementById('loader').classList.add('hidden');
       }
-      if(evt.target.id === "success-toast") {
+      if (evt.target.id === "success-toast") {
         document.getElementById('upload-loader').classList.add('hidden');
         document.querySelector('.upload-button-text').textContent = 'Upload';
-        
-        // Auto-refresh the page after successful upload to show updated materials
-        setTimeout(() => {
-          window.location.reload();
-        }, 1500);
+        // Auto-refresh the page after successful upload
+        setTimeout(() => { window.location.reload(); }, 1500);
       }
     });
 
     document.body.addEventListener('htmx:responseError', function(evt) {
-      if(evt.target.closest('[hx-indicator="#upload-loader"]')) {
+      if (evt.target.closest('[hx-indicator="#upload-loader"]')) {
         document.getElementById('upload-loader').classList.add('hidden');
         document.querySelector('.upload-button-text').textContent = 'Upload';
       }
@@ -380,29 +665,29 @@
     function deleteMaterial(materialId) {
       fetch(`/ai/courses/{{ course_id }}/materials/${materialId}`, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        }
+        headers: { 'Content-Type': 'application/json' }
       })
       .then(response => response.text())
       .then(data => {
         // Show the response in the delete toast
         document.getElementById('delete-toast').innerHTML = data;
-        
         // If successful, remove the row from the table
         if (data.includes('success')) {
           const row = document.getElementById(`material-row-${materialId}`);
           if (row) {
             row.remove();
           }
-          
-          // Check if there are no more materials and show the "no materials" message
+          // If no more rows, show "No materials" placeholder
           const tbody = document.getElementById('materials-table-body');
-          if (tbody.children.length === 0) {
-            tbody.innerHTML = '<tr id="no-materials-row"><td colspan="3" class="text-center text-gray-400 py-4">No materials uploaded yet.</td></tr>';
+          if (tbody && tbody.children.length === 0) {
+            tbody.innerHTML = `
+              <tr id="no-materials-row">
+                <td colspan="3" class="text-center text-gray-400 py-4">
+                  No materials uploaded yet.
+                </td>
+              </tr>`;
           }
         }
-        
         // Auto-hide the toast after 5 seconds
         setTimeout(() => {
           document.getElementById('delete-toast').innerHTML = '';
@@ -410,14 +695,12 @@
       })
       .catch(error => {
         console.error('Error:', error);
-        document.getElementById('delete-toast').innerHTML = 
-          '<div class="toast error">❌ An error occurred while deleting the material.</div>';
-        
+        document.getElementById('delete-toast').innerHTML = `
+          <div class="toast error">❌ An error occurred while deleting the material.</div>`;
         setTimeout(() => {
           document.getElementById('delete-toast').innerHTML = '';
         }, 5000);
       });
-      
       closeDeleteModal();
     }
 
@@ -427,11 +710,30 @@
         closeDeleteModal();
       }
     });
+    // Close module creation modals if user clicks outside
+    document.getElementById('module-creation-modal').addEventListener('click', function(e) {
+      if (e.target === this) {
+        closeModuleCreationModal();
+      }
+    });
+    document.getElementById('manual-module-modal').addEventListener('click', function(e) {
+      if (e.target === this) {
+        closeManualModuleModal();
+      }
+    });
 
-    // Close modal with Escape key
+    // Close modals with Escape key
     document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && !document.getElementById('delete-modal').classList.contains('hidden')) {
-        closeDeleteModal();
+      if(e.key === 'Escape') {
+        if (!document.getElementById('delete-modal').classList.contains('hidden')) {
+          closeDeleteModal();
+        }
+        if (!document.getElementById('module-creation-modal').classList.contains('hidden')) {
+          closeModuleCreationModal();
+        }
+        if (!document.getElementById('manual-module-modal').classList.contains('hidden')) {
+          closeManualModuleModal();
+        }
       }
     });
   </script>

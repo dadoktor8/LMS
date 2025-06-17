@@ -22,11 +22,11 @@ from backend.ai.aws_ai import S3_BUCKET_NAME, delete_file_from_s3, generate_pres
 from backend.ai.open_notes_system import check_quiz_quota, generate_quiz_export, generate_study_material, generate_study_material_quiz, increment_quiz_quota, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, CourseUploadQuota, Enrollment, FlashcardUsage, PDFQuotaUsage, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity, StudyGuideUsage, TextChunk  # Make sure this is correct
+from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, CourseModule, CourseSubmodule, CourseUploadQuota, Enrollment, FlashcardUsage, PDFQuotaUsage, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity, StudyGuideUsage, TextChunk  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
-from .text_processing import PDFQuotaConfig, extract_text_from_pdf, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background,sanitize_filename, validate_pdf_for_upload
+from .text_processing import PDFQuotaConfig, create_modules_from_pdf_analysis, download_file_from_s3, extract_pdf_page_ranges, extract_text_from_pdf, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background, process_submodule_with_quota_check,sanitize_filename, validate_pdf_for_upload
 from langchain.memory.chat_message_histories import SQLChatMessageHistory
 from langchain.schema import AIMessage, HumanMessage
 from fastapi import FastAPI
@@ -203,6 +203,379 @@ async def upload_course_material(
         """,
         status_code=200
     )
+
+@ai_router.post("/courses/{course_id}/materials/{material_id}/create_modules", response_class=HTMLResponse)
+async def create_modules_from_pdf(
+    course_id: int,
+    material_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Analyze PDF and create suggested module structure"""
+    
+    material = db.query(CourseMaterial).filter_by(id=material_id, course_id=course_id).first()
+    if not material:
+        return HTMLResponse("❌ Material not found", status_code=404)
+    
+    # Check if modules already exist for this material
+    existing_modules = db.query(CourseSubmodule).filter_by(material_id=material_id).count()
+    if existing_modules > 0:
+        return HTMLResponse(
+            content=f"<div class='toast error'>❌ Modules already exist for this material</div>",
+            status_code=200
+        )
+    
+    try:
+        # Get file path (handle S3 download if needed)
+        file_path = material.filepath
+        if not os.path.exists(file_path):
+            s3_key = f"course_materials/{course_id}/{material.filename}"
+            temp_dir = "temp_pdfs"
+            os.makedirs(temp_dir, exist_ok=True)
+            file_path = f"{temp_dir}/{material.filename}"
+            
+            if not download_file_from_s3(s3_key, file_path):
+                return HTMLResponse("❌ Failed to download file", status_code=500)
+        
+        # Analyze PDF structure
+        suggested_modules = extract_pdf_page_ranges(file_path)
+        
+        if not suggested_modules:
+            return HTMLResponse("❌ Could not analyze PDF structure", status_code=500)
+        
+        # Create modules
+        created_count = create_modules_from_pdf_analysis(course_id, material_id, suggested_modules, db)
+        
+        return HTMLResponse(
+            content=f"""
+            <div class='toast success'>
+                ✅ Created {created_count} modules from PDF analysis!
+                <div class="text-xs mt-1 text-gray-600">
+                    Refresh the page to see the new modules
+                </div>
+            </div>
+            """,
+            status_code=200
+        )
+        
+    except Exception as e:
+        logging.error(f"Error creating modules: {e}")
+        return HTMLResponse("❌ Error creating modules", status_code=500)
+
+@ai_router.get("/courses/{course_id}/modules", response_class=HTMLResponse)
+async def show_course_modules(
+    request: Request,
+    course_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Display course modules and submodules with processing options"""
+    
+    course = db.query(Course).filter_by(id=course_id).first()
+    if not course:
+        return HTMLResponse("❌ Course not found", status_code=404)
+    
+    # Get all modules with their submodules
+    modules = db.query(CourseModule).filter_by(course_id=course_id).order_by(CourseModule.order_index).all()
+    
+    # Get quota information
+    today = date.today()
+    quota_usage = db.query(PDFQuotaUsage).filter(
+        PDFQuotaUsage.course_id == course_id,
+        PDFQuotaUsage.usage_date == today
+    ).first()
+    
+    quota_used = quota_usage.pages_processed if quota_usage else 0
+    quota_remaining = PDFQuotaConfig.DAILY_PAGE_QUOTA - quota_used
+    materials = db.query(CourseMaterial).filter(CourseMaterial.course_id == course_id).all()
+    # Get materials that don't have modules yet
+    materials_without_modules = db.query(CourseMaterial).filter(
+        CourseMaterial.course_id == course_id,
+        ~CourseMaterial.id.in_(
+            db.query(CourseSubmodule.material_id).filter(CourseSubmodule.material_id.isnot(None))
+        )
+    ).all()
+    
+    return templates.TemplateResponse("course_modules.html", {
+        "request": request,
+        "course": course,
+        "modules": modules,
+        "materials_without_modules": materials_without_modules,
+        "quota_used": quota_used,
+        "quota_remaining": quota_remaining,
+        "quota_total": PDFQuotaConfig.DAILY_PAGE_QUOTA,
+        "materials": materials,
+        "user": user
+    })
+
+@ai_router.post("/courses/{course_id}/submodules/{submodule_id}/process", response_class=HTMLResponse)
+async def process_submodule(
+    course_id: int,
+    submodule_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Process a specific submodule"""
+    
+    success, message, pages_used = process_submodule_with_quota_check(course_id, submodule_id, db)
+    
+    if success:
+        return HTMLResponse(
+            content=f"""
+            <div class='toast success'>
+                ✅ {message}
+                <div class="text-xs mt-1 text-gray-600">
+                    Processed {pages_used} pages
+                </div>
+            </div>
+            """,
+            status_code=200
+        )
+    else:
+        return HTMLResponse(
+            content=f"<div class='toast error'>❌ {message}</div>",
+            status_code=200
+        )
+
+@ai_router.post("/courses/{course_id}/modules/{module_id}/process_all", response_class=HTMLResponse)
+async def process_all_submodules_in_module(
+    course_id: int,
+    module_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Process all unprocessed submodules in a module"""
+    
+    module = db.query(CourseModule).filter_by(id=module_id, course_id=course_id).first()
+    if not module:
+        return HTMLResponse("❌ Module not found", status_code=404)
+    
+    unprocessed_submodules = db.query(CourseSubmodule).filter_by(
+        module_id=module_id, 
+        is_processed=False
+    ).all()
+    
+    if not unprocessed_submodules:
+        return HTMLResponse(
+            content="<div class='toast info'>ℹ️ All submodules in this module are already processed</div>",
+            status_code=200
+        )
+    
+    processed_count = 0
+    failed_count = 0
+    total_pages = 0
+    
+    for submodule in unprocessed_submodules:
+        success, message, pages_used = process_submodule_with_quota_check(course_id, submodule.id, db)
+        if success:
+            processed_count += 1
+            total_pages += pages_used
+        else:
+            failed_count += 1
+            if "quota" in message.lower():
+                break  # Stop processing if quota exceeded
+    
+    return HTMLResponse(
+        content=f"""
+        <div class='toast success'>
+            ✅ Module processing complete!
+            <div class="text-xs mt-1 text-gray-600">
+                Processed: {processed_count} submodules ({total_pages} pages)
+                {f" | Failed: {failed_count}" if failed_count > 0 else ""}
+            </div>
+        </div>
+        """,
+        status_code=200
+    )
+
+@ai_router.post("/courses/{course_id}/modules/create", response_class=HTMLResponse)
+async def create_custom_module(
+    course_id: int,
+    title: str = Form(...),
+    description: str = Form(""),
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Create a custom module manually"""
+    
+    try:
+        # Get the next order index
+        max_order = db.query(CourseModule.order_index).filter_by(course_id=course_id).order_by(CourseModule.order_index.desc()).first()
+        next_order = (max_order[0] + 1) if max_order else 0
+        
+        module = CourseModule(
+            course_id=course_id,
+            title=title,
+            description=description,
+            order_index=next_order
+        )
+        
+        db.add(module)
+        db.commit()
+        logging.info(f"CREATED MODULE: {module.id} {module.title}")
+        print(f"CREATED MODULE: {module.id} {module.title}")
+        return HTMLResponse(
+            content=f"""
+            <div class='toast success'>
+                ✅ Module "{title}" created successfully!
+            </div>
+            """,
+            status_code=200
+        )
+    except Exception as e:
+        db.rollback()
+        return HTMLResponse(
+            content=f"""
+            <div class='toast error'>
+                ❌ Error creating module: {str(e)}
+            </div>
+            """,
+            status_code=500
+        )
+
+
+@ai_router.post("/courses/{course_id}/modules/{module_id}/submodules/create", response_class=HTMLResponse)
+async def create_custom_submodule(
+    course_id: int,
+    module_id: int,
+    title: str = Form(...),
+    description: str = Form(""),
+    material_id: Optional[int] = Form(None),
+    page_range: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Create a custom submodule manually"""
+    
+    try:
+        module = db.query(CourseModule).filter_by(id=module_id, course_id=course_id).first()
+        if not module:
+            return HTMLResponse(
+                content="<div class='toast error'>❌ Module not found</div>", 
+                status_code=404
+            )
+        
+        # Validate page range if provided
+        if page_range and material_id:
+            try:
+                start_page, end_page = map(int, page_range.split('-'))
+                if start_page > end_page or start_page < 1:
+                    return HTMLResponse(
+                        content="<div class='toast error'>❌ Invalid page range</div>", 
+                        status_code=400
+                    )
+            except ValueError:
+                return HTMLResponse(
+                    content="<div class='toast error'>❌ Page range must be in format 'start-end'</div>", 
+                    status_code=400
+                )
+        
+        # Get the next order index
+        max_order = db.query(CourseSubmodule.order_index).filter_by(module_id=module_id).order_by(CourseSubmodule.order_index.desc()).first()
+        next_order = (max_order[0] + 1) if max_order else 0
+        
+        submodule = CourseSubmodule(
+            module_id=module_id,
+            material_id=material_id,
+            title=title,
+            description=description,
+            page_range=page_range,
+            order_index=next_order
+        )
+        
+        db.add(submodule)
+        db.commit()
+        
+        return HTMLResponse(
+            content=f"""
+            <div class='toast success'>
+                ✅ Submodule "{title}" created successfully!
+            </div>
+            """,
+            status_code=200
+        )
+    except Exception as e:
+        db.rollback()
+        return HTMLResponse(
+            content=f"""
+            <div class='toast error'>
+                ❌ Error creating submodule: {str(e)}
+            </div>
+            """,
+            status_code=500
+        )
+
+@ai_router.post("/courses/{course_id}/modules/delete-all", response_class=HTMLResponse)
+async def delete_all_modules_with_post(
+    course_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    method_override = request.query_params.get("_method")
+    if method_override != "DELETE":
+        return HTMLResponse("Invalid method", status_code=400)
+   
+    # Get all modules for this course
+    modules = db.query(CourseModule).filter_by(course_id=course_id).all()
+    if not modules:
+        return HTMLResponse("❌ No modules found for this course", status_code=404)
+   
+    # Delete all modules (this will cascade delete submodules if FK constraint is set up properly)
+    # If not using CASCADE, you'll need to delete submodules first:
+    
+    # Option 1: If you have CASCADE DELETE set up in your database
+    for module in modules:
+        db.delete(module)
+    
+    # Option 2: If you need to manually delete submodules first (uncomment if needed)
+    # for module in modules:
+    #     # Delete all submodules for this module first
+    #     submodules = db.query(CourseSubmodule).filter_by(module_id=module.id).all()
+    #     for submodule in submodules:
+    #         db.delete(submodule)
+    #     # Then delete the module
+    #     db.delete(module)
+    
+    db.commit()
+    
+    modules_count = len(modules)
+    return HTMLResponse(
+        content=f"✅ Successfully deleted {modules_count} module(s)",
+        status_code=200
+    )
+
+@ai_router.post("/courses/{course_id}/modules/{module_id}", response_class=HTMLResponse)
+async def delete_module_with_post(
+    course_id: int,
+    module_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    method_override = request.query_params.get("_method")
+    if method_override != "DELETE":
+        return HTMLResponse("Invalid method", status_code=400)
+    
+    module = db.query(CourseModule).filter_by(id=module_id, course_id=course_id).first()
+    if not module:
+        return HTMLResponse("❌ Module not found", status_code=404)
+    
+    # Check if any submodules are processed
+    processed_submodules = db.query(CourseSubmodule).filter_by(module_id=module_id, is_processed=True).count()
+    if processed_submodules > 0:
+        return HTMLResponse("❌ Cannot delete module with processed submodules", status_code=400)
+    
+    db.delete(module)
+    db.commit()
+
+    return HTMLResponse(
+        content="",
+        status_code=200
+    )
+
+
+
 @ai_router.get("/courses/{course_id}/upload_materials", response_class=HTMLResponse)
 async def show_upload_form(request: Request, course_id: int, user: dict = Depends(require_teacher_or_ta()), db: Session = Depends(get_db)):
     # Get course materials as before

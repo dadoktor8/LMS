@@ -1,7 +1,7 @@
 # backend/db/models.py
 from datetime import date, datetime
 import traceback
-from sqlalchemy import BigInteger, Column, Date, DateTime, Float, Integer, String, Boolean, ForeignKey, Table, Text, UniqueConstraint, func
+from sqlalchemy import JSON, BigInteger, Column, Date, DateTime, Float, Integer, String, Boolean, ForeignKey, Table, Text, UniqueConstraint, func
 from backend.db.database import Base
 from sqlalchemy.orm import relationship
 
@@ -57,6 +57,62 @@ class Course(Base):
     assignments = relationship("Assignment", back_populates="course", cascade="all, delete-orphan")
     student_activities = relationship("StudentActivity", back_populates="course")
     quiz_quotas = relationship("QuizQuota", back_populates="course")
+    modules = relationship("CourseModule", back_populates="course", cascade="all, delete-orphan")
+
+
+class CourseModule(Base):
+    """Represents a module within a course (like a chapter or unit)"""
+    __tablename__ = "course_modules"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text)
+    order_index = Column(Integer, default=0)  # For ordering modules
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    course = relationship("Course", back_populates="modules")
+    submodules = relationship("CourseSubmodule", back_populates="module", cascade="all, delete-orphan")
+    
+class CourseSubmodule(Base):
+    """Represents a submodule within a module (like sections within a chapter)"""
+    __tablename__ = "course_submodules"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    module_id = Column(Integer, ForeignKey("course_modules.id"), nullable=False)
+    material_id = Column(Integer, ForeignKey("course_materials.id"), nullable=True)  # Optional: link to source material
+    title = Column(String(255), nullable=False)
+    description = Column(Text)
+    page_range = Column(String(50))  # e.g., "1-10", "15-25" for PDF page ranges
+    order_index = Column(Integer, default=0)
+    is_processed = Column(Boolean, default=False)
+    processed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Store metadata about the content
+    meta_json = Column(JSON)  # Can store page counts, file info, etc.
+    
+    # Relationships
+    module = relationship("CourseModule", back_populates="submodules")
+    material = relationship("CourseMaterial", back_populates="submodules")
+    chunks = relationship("ModuleTextChunk", back_populates="submodule", cascade="all, delete-orphan")
+
+class ModuleTextChunk(Base):
+    """Text chunks specifically linked to submodules"""
+    __tablename__ = "module_text_chunks"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    submodule_id = Column(Integer, ForeignKey("course_submodules.id"), nullable=False)
+    chunk_text = Column(Text, nullable=False)
+    chunk_index = Column(Integer)  # Order within the submodule
+    page_number = Column(Integer, nullable=True)  # Original page number from PDF
+    embedding = Column(Text)  # Store embedding as JSON string
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    submodule = relationship("CourseSubmodule", back_populates="chunks")
 
 
 class Enrollment(Base):
@@ -122,6 +178,7 @@ class CourseMaterial(Base):
     course = relationship("Course", back_populates="materials")
     processed_materials = relationship("ProcessedMaterial", back_populates="material")
     text_chunks = relationship("TextChunk", back_populates="material")
+    submodules = relationship("CourseSubmodule", back_populates="material")
 
 class ProcessedMaterial(Base):
     __tablename__ = "processed_materials"
