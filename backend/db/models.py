@@ -77,6 +77,7 @@ class CourseModule(Base):
     course = relationship("Course", back_populates="modules")
     submodules = relationship("CourseSubmodule", back_populates="module", cascade="all, delete-orphan")
     quizzes = relationship("Quiz", back_populates="module")
+    assignments = relationship("Assignment", back_populates="module")
     
 class CourseSubmodule(Base):
     """Represents a submodule within a module (like sections within a chapter)"""
@@ -245,6 +246,7 @@ class Assignment(Base):
     description = Column(Text)
     deadline = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
+    module_id = Column(Integer, ForeignKey('course_modules.id'), nullable=True)
 
     # Relationships
     course = relationship("Course", back_populates="assignments")
@@ -252,6 +254,7 @@ class Assignment(Base):
     teacher = relationship("User")
     materials = relationship("CourseMaterial", secondary=assignment_materials, backref="assignments")
     rubric_criteria = relationship("RubricCriterion", back_populates="assignment", cascade="all, delete-orphan")
+    module = relationship("CourseModule", back_populates="assignments")
 
 
 class AssignmentSubmission(Base):

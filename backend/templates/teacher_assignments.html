@@ -99,6 +99,7 @@
               <tr class="bg-gray-50">
                 <th class="px-4 py-2 text-left font-semibold">Title</th>
                 <th class="px-4 py-2 text-left font-semibold">Description</th>
+                <th class="px-4 py-2 text-left font-semibold">Module</th> 
                 <th class="px-4 py-2 font-semibold">Deadline</th>
                 <th class="px-4 py-2 font-semibold">Created At</th>
                 <th class="px-4 py-2 font-semibold">Submissions</th>
@@ -110,6 +111,13 @@
                 <tr>
                   <td class="px-4 py-2">{{ a.title }}</td>
                   <td class="px-4 py-2">{{ a.description|truncate(40) }}</td>
+                  <td class="px-4 py-2">
+                    {% if a.module %}
+                      <span class="bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-xs font-medium truncate max-w-20 inline-block">{{ a.module.title }}</span>
+                    {% else %}
+                      <span class="text-gray-400 text-xs">-</span>
+                    {% endif %}
+                  </td>
                   <td class="px-4 py-2">{{ a.deadline.strftime('%Y-%m-%d %H:%M') if a.deadline else '-' }}</td>
                   <td class="px-4 py-2">{{ a.created_at.strftime('%Y-%m-%d') }}</td>
                   <td class="px-4 py-2 text-center">{{ a.submissions|length }}</td>

@@ -1439,13 +1439,14 @@ async def show_create_assignment_form(
     db: Session = Depends(get_db), 
     user=Depends(require_role("teacher"))
 ):
+    modules = db.query(CourseModule).filter_by(course_id=course_id).order_by(CourseModule.order_index).all()
     materials = db.query(CourseMaterial).filter(CourseMaterial.course_id == course_id).order_by(CourseMaterial.uploaded_at.desc()).all()
     course = db.query(Course).filter(Course.id == course_id).first()
     teacher_id = user["user_id"]
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
     if not course:
         return HTMLResponse("❌ Course not found", status_code=404)
-    return templates.TemplateResponse("create_assignment.html", {"request": request, "course_id": course_id, "course":course, "materials": materials, "courses": courses})
+    return templates.TemplateResponse("create_assignment.html", {"request": request, "course_id": course_id, "course":course, "materials": materials, "courses": courses, "modules": modules})
 
 @ai_router.post("/courses/{course_id}/create-assignment", response_class=HTMLResponse)
 async def create_assignment(
@@ -1453,6 +1454,7 @@ async def create_assignment(
     course_id: int,
     title: str = Form(...),
     description: str = Form(...),
+    module_id: str = Form(""),
     deadline: str = Form(...),
     db: Session = Depends(get_db),
     user = Depends(require_teacher_or_ta()),
@@ -1474,14 +1476,20 @@ async def create_assignment(
             status_code=400,
             detail="You can only create up to 3 assignments per day for this course."
         )
-
+    parsed_module_id = None
+    if module_id and module_id.strip():
+        try:
+            parsed_module_id = int(module_id)
+        except ValueError:
+            parsed_module_id = None
     deadline_dt = datetime.fromisoformat(deadline)
     assignment = Assignment(
         course_id=course_id,
         title=title,
         description=description,
         deadline=deadline_dt,
-        teacher_id=teacher_id
+        teacher_id=teacher_id,
+        module_id=parsed_module_id
     )
 
     if material_ids:
@@ -1968,6 +1976,7 @@ async def teacher_assignments(request: Request, course_id: int, db: Session = De
         .order_by(Assignment.created_at.desc())
         .all()
     )
+    modules = db.query(CourseModule).filter_by(course_id=course_id).order_by(CourseModule.order_index).all()
     course = db.query(Course).filter(Course.id == course_id).first()
     teacher_id = user["user_id"]
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
@@ -1977,7 +1986,8 @@ async def teacher_assignments(request: Request, course_id: int, db: Session = De
         "request": request,
         "assignments": assignments,
         "course": course,
-        "courses": courses
+        "courses": courses,
+        "modules": modules
     })
 
 # Add a new route for editing assignments
@@ -1994,12 +2004,13 @@ async def edit_assignment_form(request: Request, assignment_id: int, db: Session
     
     course = db.query(Course).filter(Course.id == assignment.course_id).first()
     courses = db.query(Course).filter(Course.teacher_id == user["user_id"]).all()
-    
+    modules = db.query(CourseModule).filter_by(course_id=assignment.course_id).order_by(CourseModule.order_index).all()
     return templates.TemplateResponse("edit_assignment.html", {
         "request": request,
         "assignment": assignment,
         "course": course,
-        "courses": courses
+        "courses": courses,
+        "modules": modules
     })
 
 # Add a route to handle the assignment update
@@ -2014,7 +2025,9 @@ async def update_assignment(
     user: dict = Depends(require_role("teacher"))
 ):
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
-    
+    form_data = await request.form()
+    module_id_str = form_data.get("module_id", "")
+    module_id = int(module_id_str) if module_id_str and module_id_str.strip() else None
     if not assignment:
         return HTMLResponse("❌ Assignment not found", status_code=404)
     
@@ -2025,7 +2038,7 @@ async def update_assignment(
     # Update assignment details
     assignment.title = title
     assignment.description = description
-    
+    assignment.module_id = module_id 
     if deadline:
         try:
             deadline_dt = datetime.strptime(deadline, "%Y-%m-%dT%H:%M")
