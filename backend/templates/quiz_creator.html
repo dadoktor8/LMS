@@ -86,7 +86,7 @@
       </ul>
     </nav>
 
-  <main class="max-w-2xl mx-auto px-4 py-10">
+  <main class="max-w-3xl mx-auto px-4 py-10">
     <h1 class="text-3xl font-bold text-blue-700 mb-4 text-center">📝 Quiz Creator</h1>
     
     <!-- Quota Status Bar -->
@@ -102,7 +102,184 @@
       </div>
       <p class="text-xs text-gray-500 mt-1">Limit resets at midnight</p>
     </div>
+    <div class="mb-8 bg-white rounded-xl shadow p-6 border border-gray-100">
+<!-- Previous Quizzes Section - Add this after the quota status bar and before the quiz creation form -->
+<div class="mb-8 bg-white rounded-xl shadow p-6 border border-gray-100">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+      📚 Previous Quizzes
+    </h2>
+    <button 
+      id="toggle-previous-quizzes"
+      class="text-blue-600 hover:text-blue-800 text-sm font-medium"
+      onclick="togglePreviousQuizzes()"
+    >
+      Show Previous Quizzes
+    </button>
+  </div>
+  
+  <div id="previous-quizzes-content" class="hidden">
+    <div 
+      hx-get="/ai/courses/{{course_id}}/quiz/previous" 
+      hx-trigger="revealed"
+      hx-target="#quiz-list-container"
+      class="min-h-[100px]"
+    >
+      <div id="quiz-list-container">
+        <div class="flex items-center justify-center py-8">
+          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <span class="ml-3 text-gray-600">Loading previous quizzes...</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function togglePreviousQuizzes() {
+  const content = document.getElementById('previous-quizzes-content');
+  const button = document.getElementById('toggle-previous-quizzes');
+  
+  if (content.classList.contains('hidden')) {
+    content.classList.remove('hidden');
+    button.textContent = 'Hide Previous Quizzes';
+    // Trigger HTMX request
+    htmx.trigger(content, 'revealed');
+  } else {
+    content.classList.add('hidden');
+    button.textContent = 'Show Previous Quizzes';
+  }
+}
+
+function downloadQuiz(quizId, topic, format = 'pdf') {
+  // Show loading state
+  const downloadBtn = document.querySelector(`[data-quiz-id="${quizId}"][data-action="download-${format}"]`);
+  if (downloadBtn) {
+    const originalText = downloadBtn.innerHTML;
+    downloadBtn.innerHTML = '<span class="animate-spin">⏳</span> Downloading...';
+    downloadBtn.disabled = true;
     
+    // Create download URL
+    const downloadUrl = `/ai/courses/{{course_id}}/quiz/${quizId}/download?format=${format}`;
+    
+    // Create temporary link and trigger download
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = `${topic.replace(/[^a-zA-Z0-9]/g, '_')}_quiz.${format}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // Reset button after delay
+    setTimeout(() => {
+      downloadBtn.innerHTML = originalText;
+      downloadBtn.disabled = false;
+    }, 2000);
+  }
+}
+
+function deleteQuiz(quizId, topic) {
+  // Show confirmation dialog
+  if (!confirm(`Are you sure you want to delete the quiz "${topic}"?\n\nThis action cannot be undone.`)) {
+    return;
+  }
+  
+  // Show loading state
+  const deleteBtn = document.querySelector(`[data-quiz-id="${quizId}"][data-action="delete"]`);
+  const quizCard = document.querySelector(`[data-quiz-card="${quizId}"]`);
+  
+  if (deleteBtn) {
+    const originalText = deleteBtn.innerHTML;
+    deleteBtn.innerHTML = '<span class="animate-spin">⏳</span> Deleting...';
+    deleteBtn.disabled = true;
+    
+    // Make delete request
+    fetch(`/ai/courses/{{course_id}}/quiz/${quizId}/delete`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
+    .then(response => {
+      if (response.ok) {
+        // Remove the quiz card with animation
+        if (quizCard) {
+          quizCard.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
+          quizCard.style.opacity = '0';
+          quizCard.style.transform = 'translateX(-100%)';
+          
+          setTimeout(() => {
+            quizCard.remove();
+            
+            // Check if this was the last quiz in the section
+            const moduleSection = quizCard.closest('.mb-6');
+            const remainingQuizzes = moduleSection.querySelectorAll('[data-quiz-card]');
+            if (remainingQuizzes.length === 0) {
+              moduleSection.remove();
+              
+              // Check if there are any modules left
+              const allModules = document.querySelectorAll('#quiz-list-container .mb-6');
+              if (allModules.length === 0) {
+                document.getElementById('quiz-list-container').innerHTML = `
+                  <div class="text-center py-8 text-gray-500">
+                    <div class="text-4xl mb-3">📝</div>
+                    <p class="font-medium">No previous quizzes found</p>
+                    <p class="text-sm">Create your first quiz using the form below!</p>
+                  </div>
+                `;
+              }
+            }
+          }, 300);
+        }
+        
+        // Show success message
+        showNotification('Quiz deleted successfully', 'success');
+      } else {
+        throw new Error('Failed to delete quiz');
+      }
+    })
+    .catch(error => {
+      console.error('Error deleting quiz:', error);
+      showNotification('Failed to delete quiz. Please try again.', 'error');
+      
+      // Reset button state
+      deleteBtn.innerHTML = originalText;
+      deleteBtn.disabled = false;
+    });
+  }
+}
+
+function showNotification(message, type = 'info') {
+  // Create notification element
+  const notification = document.createElement('div');
+  notification.className = `fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg transition-all duration-300 transform translate-x-full ${
+    type === 'success' ? 'bg-green-500 text-white' : 
+    type === 'error' ? 'bg-red-500 text-white' : 
+    'bg-blue-500 text-white'
+  }`;
+  notification.innerHTML = `
+    <div class="flex items-center gap-2">
+      <span>${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
+      <span>${message}</span>
+    </div>
+  `;
+  
+  document.body.appendChild(notification);
+  
+  // Animate in
+  setTimeout(() => {
+    notification.style.transform = 'translateX(0)';
+  }, 100);
+  
+  // Animate out and remove
+  setTimeout(() => {
+    notification.style.transform = 'translateX(100%)';
+    setTimeout(() => {
+      document.body.removeChild(notification);
+    }, 300);
+  }, 3000);
+}
+</script>
     <!-- Success Message -->
     {% if quota_success %}
     <div class="mb-6 bg-green-50 text-green-700 p-4 rounded-lg border border-green-100">
@@ -134,25 +311,95 @@
     {% endif %}
     
     <div class="bg-white rounded-xl shadow p-8 border border-gray-100 mb-8">
-      <form action="/ai/courses/{{course_id}}/quiz/generate" method="post" class="flex flex-col gap-5">
-        <label for="topic" class="font-semibold text-gray-800 text-lg">
-          🧪 What topic should the quiz cover?
-        </label>
-        <input type="text"
-               id="topic"
-               name="topic"
-               placeholder="Enter a topic or concept from your course"
-               required
-               value="{{ topic }}"
-               class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
-               {{ 'disabled' if quota_exceeded else '' }}
-        >
+      <form action="/ai/courses/{{course_id}}/quiz/generate" method="post" class="flex flex-col gap-6">
         
-        <div class="mt-3">
-          <label class="font-semibold text-gray-800 text-lg">
+        <!-- Module Selection -->
+        <div>
+          <label for="module_id" class="font-semibold text-gray-800 text-lg flex items-center gap-2">
+            📚 Select Course Module
+          </label>
+          <p class="text-sm text-gray-600 mb-3">Choose a specific module or use the entire course content</p>
+          <select id="module_id"
+                  name="module_id"
+                  class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base w-full"
+                  {{ 'disabled' if quota_exceeded else '' }}>
+            <option value="">📖 All Course Content</option>
+            {% for module in modules %}
+            <option value="{{ module.id }}">
+              📂 {{ module.title }}
+              {% if module.submodules %}
+                ({{ module.submodules|length }} submodule{{ 's' if module.submodules|length != 1 else '' }})
+              {% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- Topic Input -->
+        <div>
+          <label for="topic" class="font-semibold text-gray-800 text-lg flex items-center gap-2">
+            🧪 Quiz Topic
+          </label>
+          <p class="text-sm text-gray-600 mb-3">What specific topic should the quiz focus on?</p>
+          <input type="text"
+                 id="topic"
+                 name="topic"
+                 placeholder="Enter a topic or concept (e.g., 'functions and variables', 'photosynthesis', 'World War II')"
+                 value="{{ topic }}"
+                 class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base w-full"
+                 {{ 'disabled' if quota_exceeded else '' }}
+          >
+        </div>
+
+        <!-- Difficulty Level -->
+        <div>
+          <label class="font-semibold text-gray-800 text-lg flex items-center gap-2">
+            🎯 Difficulty Level
+          </label>
+          <p class="text-sm text-gray-600 mb-3">Choose the appropriate difficulty for your students</p>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <label class="flex items-center gap-3 bg-green-50 p-4 border-2 border-green-200 rounded-lg hover:bg-green-100 cursor-pointer transition-all {{ 'opacity-50' if quota_exceeded else '' }}">
+              <input type="radio" name="difficulty" value="easy" checked 
+                class="form-radio h-5 w-5 text-green-600" 
+                {{ 'disabled' if quota_exceeded else '' }}
+              >
+              <div>
+                <div class="font-medium text-green-800">🟢 Easy</div>
+                <div class="text-xs text-green-600">Basic concepts, simple recall</div>
+              </div>
+            </label>
+            
+            <label class="flex items-center gap-3 bg-yellow-50 p-4 border-2 border-yellow-200 rounded-lg hover:bg-yellow-100 cursor-pointer transition-all {{ 'opacity-50' if quota_exceeded else '' }}">
+              <input type="radio" name="difficulty" value="medium" 
+                class="form-radio h-5 w-5 text-yellow-600"
+                {{ 'disabled' if quota_exceeded else '' }}
+              >
+              <div>
+                <div class="font-medium text-yellow-800">🟡 Medium</div>
+                <div class="text-xs text-yellow-600">Application, analysis</div>
+              </div>
+            </label>
+            
+            <label class="flex items-center gap-3 bg-red-50 p-4 border-2 border-red-200 rounded-lg hover:bg-red-100 cursor-pointer transition-all {{ 'opacity-50' if quota_exceeded else '' }}">
+              <input type="radio" name="difficulty" value="hard" 
+                class="form-radio h-5 w-5 text-red-600"
+                {{ 'disabled' if quota_exceeded else '' }}
+              >
+              <div>
+                <div class="font-medium text-red-800">🔴 Hard</div>
+                <div class="text-xs text-red-600">Synthesis, evaluation, critical thinking</div>
+              </div>
+            </label>
+          </div>
+        </div>
+        
+        <!-- Question Types -->
+        <div>
+          <label class="font-semibold text-gray-800 text-lg flex items-center gap-2">
             📊 Question Types
           </label>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+          <p class="text-sm text-gray-600 mb-3">Select the types of questions to include</p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <label class="flex items-center gap-2 bg-white p-3 border border-gray-200 rounded-lg hover:bg-blue-50 cursor-pointer {{ 'opacity-50' if quota_exceeded else '' }}">
               <input type="checkbox" name="question_types" value="mcq" checked 
                 class="form-checkbox h-5 w-5 text-blue-600" 
@@ -187,17 +434,19 @@
           </div>
         </div>
         
-        <div class="mt-2">
-          <label for="num_questions" class="font-semibold text-gray-800 text-lg">
+        <!-- Number of Questions -->
+        <div>
+          <label for="num_questions" class="font-semibold text-gray-800 text-lg flex items-center gap-2">
             🔢 Number of Questions
           </label>
+          <p class="text-sm text-gray-600 mb-3">How many questions should the quiz contain?</p>
           <input type="number"
                  id="num_questions"
                  name="num_questions"
                  min="1"
                  max="20"
                  value="{{ num_questions }}"
-                 class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base w-full mt-2"
+                 class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base w-full"
                  {{ 'disabled' if quota_exceeded else '' }}
           >
         </div>
@@ -207,9 +456,11 @@
         
         <button
           type="submit"
-          class="w-full py-3 {{ 'bg-gray-400' if quota_exceeded else 'bg-blue-600 hover:bg-blue-700' }} text-white font-semibold rounded-lg transition text-lg"
+          class="w-full py-4 {{ 'bg-gray-400' if quota_exceeded else 'bg-blue-600 hover:bg-blue-700' }} text-white font-semibold rounded-lg transition text-lg shadow-lg"
           {{ 'disabled' if quota_exceeded else '' }}
-        >{{ 'Daily Limit Reached' if quota_exceeded else 'Generate Quiz' }}</button>
+        >
+          {{ 'Daily Limit Reached' if quota_exceeded else '✨ Generate Quiz' }}
+        </button>
         
         {% if quota_exceeded %}
         <p class="text-center text-red-600 text-sm font-medium">
@@ -218,10 +469,11 @@
         </p>
         {% endif %}
       </form>
+      
       <div id="loading" class="mt-5 hidden text-center">
-        <div class="inline-flex items-center gap-2 px-3 py-2 rounded bg-blue-100 text-blue-700 font-medium shadow animate-pulse">
-          <svg class="w-4 h-4 animate-spin mr-2" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
-          Generating quiz...
+        <div class="inline-flex items-center gap-2 px-4 py-3 rounded bg-blue-100 text-blue-700 font-medium shadow animate-pulse">
+          <svg class="w-5 h-5 animate-spin mr-2" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+          Generating your custom quiz...
         </div>
       </div>
     </div>
@@ -232,17 +484,22 @@
           {{ study_material_html | safe }}
         </div>
       {% else %}
-        <div class="text-center py-8 text-gray-600">
-          <h3 class="text-xl font-semibold mb-2">Create a quiz to get started</h3>
-          <p>AI will generate a customized quiz based on your specifications.</p>
+        <div class="text-center py-12 text-gray-600">
+          <div class="text-6xl mb-4">📝</div>
+          <h3 class="text-xl font-semibold mb-2">Ready to Create Your Quiz?</h3>
+          <p class="text-gray-500">Fill out the form above to generate a customized quiz based on your course content and preferences.</p>
         </div>
       {% endif %}
     </div>
 
     <div class="flex flex-col sm:flex-row gap-4 items-center justify-center mt-8">
       <a href="/auth/teacher/dashboard"
-         class="px-5 py-2 bg-gray-200 text-blue-700 font-semibold rounded-lg hover:bg-gray-300 transition">
+         class="px-6 py-3 bg-gray-200 text-blue-700 font-semibold rounded-lg hover:bg-gray-300 transition shadow">
         ⬅ Back to Teacher Dashboard
+      </a>
+      <a href="/ai/courses/{{ course_id }}/modules"
+         class="px-6 py-3 bg-blue-100 text-blue-700 font-semibold rounded-lg hover:bg-blue-200 transition shadow">
+        📚 Manage Course Modules
       </a>
     </div>
   </main>
@@ -275,8 +532,50 @@
           alert("Please select at least one question type.");
           return false;
         }
+
+        // Show loading state
+        document.getElementById('loading').classList.remove('hidden');
+        document.querySelector('button[type="submit"]').disabled = true;
+        document.querySelector('button[type="submit"]').innerHTML = '⏳ Generating Quiz...';
+        
         return true;
       });
+
+      // Module selection change handler
+      document.getElementById('module_id').addEventListener('change', function() {
+        const selectedModule = this.options[this.selectedIndex];
+        if (selectedModule.value) {
+          // Could add logic here to show module-specific information
+          console.log('Selected module:', selectedModule.text);
+        }
+      });
+
+      // Difficulty level change visual feedback
+      document.querySelectorAll('input[name="difficulty"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+          // Remove previous selections
+          document.querySelectorAll('input[name="difficulty"]').forEach(r => {
+            r.closest('label').classList.remove('ring-2', 'ring-offset-2');
+          });
+          // Add selection indicator
+          if (this.checked) {
+            this.closest('label').classList.add('ring-2', 'ring-offset-2');
+            if (this.value === 'easy') {
+              this.closest('label').classList.add('ring-green-400');
+            } else if (this.value === 'medium') {
+              this.closest('label').classList.add('ring-yellow-400');
+            } else {
+              this.closest('label').classList.add('ring-red-400');
+            }
+          }
+        });
+      });
+
+      // Initialize difficulty selection visual
+      const checkedDifficulty = document.querySelector('input[name="difficulty"]:checked');
+      if (checkedDifficulty) {
+        checkedDifficulty.dispatchEvent(new Event('change'));
+      }
     });
 
     // Show/hide loading indicator
@@ -285,6 +584,11 @@
     });
     htmx.on('htmx:afterRequest', function(event) {
       document.getElementById('loading').classList.add('hidden');
+      // Reset button state
+      const submitBtn = document.querySelector('button[type="submit"]');
+      if (submitBtn && !submitBtn.disabled) {
+        submitBtn.innerHTML = '✨ Generate Quiz';
+      }
     });
   </script>
 </body>

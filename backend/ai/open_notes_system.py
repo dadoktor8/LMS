@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import List, Dict, Union, Optional
 import uuid
 from langchain.embeddings import OpenAIEmbeddings
@@ -13,7 +13,8 @@ import json
 from pydantic import BaseModel, Field
 
 from backend.ai.aws_ai import load_faiss_vectorstore, upload_file_to_s3_from_path
-from backend.db.models import QuizQuota
+from backend.db.database import get_db
+from backend.db.models import CourseModule, CourseSubmodule, ModuleTextChunk, QuizQuota
 
 # Define models for our study materials
 class FlashCard(BaseModel):
@@ -870,148 +871,229 @@ def generate_study_material_quiz(
     query: str,
     material_type: str,
     course_id: int,
-    teacher_id: str = None,   # For logging/teacher mode
-    question_types: list = None,  # For quizzes: ["mcq", ...]
-    num_questions: int = 10,      # For quizzes
-    use_dummy: bool = False       # If True, don't attempt LLM and always use dummy
+    teacher_id: str = None,
+    question_types: list = None,
+    num_questions: int = 10,
+    module_id: int = None,        # New parameter
+    difficulty: str = "medium",   # New parameter
+    use_dummy: bool = False
 ) -> str:
     """
-    Unified study material generator.
-    - For quizzes: AI-backed, but falls back to dummy/example data if needed.
-    - For flashcards, study_guide: AI-backed.
+    Generate study material quiz with module selection and difficulty levels.
     
-    Returns a JSON string with the appropriate structure for the requested material type.
+    Args:
+        query: Topic or question to generate quiz about
+        material_type: Type of material (should be "quiz" for this function)
+        course_id: ID of the course
+        teacher_id: ID of the teacher creating the quiz
+        question_types: List of question types to include
+        num_questions: Number of questions to generate
+        module_id: Optional module ID to limit content to specific module
+        difficulty: Difficulty level ("easy", "medium", "hard")
+        use_dummy: Whether to use dummy data instead of AI generation
+    
+    Returns:
+        JSON string containing the generated quiz
     """
-    # --- Step 1: Validate inputs and set defaults ---
+    # Check if module is selected but no query is provided
+    if module_id and (not query or not query.strip()):
+        # Get the module title to use as the query
+        try:
+            db_session = next(get_db())
+            module = db_session.query(CourseModule).filter_by(id=module_id, course_id=course_id).first()
+            if module:
+                query = module.title
+            else:
+                return json.dumps({"error": "Selected module not found."})
+        except Exception as e:
+            return json.dumps({"error": f"Error retrieving module information: {str(e)}"})
+    
+    # Validate inputs
     if not query or not query.strip():
         return json.dumps({"error": "Query cannot be empty."})
     if not isinstance(course_id, int) or course_id <= 0:
         return json.dumps({"error": "Course ID must be a positive integer."})
-    if material_type not in {"flashcards", "quiz", "study_guide"}:
-        return json.dumps({"error": "Invalid material type."})
+    if material_type != "quiz":
+        return json.dumps({"error": "This function only supports quiz generation."})
+    
+    # Validate difficulty level
+    if difficulty not in ["easy", "medium", "hard"]:
+        difficulty = "medium"  # Default to medium if invalid
     
     # Set default question types if none provided
-    print("Rendering Quiz!")
-    if material_type == "quiz" and (not question_types or len(question_types) == 0):
+    if not question_types or len(question_types) == 0:
         question_types = ["mcq"]
-
-    # --- Step 2: Fallback to dummy implementation if no OpenAI API key or use_dummy set ---
+    
+    # Fallback to dummy implementation if no OpenAI API key or use_dummy set
     api_key = os.getenv("OPENAI_API_KEY")
     if use_dummy or not api_key:
-        if material_type == "quiz":
-            return generate_dummy_quiz(query, question_types, num_questions)
-        else:
-            # Dummy fallback, just basic static content
-            materials = {
-                "title": f"{material_type.title()} on {query}",
-                "description": f"Study materials for {query}",
-                "content": [f"Sample content for {query}."]
-            }
-            return json.dumps(materials, indent=2)
-
-    # --- Step 3: Otherwise, use full-featured AI/LLM pipeline ---
+        return generate_dummy_quiz(query, question_types, num_questions, difficulty)
+    
     try:
-        # Retrieve context from the course's knowledge base
-        context = retrieve_course_context(course_id, query)
+        # Retrieve context with module filtering
+        context = retrieve_course_context(course_id, query, module_id)
         if isinstance(context, dict) and "error" in context:
-            return json.dumps(context)  # Return any error from context retrieval
-    except Exception as e:
-        return json.dumps({"error": f"Error retrieving context: {str(e)}"})
-
-    try:
-        # Generate material using LLM
-        if material_type == "quiz":
-            return generate_llm_quiz(query, question_types, num_questions, context, api_key)
+            return json.dumps(context)
+        
+        # Generate material using LLM with difficulty
+        return generate_llm_quiz(query, question_types, num_questions, context, api_key, difficulty)
         
     except Exception as e:
-        return json.dumps({"error": f"LLM generation failed: {str(e)}"})
+        return json.dumps({"error": f"Error generating quiz: {str(e)}"})
     finally:
-        # Audit logging, prefer teacher_id, else student_id
+        # Audit logging
         responsible_id = teacher_id or "unknown"
-        log_generation_event(responsible_id, course_id, material_type, query)
+        log_generation_event(responsible_id, course_id, material_type, query, module_id, difficulty)
 
-def retrieve_course_context(course_id, query):
+def retrieve_course_context(course_id, query, module_id=None):
     """Helper function to retrieve context from course knowledge base.
-    Automatically downloads index from S3 if missing."""
+    Optionally filter by specific module."""
     try:
-        db = load_faiss_vectorstore(course_id, openai_api_key=None)  
-        retriever = db.as_retriever(search_kwargs={"k": 10})
-        retrieved_docs = retriever.get_relevant_documents(query)
-        context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+        
+        db_session = next(get_db())
+        
+        # If module_id is specified, get context only from that module
+        if module_id:
+            module = db_session.query(CourseModule).filter_by(id=module_id, course_id=course_id).first()
+            if not module:
+                return {"error": f"Module {module_id} not found in course {course_id}"}
+            
+            # Get text chunks from all submodules of this module
+            chunks = db_session.query(ModuleTextChunk).join(CourseSubmodule).filter(
+                CourseSubmodule.module_id == module_id
+            ).all()
+            
+            if not chunks:
+                return {"error": f"No content found in module '{module.title}'"}
+            
+            # Combine chunks for context
+            context = "\n\n".join([chunk.chunk_text for chunk in chunks])
+            
+        else:
+            # Use existing FAISS retrieval for entire course
+            db = load_faiss_vectorstore(course_id, openai_api_key=None)  
+            retriever = db.as_retriever(search_kwargs={"k": 10})
+            retrieved_docs = retriever.get_relevant_documents(query)
+            context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+        
         if not context.strip():
             return {"error": "Insufficient context found for your query."}
         return context
-    except FileNotFoundError:
-        return {"error": f"No existing knowledge base found for course {course_id}"}
-    except Exception as e:
-        return {"error": f"Problem loading FAISS index: {str(e)}"}
-
-def generate_dummy_quiz(query, question_types, num_questions):
-    """Generate a dummy quiz when API is unavailable"""
-    questions_per_type = num_questions // len(question_types)
-    remainder = num_questions % len(question_types)
-    questions = []
-    
-    for qtype in question_types:
-        count = questions_per_type + (1 if remainder > 0 else 0)
-        if remainder > 0:
-            remainder -= 1
         
-        for _ in range(count):
-            if qtype == "mcq":
-                questions.append({
-                    "type": "mcq",
-                    "question": f"Sample {query} multiple choice question",
-                    "options": ["Option A", "Option B", "Option C", "Option D"],
-                    "correct_answer_index": 0,
-                    "explanation": "This is the explanation for the correct answer."
-                })
-            elif qtype == "msq":
-                questions.append({
-                    "type": "msq",
-                    "question": f"Sample {query} multiple select question",
-                    "options": ["Option A", "Option B", "Option C", "Option D"],
-                    "correct_answer_indices": [0, 2],
-                    "explanation": "Options A and C are correct because..."
-                })
-            elif qtype == "essay":
-                questions.append({
-                    "type": "essay",
-                    "question": f"Write an essay about {query}",
-                    "model_answer": f"This is a model answer about {query} that demonstrates key points..."
-                })
-            elif qtype == "short_answer":
-                questions.append({
-                    "type": "short_answer",
-                    "question": f"Briefly explain {query}",
-                    "model_answer": f"A concise explanation of {query} is..."
-                })
-    
-    materials = {
-        "title": f"Quiz on {query}",
-        "description": f"Test your knowledge on {query}",
-        "questions": questions
-    }
-    return json.dumps(materials, indent=2)
+    except Exception as e:
+        return {"error": f"Problem loading course content: {str(e)}"}
 
-def generate_llm_quiz(query, question_types, num_questions, context, api_key):
-    """Generate a quiz using LLM"""
+def generate_dummy_quiz(query, question_types, num_questions, difficulty="medium"):
+    """Generate dummy quiz data with difficulty levels for testing"""
+    difficulty_modifiers = {
+        "easy": {
+            "title_suffix": " - Basics",
+            "description": "Basic concepts and fundamental understanding",
+            "sample_questions": {
+                "mcq": "What is the basic definition of {topic}?",
+                "msq": "Which of the following are simple characteristics of {topic}?",
+                "short_answer": "Define {topic} in your own words.",
+                "essay": "Explain the basic importance of {topic}."
+            }
+        },
+        "medium": {
+            "title_suffix": " - Application",
+            "description": "Application and analysis of concepts",
+            "sample_questions": {
+                "mcq": "How would you apply {topic} in a practical scenario?",
+                "msq": "Which methods can be used to analyze {topic}?",
+                "short_answer": "Explain how {topic} relates to other concepts.",
+                "essay": "Analyze the role of {topic} in its broader context."
+            }
+        },
+        "hard": {
+            "title_suffix": " - Advanced",
+            "description": "Critical thinking and synthesis",
+            "sample_questions": {
+                "mcq": "What are the complex implications of {topic}?",
+                "msq": "Which advanced concepts are interconnected with {topic}?",
+                "short_answer": "Critically evaluate the significance of {topic}.",
+                "essay": "Synthesize and evaluate the comprehensive impact of {topic}."
+            }
+        }
+    }
+    
+    modifier = difficulty_modifiers.get(difficulty, difficulty_modifiers["medium"])
+    
+    dummy_quiz = {
+        "title": f"Quiz on {query}{modifier['title_suffix']}",
+        "description": f"Test your knowledge on {query}. {modifier['description']}",
+        "difficulty": difficulty,
+        "questions": []
+    }
+    
+    # Generate sample questions based on requested types
+    for i in range(min(num_questions, len(question_types) * 2)):
+        q_type = question_types[i % len(question_types)]
+        question_template = modifier["sample_questions"].get(q_type, "Question about {topic}")
+        
+        if q_type == "mcq":
+            dummy_quiz["questions"].append({
+                "type": "mcq",
+                "question": question_template.format(topic=query),
+                "options": ["Option A", "Option B", "Option C", "Option D"],
+                "correct_answer_index": 0,
+                "explanation": f"This is the correct answer for {difficulty} level understanding."
+            })
+        elif q_type == "msq":
+            dummy_quiz["questions"].append({
+                "type": "msq",
+                "question": question_template.format(topic=query),
+                "options": ["Option A", "Option B", "Option C", "Option D"],
+                "correct_answer_indices": [0, 2],
+                "explanation": f"These are the correct answers for {difficulty} level analysis."
+            })
+        elif q_type == "short_answer":
+            dummy_quiz["questions"].append({
+                "type": "short_answer",
+                "question": question_template.format(topic=query),
+                "model_answer": f"A {difficulty} level answer about {query}."
+            })
+        elif q_type == "essay":
+            dummy_quiz["questions"].append({
+                "type": "essay",
+                "question": question_template.format(topic=query),
+                "model_answer": f"A comprehensive {difficulty} level essay response about {query}."
+            })
+    
+    return json.dumps(dummy_quiz, indent=2)
+
+def generate_llm_quiz(query, question_types, num_questions, context, api_key, difficulty="medium"):
+    """Generate a quiz using LLM with difficulty level"""
     try:
         chat = ChatOpenAI(
             model="gpt-4.1-mini",
             temperature=0.2,
             openai_api_key=api_key
         )
-
-        # Compose a dynamic prompt for quiz generation with explicit structure
-        q_types_str = ", ".join(question_types)
         
+        # Difficulty-specific instructions
+        difficulty_instructions = {
+            "easy": "Focus on basic recall, simple definitions, and straightforward concepts. Questions should test fundamental understanding.",
+            "medium": "Include application and analysis questions. Test understanding of concepts and ability to apply knowledge in familiar contexts.",
+            "hard": "Emphasize synthesis, evaluation, and critical thinking. Include complex scenarios, comparative analysis, and higher-order thinking skills."
+        }
+        
+        q_types_str = ", ".join(question_types)
+        difficulty_instruction = difficulty_instructions.get(difficulty, difficulty_instructions["medium"])
+        
+        # Enhanced instructions to focus entirely on module content when available
         instructions = (
-            f"Generate a quiz about '{query}' with {num_questions} questions using these types: {q_types_str}.\n\n"
+            f"Generate a {difficulty} difficulty quiz about '{query}' with {num_questions} questions using these types: {q_types_str}.\n\n"
+            f"Difficulty Level - {difficulty.title()}: {difficulty_instruction}\n\n"
+            "IMPORTANT: Base ALL questions strictly on the provided context from course materials. "
+            "Do not include general knowledge questions outside of the provided content. "
+            "If the context is from a specific module, ensure all questions test knowledge from that module's content.\n\n"
             "Your response must be a valid JSON object with exactly this structure:\n"
             "{\n"
             '  "title": "Quiz title here",\n'
-            '  "description": "Brief description of the quiz",\n'
+            '  "description": "Brief description of the quiz including difficulty level",\n'
+            '  "difficulty": "' + difficulty + '",\n'
             '  "questions": [\n'
             '    {"type": "mcq", "question": "Question text", "options": ["Option A", "Option B", "Option C", "Option D"], "correct_answer_index": 0, "explanation": "Why this is correct"},\n'
             '    {"type": "msq", "question": "Question text", "options": ["Option A", "Option B", "Option C", "Option D"], "correct_answer_indices": [0, 2], "explanation": "Why these are correct"}\n'
@@ -1026,7 +1108,7 @@ def generate_llm_quiz(query, question_types, num_questions, context, api_key):
         full_prompt = f"{instructions}\nContext from course materials: {context}\n"
         
         messages = [
-            {"role": "system", "content": "You are a helpful assistant that creates educational quizzes."},
+            {"role": "system", "content": "You are a helpful assistant that creates educational quizzes based strictly on provided course materials."},
             {"role": "user", "content": full_prompt}
         ]
         
@@ -1039,17 +1121,17 @@ def generate_llm_quiz(query, question_types, num_questions, context, api_key):
             return json.dumps({
                 "error": "No response from LLM. Please retry with a different or more specific query."
             })
-
+        
         # Process and validate the LLM response
-        return process_llm_quiz_response(result, query)
+        return process_llm_quiz_response(result, query, difficulty)
         
     except TimeoutError:
         return json.dumps({"error": "OpenAI response timed out. Retry with simpler or shorter query."})
     except Exception as e:
         return json.dumps({"error": f"Error in LLM quiz generation: {str(e)}"})
 
-def process_llm_quiz_response(response, query):
-    """Process and validate the LLM response for a quiz"""
+def process_llm_quiz_response(response, query, difficulty="medium"):
+    """Process and validate the LLM response for a quiz with difficulty"""
     # Extract JSON from the response
     parsed_json = extract_json_from_text(response)
     
@@ -1057,13 +1139,14 @@ def process_llm_quiz_response(response, query):
         # Fallback to a basic structure if JSON parsing fails
         return json.dumps({
             "title": f"Quiz on {query}",
-            "description": f"Test your knowledge on {query}",
+            "description": f"Test your knowledge on {query} ({difficulty} difficulty)",
+            "difficulty": difficulty,
             "questions": [],
             "error": "Failed to parse LLM response into valid JSON."
         })
     
-    # Ensure the quiz has the required structure
-    quiz_json = ensure_quiz_structure(parsed_json, query)
+    # Ensure the quiz has the required structure with difficulty
+    quiz_json = ensure_quiz_structure(parsed_json, query, difficulty)
     return json.dumps(quiz_json, indent=2)
 
 def extract_json_from_text(text):
@@ -1105,49 +1188,52 @@ def extract_json_from_text(text):
     
     return None
 
-def ensure_quiz_structure(json_data, query):
-    """Ensure the quiz JSON has all required fields"""
-    result = {}
+def ensure_quiz_structure(parsed_json, query, difficulty="medium"):
+    """Ensure the quiz JSON has the required structure with difficulty"""
+    # Set default title and description if missing
+    if "title" not in parsed_json or not parsed_json["title"]:
+        parsed_json["title"] = f"Quiz on {query}"
     
-    # Handle case where parsed_json is just the questions array
-    if isinstance(json_data, list):
-        result = {
-            "title": f"Quiz on {query}",
-            "description": f"Test your knowledge on {query}",
-            "questions": json_data
+    if "description" not in parsed_json or not parsed_json["description"]:
+        parsed_json["description"] = f"Test your knowledge on {query} ({difficulty} difficulty)"
+    
+    # Ensure difficulty is included
+    parsed_json["difficulty"] = difficulty
+    
+    # Ensure questions array exists
+    if "questions" not in parsed_json:
+        parsed_json["questions"] = []
+    
+    # Validate question structure
+    validated_questions = []
+    for question in parsed_json["questions"]:
+        if isinstance(question, dict) and "type" in question and "question" in question:
+            # Ensure proper structure based on question type
+            if question["type"] in ["mcq", "msq"]:
+                if "options" in question and "correct_answer_index" in question or "correct_answer_indices" in question:
+                    validated_questions.append(question)
+            elif question["type"] in ["essay", "short_answer"]:
+                if "model_answer" in question:
+                    validated_questions.append(question)
+    
+    parsed_json["questions"] = validated_questions
+    return parsed_json
+
+def log_generation_event(teacher_id, course_id, material_type, query, module_id=None, difficulty=None):
+    """Log quiz generation events with module and difficulty information"""
+    try:
+        log_data = {
+            "teacher_id": teacher_id,
+            "course_id": course_id,
+            "material_type": material_type,
+            "query": query,
+            "module_id": module_id,
+            "difficulty": difficulty,
+            "timestamp": datetime.utcnow()
         }
-    else:
-        # Start with the parsed data
-        result = json_data
-        
-        # Ensure required top-level fields exist
-        if "title" not in result:
-            result["title"] = f"Quiz on {query}"
-        if "description" not in result:
-            result["description"] = f"Test your knowledge on {query}"
-        if "questions" not in result or not isinstance(result["questions"], list):
-            result["questions"] = []
-    
-    # Validate each question has the required fields based on its type
-    for i, question in enumerate(result["questions"]):
-        if "type" not in question:
-            question["type"] = "mcq"  # Default to MCQ
-            
-        if question["type"] in ["mcq", "msq"]:
-            if "options" not in question or not isinstance(question["options"], list):
-                question["options"] = ["Option A", "Option B", "Option C", "Option D"]
-            if question["type"] == "mcq" and "correct_answer_index" not in question:
-                question["correct_answer_index"] = 0
-            if question["type"] == "msq" and "correct_answer_indices" not in question:
-                question["correct_answer_indices"] = [0]
-            if "explanation" not in question:
-                question["explanation"] = "Explanation for the correct answer."
-        
-        elif question["type"] in ["essay", "short_answer"]:
-            if "model_answer" not in question:
-                question["model_answer"] = f"Sample model answer for this {question['type']} question."
-    
-    return result
+        print(f"Quiz generation logged: {log_data}")
+    except Exception as e:
+        print(f"Logging error: {str(e)}")
 
 def generate_quiz_export(materials_json, course_id,format="pdf", include_answers=False):
     """

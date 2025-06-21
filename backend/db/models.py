@@ -58,6 +58,7 @@ class Course(Base):
     student_activities = relationship("StudentActivity", back_populates="course")
     quiz_quotas = relationship("QuizQuota", back_populates="course")
     modules = relationship("CourseModule", back_populates="course", cascade="all, delete-orphan")
+    quizzes = relationship("Quiz", back_populates="course", cascade="all, delete-orphan")
 
 
 class CourseModule(Base):
@@ -75,6 +76,7 @@ class CourseModule(Base):
     # Relationships
     course = relationship("Course", back_populates="modules")
     submodules = relationship("CourseSubmodule", back_populates="module", cascade="all, delete-orphan")
+    quizzes = relationship("Quiz", back_populates="module")
     
 class CourseSubmodule(Base):
     """Represents a submodule within a module (like sections within a chapter)"""
@@ -288,11 +290,16 @@ class Quiz(Base):
     __tablename__ = "quizzes"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    course_id = Column(Integer, nullable=False, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=False, index=True)
     teacher_id = Column(String, nullable=False, index=True)
+    module_id = Column(Integer, ForeignKey("course_modules.id"), nullable=True, index=True) 
+    difficulty = Column(String, default="medium", nullable=False)
     topic = Column(String, nullable=False)
     json_data = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
+
+    module = relationship("CourseModule", back_populates="quizzes")
+    course = relationship("Course", back_populates="quizzes")
 
 class RubricCriterion(Base):
     __tablename__ = "rubric_criteria"

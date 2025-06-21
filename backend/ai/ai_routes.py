@@ -277,7 +277,10 @@ async def show_course_modules(
     
     # Get all modules with their submodules
     modules = db.query(CourseModule).filter_by(course_id=course_id).order_by(CourseModule.order_index).all()
-    
+    quizzes = db.query(Quiz).filter_by(course_id=course_id).order_by(Quiz.created_at.desc()).all()
+    quizzes_by_module_id = {}
+    for quiz in quizzes:
+        quizzes_by_module_id.setdefault(quiz.module_id, []).append(quiz)
     # Get quota information
     today = date.today()
     quota_usage = db.query(PDFQuotaUsage).filter(
@@ -301,6 +304,7 @@ async def show_course_modules(
         "course": course,
         "modules": modules,
         "materials_without_modules": materials_without_modules,
+        "quizzes_by_module_id": quizzes_by_module_id,
         "quota_used": quota_used,
         "quota_remaining": quota_remaining,
         "quota_total": PDFQuotaConfig.DAILY_PAGE_QUOTA,
@@ -2075,14 +2079,17 @@ async def quiz_creation_page(
     
     # Check quota and get remaining count
     quota_exceeded, remaining = check_quiz_quota(db, teacher_id, course_id)
-    
+    module = db.query(CourseModule).filter_by(
+        course_id=course_id
+    ).order_by(CourseModule.order_index).all()
     # Render form to create a quiz for this specific course
     return templates.TemplateResponse(
         "quiz_creator.html",
         {
             "request": request,
             "course_id": course_id,
-            "topic": "",
+            "modules": module,
+            "topic": request.query_params.get("topic", ""),
             "study_material_html": "",
             "teacher_id": user.get("user_id", ""),
             "question_types": ["mcq"],  # Default
@@ -2097,7 +2104,9 @@ async def quiz_creation_page(
 async def generate_quiz(
     request: Request,
     course_id: int,
-    topic: str = Form(...),
+    topic: str = Form(""),  # Changed from Form(...) to Form("") to allow empty values
+    module_id: Optional[int] = Form(None), 
+    difficulty: str = Form("medium"), 
     question_types: List[str] = Form(...),
     num_questions: int = Form(10),
     user: dict = Depends(require_role("teacher")),
@@ -2107,6 +2116,57 @@ async def generate_quiz(
     MAX_QUESTIONS = 20
     if num_questions > MAX_QUESTIONS:
         num_questions = MAX_QUESTIONS
+    
+    # If module is selected but no topic is provided, use module-based quiz generation
+    if module_id and (not topic or not topic.strip()):
+        try:
+            module = db.query(CourseModule).filter_by(id=module_id, course_id=course_id).first()
+            if module:
+                topic = f"Module: {module.title}"
+            else:
+                return templates.TemplateResponse(
+                    "quiz_creator.html",
+                    {
+                        "request": request,
+                        "course_id": course_id,
+                        "topic": topic,
+                        "error": "Selected module not found.",
+                        "teacher_id": teacher_id,
+                        "question_types": question_types,
+                        "num_questions": num_questions,
+                        "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
+                    }
+                )
+        except Exception as e:
+            return templates.TemplateResponse(
+                "quiz_creator.html",
+                {
+                    "request": request,
+                    "course_id": course_id,
+                    "topic": topic,
+                    "error": f"Error retrieving module information: {str(e)}",
+                    "teacher_id": teacher_id,
+                    "question_types": question_types,
+                    "num_questions": num_questions,
+                    "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
+                }
+            )
+    
+    # Validate that we have either a topic or a module selected
+    if (not topic or not topic.strip()) and not module_id:
+        return templates.TemplateResponse(
+            "quiz_creator.html",
+            {
+                "request": request,
+                "course_id": course_id,
+                "topic": topic,
+                "error": "Please provide a topic or select a module for the quiz.",
+                "teacher_id": teacher_id,
+                "question_types": question_types,
+                "num_questions": num_questions,
+                "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
+            }
+        )
     
     try:
         # Check if quota is exceeded
@@ -2136,7 +2196,9 @@ async def generate_quiz(
             course_id=course_id,
             teacher_id=teacher_id,
             question_types=question_types,
-            num_questions=num_questions
+            num_questions=num_questions,
+            module_id=module_id,     
+            difficulty=difficulty 
         )
         print("Generated materials_json:", materials_json)
 
@@ -2156,7 +2218,10 @@ async def generate_quiz(
                     course_id=course_id,
                     teacher_id=teacher_id,
                     topic=topic,
-                    json_data=materials_json
+                    json_data=materials_json,
+                    module_id=module_id,     
+                    difficulty=difficulty 
+
                 )
                 db.add(quiz)
             db.commit()
@@ -2193,6 +2258,8 @@ async def generate_quiz(
                 "question_types": question_types,
                 "num_questions": num_questions,
                 "remaining_quota": remaining,
+                "difficulty":difficulty,
+                "module_id":module_id,
                 "quota_success": True,
                 "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
             }
@@ -2211,8 +2278,6 @@ async def generate_quiz(
                 "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
             }
         )
-
-
 @ai_router.get("/courses/{course_id}/quiz/export", response_class=HTMLResponse)
 async def export_quiz(
     request: Request,
@@ -2246,6 +2311,166 @@ async def export_quiz(
         }
     )
 
+@ai_router.get("/courses/{course_id}/quiz/previous", response_class=HTMLResponse)
+async def get_previous_quizzes(
+    request: Request,
+    course_id: int,
+    user: dict = Depends(require_role("teacher")),
+    db: Session = Depends(get_db)
+):
+    teacher_id = user.get("user_id", "")
+    
+    # Get all previous quizzes for this course and teacher
+    quizzes = db.query(Quiz)\
+        .filter_by(course_id=course_id, teacher_id=teacher_id)\
+        .order_by(Quiz.created_at.desc())\
+        .all()
+    
+    if not quizzes:
+        return HTMLResponse("""
+            <div class="text-center py-8 text-gray-500">
+                <div class="text-4xl mb-3">📝</div>
+                <p class="font-medium">No previous quizzes found</p>
+                <p class="text-sm">Create your first quiz using the form below!</p>
+            </div>
+        """)
+    
+    # Group quizzes by module
+    quizzes_by_module = {}
+    for quiz in quizzes:
+        module_name = "All Course Content"
+        if quiz.module_id and quiz.module:
+            module_name = quiz.module.title
+        
+        if module_name not in quizzes_by_module:
+            quizzes_by_module[module_name] = []
+        quizzes_by_module[module_name].append(quiz)
+    
+    # Generate HTML
+    html_parts = []
+    
+    for module_name, module_quizzes in quizzes_by_module.items():
+        html_parts.append(f"""
+            <div class="mb-6">
+                <h3 class="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                    📂 {module_name}
+                    <span class="text-sm font-normal text-gray-500">({len(module_quizzes)} quiz{'es' if len(module_quizzes) != 1 else ''})</span>
+                </h3>
+                <div class="grid gap-3">
+        """)
+        
+        for quiz in module_quizzes:
+            # Parse quiz data to get question count
+            try:
+                import json
+                quiz_data = json.loads(quiz.json_data)
+                question_count = len(quiz_data.get('questions', []))
+            except:
+                question_count = 'N/A'
+            
+            # Format date
+            created_date = quiz.created_at.strftime("%b %d, %Y at %I:%M %p")
+            
+            # Difficulty badge color
+            difficulty_colors = {
+                'easy': 'bg-green-100 text-green-800',
+                'medium': 'bg-yellow-100 text-yellow-800', 
+                'hard': 'bg-red-100 text-red-800'
+            }
+            difficulty_color = difficulty_colors.get(quiz.difficulty, 'bg-gray-100 text-gray-800')
+            
+            html_parts.append(f"""
+                <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 hover:bg-gray-100 transition-colors">
+                    <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-3 mb-2">
+                                <h4 class="font-medium text-gray-900">{quiz.topic}</h4>
+                                <span class="px-2 py-1 text-xs font-medium rounded-full {difficulty_color}">
+                                    {quiz.difficulty.title()}
+                                </span>
+                            </div>
+                            <div class="text-sm text-gray-600 mb-2">
+                                <span class="inline-flex items-center gap-1">
+                                    📊 {question_count} questions
+                                </span>
+                                <span class="mx-2">•</span>
+                                <span class="inline-flex items-center gap-1">
+                                    🕒 {created_date}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex gap-2 ml-4">
+                            <button
+                                onclick="downloadQuiz({quiz.id}, '{quiz.topic}', 'pdf')"
+                                data-quiz-id="{quiz.id}"
+                                class="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                                title="Download as PDF"
+                            >
+                                📄 PDF
+                            </button>
+                            <button
+                                onclick="deleteQuiz({quiz.id}, '{quiz.topic}')"
+                                data-quiz-id="{quiz.id}"
+                                data-action="delete"
+                                class="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                title="Delete Quiz"
+                            >
+                                🗑️ Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            """)
+        
+        html_parts.append("</div></div>")
+    
+    return HTMLResponse("".join(html_parts))
+
+
+@ai_router.get("/courses/{course_id}/quiz/{quiz_id}/download")
+async def download_quiz_by_id(
+    course_id: int,
+    quiz_id: int,
+    format: str = Query("pdf", regex="^(pdf|docx)$"),
+    include_answers: bool = Query(True),
+    user: dict = Depends(require_role("teacher")),
+    db: Session = Depends(get_db)
+):
+    teacher_id = user.get("user_id", "")
+    
+    # Get the specific quiz
+    quiz = db.query(Quiz)\
+        .filter_by(id=quiz_id, course_id=course_id, teacher_id=teacher_id)\
+        .first()
+    
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    
+    try:
+        # Generate the export using your existing function
+        s3_key, filename = generate_quiz_export(
+            quiz.json_data, 
+            course_id, 
+            format, 
+            include_answers
+        )
+        
+        # Return download response (adjust based on your file storage setup)
+        if s3_key:
+            # If using S3, redirect to signed URL
+            download_url = generate_s3_download_link(s3_key, filename)
+            return RedirectResponse(url=download_url)
+        else:
+            # If storing locally, return file response
+            return FileResponse(
+                path=filename,
+                filename=f"{quiz.topic}_{format}.{format}",
+                media_type='application/octet-stream'
+            )
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating download: {str(e)}")
+
 @ai_router.get("/courses/{course_id}/quiz/download/{filename}", response_class=FileResponse)
 async def download_quiz_file(
     course_id: int,
@@ -2265,6 +2490,36 @@ async def download_quiz_file(
         )
     return RedirectResponse(download_link)
 
+@ai_router.delete("/courses/{course_id}/quiz/{quiz_id}/delete")
+async def delete_quiz_by_id(
+    course_id: int,
+    quiz_id: int,
+    user: dict = Depends(require_role("teacher")),
+    db: Session = Depends(get_db)
+):
+    teacher_id = user.get("user_id", "")
+    
+    # Get the specific quiz to ensure it belongs to this teacher and course
+    quiz = db.query(Quiz)\
+        .filter_by(id=quiz_id, course_id=course_id, teacher_id=teacher_id)\
+        .first()
+    
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    
+    try:
+        # Delete the quiz from database
+        db.delete(quiz)
+        db.commit()
+        
+        # Optionally: Clean up any associated files (if stored locally)
+        # You might want to delete exported files or other related data here
+        
+        return {"message": "Quiz deleted successfully", "quiz_id": quiz_id}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error deleting quiz: {str(e)}")
 
 @ai_router.get("/student/courses/{course_id}/engagement", response_class=HTMLResponse)
 async def student_engagement_activities(
