@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import time
 import logging
 import os
 import re
@@ -408,6 +409,74 @@ def extract_text_from_pdf_pages(file_path: str, start_page: int, end_page: int) 
     except Exception as e:
         logging.error(f"Error extracting text from PDF pages {start_page}-{end_page}: {e}")
         return ""
+
+def extract_pdf_pages_to_file(
+    source_pdf_path: str, 
+    start_page: int, 
+    end_page: int, 
+    title: str
+) -> str:
+    """
+    Extract specific pages from PDF and save as a new PDF file
+    Returns the path to the created PDF file
+    """
+    try:
+        
+        source_doc = fitz.open(source_pdf_path)
+        
+        # Create new PDF with only the specified pages
+        new_doc = fitz.open()
+        
+        # Ensure page numbers are within bounds (convert to 0-based indexing)
+        start_idx = max(0, start_page - 1)
+        end_idx = min(len(source_doc), end_page)
+        
+        # Copy pages to new document
+        for page_num in range(start_idx, end_idx):
+            page = source_doc[page_num]
+            new_doc.insert_pdf(source_doc, from_page=page_num, to_page=page_num)
+        
+        # Create output filename
+        temp_dir = "temp_downloads"
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        safe_title = "".join(c for c in title if c.isalnum() or c in (' ', '-', '_')).strip()
+        output_filename = f"{safe_title}_pages_{start_page}-{end_page}_{int(time.time())}.pdf"
+        output_path = os.path.join(temp_dir, output_filename)
+        
+        # Save the new PDF
+        new_doc.save(output_path)
+        
+        # Clean up
+        new_doc.close()
+        source_doc.close()
+        
+        return output_path
+        
+    except Exception as e:
+        logging.error(f"Error extracting PDF pages: {e}")
+        return None
+
+
+# Optional: Add a cleanup task to remove old temporary files
+def cleanup_temp_downloads():
+    """Clean up old temporary download files (run this periodically)"""
+    try:
+        temp_dir = "temp_downloads"
+        if not os.path.exists(temp_dir):
+            return
+        
+        current_time = time.time()
+        for filename in os.listdir(temp_dir):
+            file_path = os.path.join(temp_dir, filename)
+            if os.path.isfile(file_path):
+                # Remove files older than 1 hour
+                if current_time - os.path.getmtime(file_path) > 3600:
+                    os.remove(file_path)
+                    
+    except Exception as e:
+        logging.error(f"Error cleaning up temp downloads: {e}")
+
 
 def process_submodule_with_quota_check(
     course_id: int, 

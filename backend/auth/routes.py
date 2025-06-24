@@ -552,7 +552,7 @@ def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
 def forgot_password(request: Request, email: str = Form(...), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        return HTMLResponse(content="❌ No account found with that email", status_code=404)
+        return HTMLResponse(content="❌ No account found with that email", status_code=200)
     
     token = generate_verification_token(email)
     base_url = get_base_url(request)

@@ -72,6 +72,7 @@ class CourseModule(Base):
     order_index = Column(Integer, default=0)  # For ordering modules
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    is_published = Column(Boolean, default=False)
     
     # Relationships
     course = relationship("Course", back_populates="modules")
@@ -93,6 +94,7 @@ class CourseSubmodule(Base):
     is_processed = Column(Boolean, default=False)
     processed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    is_published = Column(Boolean, default=False)
     
     # Store metadata about the content
     meta_json = Column(JSON)  # Can store page counts, file info, etc.
@@ -300,6 +302,7 @@ class Quiz(Base):
     topic = Column(String, nullable=False)
     json_data = Column(Text, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
+    is_published = Column(Boolean, default=False)
 
     module = relationship("CourseModule", back_populates="quizzes")
     course = relationship("Course", back_populates="quizzes")

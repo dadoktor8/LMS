@@ -26,7 +26,7 @@ from backend.db.models import Assignment, AssignmentComment, AssignmentSubmissio
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
-from .text_processing import PDFQuotaConfig, create_modules_from_pdf_analysis, download_file_from_s3, extract_pdf_page_ranges, extract_text_from_pdf, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background, process_submodule_with_quota_check,sanitize_filename, validate_pdf_for_upload
+from .text_processing import PDFQuotaConfig, create_modules_from_pdf_analysis, download_file_from_s3, extract_pdf_page_ranges, extract_pdf_pages_to_file, extract_text_from_pdf, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background, process_submodule_with_quota_check,sanitize_filename, validate_pdf_for_upload
 from langchain.memory.chat_message_histories import SQLChatMessageHistory
 from langchain.schema import AIMessage, HumanMessage
 from fastapi import FastAPI
@@ -437,6 +437,306 @@ async def create_custom_module(
             status_code=500
         )
 
+@ai_router.get("/student/courses/{course_id}/modules", response_class=HTMLResponse)
+async def show_student_modules(
+    request: Request,
+    course_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))
+):
+    """Display published course modules for students"""
+    
+    course = db.query(Course).filter_by(id=course_id).first()
+    if not course:
+        return HTMLResponse("❌ Course not found", status_code=404)
+    
+    # Get only published modules with their published submodules
+    modules = db.query(CourseModule).filter_by(
+        course_id=course_id, 
+        is_published=True
+    ).order_by(CourseModule.order_index).all()
+    published_quizzes = db.query(Quiz)\
+        .filter_by(course_id=course_id, is_published=True)\
+        .order_by(Quiz.created_at.desc())\
+        .all()
+
+    # Group quizzes by module for students
+    quizzes_by_module_id = {}
+    for quiz in published_quizzes:
+        module_id = quiz.module_id or 0
+        if module_id not in quizzes_by_module_id:
+            quizzes_by_module_id[module_id] = []
+        
+        # Parse the JSON data and add question count
+        try:
+            quiz_data = json.loads(quiz.json_data)
+            quiz.question_count = len(quiz_data.get('questions', []))
+        except:
+            quiz.question_count = 0
+        
+        quizzes_by_module_id[module_id].append(quiz)
+    # Filter to only show published submodules and quizzes
+    published_modules = []
+    for module in modules:
+        published_submodules = [sub for sub in module.submodules if sub.is_published]
+        published_quizzes = [quiz for quiz in module.quizzes if quiz.is_published]
+        
+        if published_submodules or published_quizzes:
+            module.published_submodules = published_submodules
+            module.published_quizzes = published_quizzes
+            published_modules.append(module)
+    
+    return templates.TemplateResponse("student_modules.html", {
+        "request": request,
+        "course": course,
+        "published_modules": published_modules,
+        "quizzes_by_module_id": quizzes_by_module_id,
+        "user": user
+    })
+
+
+# Add this endpoint to allow students to download published quizzes
+@ai_router.get("/courses/{course_id}/quiz/{quiz_id}/download")
+async def download_quiz_for_student(
+    course_id: int,
+    quiz_id: int,
+    format: str = Query("pdf", regex="^(pdf|docx)$"),
+    include_answers: bool = Query(False),  # Students get version without answers
+    user: dict = Depends(require_role("student")),  # Any authenticated user
+    db: Session = Depends(get_db)
+):
+    # Get the specific published quiz
+    quiz = db.query(Quiz)\
+        .filter_by(id=quiz_id, course_id=course_id, is_published=True)\
+        .first()
+    
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found or not published")
+    
+    # enrollment_check = check_user_enrollment(user.get("user_id"), course_id, db)
+    # if not enrollment_check:
+    #     raise HTTPException(status_code=403, detail="Not enrolled in this course")
+    
+    try:
+        # Generate the export (students get version without answers)
+        s3_key, filename = generate_quiz_export(
+            quiz.json_data, 
+            course_id, 
+            format, 
+            include_answers=False  # Force no answers for students
+        )
+        
+        # Return download response
+        if s3_key:
+            download_url = generate_s3_download_link(s3_key, filename)
+            return RedirectResponse(url=download_url)
+        else:
+            return FileResponse(
+                path=filename,
+                filename=f"{quiz.topic}_{format}.{format}",
+                media_type='application/octet-stream'
+            )
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating download: {str(e)}")
+# Publish/Unpublish endpoints for teachers
+@ai_router.post("/courses/{course_id}/modules/{module_id}/publish")
+async def publish_module(
+    course_id: int,
+    module_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Publish a module and all its processed submodules"""
+    
+    module = db.query(CourseModule).filter_by(id=module_id, course_id=course_id).first()
+    if not module:
+        return {"error": "Module not found"}, 404
+    
+    module.is_published = True
+    
+    # Also publish all processed submodules
+    for submodule in module.submodules:
+        if submodule.is_processed:
+            submodule.is_published = True
+    
+    db.commit()
+    return HTMLResponse(f"""
+    <button 
+      hx-post="/ai/courses/{course_id}/modules/{module_id}/unpublish"
+      hx-target="this"
+      hx-swap="outerHTML"
+      class="status-toggle status-published">
+      ✓ Published
+    </button>
+    """)
+
+@ai_router.post("/courses/{course_id}/modules/{module_id}/unpublish")
+async def unpublish_module(
+    course_id: int,
+    module_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Unpublish a module and all its submodules"""
+    
+    module = db.query(CourseModule).filter_by(id=module_id, course_id=course_id).first()
+    if not module:
+        return {"error": "Module not found"}, 404
+    
+    module.is_published = False
+    
+    # Also unpublish all submodules
+    for submodule in module.submodules:
+        submodule.is_published = False
+    
+    db.commit()
+    return HTMLResponse(f"""
+    <button 
+      hx-post="/ai/courses/{course_id}/modules/{module_id}/publish"
+      hx-target="this"
+      hx-swap="outerHTML"
+      class="status-toggle status-draft">
+      📝 Draft
+    </button>
+    """)
+
+@ai_router.post("/courses/{course_id}/submodules/{submodule_id}/publish")
+async def publish_submodule(
+    course_id: int,
+    submodule_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Publish a single submodule"""
+    
+    submodule = db.query(CourseSubmodule).join(CourseModule).filter(
+        CourseSubmodule.id == submodule_id,
+        CourseModule.course_id == course_id
+    ).first()
+    
+    if not submodule:
+        return {"error": "Submodule not found"}, 404
+    
+    if not submodule.is_processed:
+        return {"error": "Cannot publish unprocessed content"}, 400
+    
+    submodule.is_published = True
+    db.commit()
+    return HTMLResponse(f"""
+    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+      <div>
+        <span class="font-medium text-gray-900">{submodule.title}</span>
+        {f'<span class="text-sm text-gray-500 ml-2">(Pages {submodule.page_range})</span>' if submodule.page_range else ''}
+        <span class="ml-2 text-green-600 text-sm">✓ Ready</span>
+      </div>
+      <div class="flex items-center space-x-2">
+        <button 
+          hx-post="/ai/courses/{course_id}/submodules/{submodule_id}/unpublish"
+          hx-target="closest .bg-gray-50"
+          hx-swap="outerHTML"
+          class="text-xs bg-orange-500 text-white px-2 py-1 rounded">
+          Unpublish
+        </button>
+      </div>
+    </div>
+    """)
+
+@ai_router.post("/courses/{course_id}/submodules/{submodule_id}/unpublish")
+async def unpublish_submodule(
+    course_id: int,
+    submodule_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Unpublish a single submodule"""
+    
+    submodule = db.query(CourseSubmodule).join(CourseModule).filter(
+        CourseSubmodule.id == submodule_id,
+        CourseModule.course_id == course_id
+    ).first()
+    
+    if not submodule:
+        return {"error": "Submodule not found"}, 404
+    
+    submodule.is_published = False
+    db.commit()
+    return HTMLResponse(f"""
+    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+      <div>
+        <span class="font-medium text-gray-900">{submodule.title}</span>
+        {f'<span class="text-sm text-gray-500 ml-2">(Pages {submodule.page_range})</span>' if submodule.page_range else ''}
+        <span class="ml-2 text-green-600 text-sm">✓ Ready</span>
+      </div>
+      <div class="flex items-center space-x-2">
+        <button 
+          hx-post="/ai/courses/{course_id}/submodules/{submodule_id}/publish"
+          hx-target="closest .bg-gray-50"
+          hx-swap="outerHTML"
+          class="text-xs bg-blue-500 text-white px-2 py-1 rounded">
+          Publish
+        </button>
+      </div>
+    </div>
+    """)
+
+@ai_router.post("/courses/{course_id}/quiz/{quiz_id}/publish")
+async def publish_quiz(
+    course_id: int,
+    quiz_id: int,
+    user: dict = Depends(require_role("teacher")),
+    db: Session = Depends(get_db)
+):
+    teacher_id = user.get("user_id", "")
+    
+    quiz = db.query(Quiz)\
+        .filter_by(id=quiz_id, course_id=course_id, teacher_id=teacher_id)\
+        .first()
+    
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    
+    quiz.is_published = True
+    db.commit()
+    
+    return HTMLResponse(f"""
+        <button
+          hx-post="/ai/courses/{course_id}/quiz/{quiz_id}/unpublish"
+          hx-target="this"
+          hx-swap="outerHTML"
+          class="status-toggle status-published">
+          ✓ Published
+        </button>
+    """)
+
+@ai_router.post("/courses/{course_id}/quiz/{quiz_id}/unpublish")
+async def unpublish_quiz(
+    course_id: int,
+    quiz_id: int,
+    user: dict = Depends(require_role("teacher")),
+    db: Session = Depends(get_db)
+):
+    teacher_id = user.get("user_id", "")
+    
+    quiz = db.query(Quiz)\
+        .filter_by(id=quiz_id, course_id=course_id, teacher_id=teacher_id)\
+        .first()
+    
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    
+    quiz.is_published = False
+    db.commit()
+    
+    return HTMLResponse(f"""
+        <button
+          hx-post="/ai/courses/{course_id}/quiz/{quiz_id}/publish"
+          hx-target="this"
+          hx-swap="outerHTML"
+          class="status-toggle status-draft">
+          📝 Draft
+        </button>
+    """)
 
 @ai_router.post("/courses/{course_id}/modules/{module_id}/submodules/create", response_class=HTMLResponse)
 async def create_custom_submodule(
@@ -508,6 +808,151 @@ async def create_custom_submodule(
             """,
             status_code=500
         )
+
+@ai_router.get("/courses/{course_id}/submodules/{submodule_id}/download")
+async def download_submodule_pages(
+    course_id: int,
+    submodule_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role("student"))  # Students can download published content
+):
+    """Download specific pages of a published submodule as PDF"""
+    
+    # Get the submodule with its module and material
+    submodule = db.query(CourseSubmodule).join(CourseModule).filter(
+        CourseSubmodule.id == submodule_id,
+        CourseModule.course_id == course_id,
+        CourseSubmodule.is_published == True  # Only published submodules
+    ).first()
+    
+    if not submodule:
+        return HTMLResponse("❌ Submodule not found or not published", status_code=404)
+    
+    if not submodule.page_range:
+        return HTMLResponse("❌ No page range specified for this submodule", status_code=400)
+    
+    if not submodule.material:
+        return HTMLResponse("❌ No source material linked to this submodule", status_code=400)
+    
+    try:
+        # Parse page range
+        start_page, end_page = map(int, submodule.page_range.split('-'))
+        
+        # Get the source material file
+        material = submodule.material
+        file_path = material.filepath
+        
+        # Handle S3 download if needed
+        if not os.path.exists(file_path):
+            s3_key = f"course_materials/{course_id}/{material.filename}"
+            temp_dir = "temp_pdfs"
+            os.makedirs(temp_dir, exist_ok=True)
+            file_path = f"{temp_dir}/{material.filename}"
+            
+            if not download_file_from_s3(s3_key, file_path):
+                return HTMLResponse("❌ Failed to access source file", status_code=500)
+        
+        # Extract specific pages and create new PDF
+        output_pdf_path = extract_pdf_pages_to_file(
+            file_path, 
+            start_page, 
+            end_page, 
+            submodule.title
+        )
+        
+        if not output_pdf_path or not os.path.exists(output_pdf_path):
+            return HTMLResponse("❌ Failed to extract pages", status_code=500)
+        
+        # Create safe filename
+        safe_filename = f"{submodule.title}_pages_{start_page}-{end_page}.pdf"
+        safe_filename = "".join(c for c in safe_filename if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+        
+        # Return the PDF file
+        return FileResponse(
+            output_pdf_path,
+            media_type='application/pdf',
+            filename=safe_filename,
+            headers={"Content-Disposition": f"attachment; filename={safe_filename}"}
+        )
+        
+    except ValueError:
+        return HTMLResponse("❌ Invalid page range format", status_code=400)
+    except Exception as e:
+        logging.error(f"Error downloading submodule pages: {e}")
+        return HTMLResponse("❌ Error generating download", status_code=500)
+
+
+@ai_router.get("/courses/{course_id}/submodules/{submodule_id}/download/preview")
+async def download_submodule_pages_teacher(
+    course_id: int,
+    submodule_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())  # Teachers can preview any submodule
+):
+    """Download specific pages of a submodule as PDF (teacher preview)"""
+    
+    # Similar logic but without the is_published check for teachers
+    submodule = db.query(CourseSubmodule).join(CourseModule).filter(
+        CourseSubmodule.id == submodule_id,
+        CourseModule.course_id == course_id
+    ).first()
+    
+    if not submodule:
+        return HTMLResponse("❌ Submodule not found", status_code=404)
+    
+    if not submodule.page_range:
+        return HTMLResponse("❌ No page range specified for this submodule", status_code=400)
+    
+    if not submodule.material:
+        return HTMLResponse("❌ No source material linked to this submodule", status_code=400)
+    
+    try:
+        # Parse page range
+        start_page, end_page = map(int, submodule.page_range.split('-'))
+        
+        # Get the source material file
+        material = submodule.material
+        file_path = material.filepath
+        
+        # Handle S3 download if needed
+        if not os.path.exists(file_path):
+            s3_key = f"course_materials/{course_id}/{material.filename}"
+            temp_dir = "temp_pdfs"
+            os.makedirs(temp_dir, exist_ok=True)
+            file_path = f"{temp_dir}/{material.filename}"
+            
+            if not download_file_from_s3(s3_key, file_path):
+                return HTMLResponse("❌ Failed to access source file", status_code=500)
+        
+        # Extract specific pages and create new PDF
+        output_pdf_path = extract_pdf_pages_to_file(
+            file_path, 
+            start_page, 
+            end_page, 
+            f"PREVIEW_{submodule.title}"
+        )
+        
+        if not output_pdf_path or not os.path.exists(output_pdf_path):
+            return HTMLResponse("❌ Failed to extract pages", status_code=500)
+        
+        # Create safe filename
+        safe_filename = f"PREVIEW_{submodule.title}_pages_{start_page}-{end_page}.pdf"
+        safe_filename = "".join(c for c in safe_filename if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+        
+        # Return the PDF file
+        return FileResponse(
+            output_pdf_path,
+            media_type='application/pdf',
+            filename=safe_filename,
+            headers={"Content-Disposition": f"attachment; filename={safe_filename}"}
+        )
+        
+    except ValueError:
+        return HTMLResponse("❌ Invalid page range format", status_code=400)
+    except Exception as e:
+        logging.error(f"Error downloading submodule pages for teacher: {e}")
+        return HTMLResponse("❌ Error generating download", status_code=500)
+    
 
 @ai_router.post("/courses/{course_id}/modules/delete-all", response_class=HTMLResponse)
 async def delete_all_modules_with_post(
@@ -2084,24 +2529,45 @@ async def delete_assignment(
 async def quiz_creation_page(
     request: Request,
     course_id: int,
-    db : Session = Depends(get_db),
+    db: Session = Depends(get_db),
     user: dict = Depends(require_role("teacher"))
 ):
     teacher_id = user["user_id"]
     courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
-    
+   
     # Check quota and get remaining count
     quota_exceeded, remaining = check_quiz_quota(db, teacher_id, course_id)
-    module = db.query(CourseModule).filter_by(
+    
+    # Get only modules where ALL submodules are processed
+    eligible_modules = []
+    all_modules = db.query(CourseModule).filter_by(
         course_id=course_id
     ).order_by(CourseModule.order_index).all()
+    
+    for module in all_modules:
+        # Get all submodules for this module
+        submodules = db.query(CourseSubmodule).filter_by(
+            module_id=module.id
+        ).all()
+        
+        # Check if module has submodules and all are processed
+        if submodules:  # Module has submodules
+            all_processed = all(sub.is_processed for sub in submodules)
+            if all_processed:
+                # Add processing status info to module object
+                module.submodule_count = len(submodules)
+                module.processed_count = len([s for s in submodules if s.is_processed])
+                eligible_modules.append(module)
+        # If module has no submodules, we might want to exclude it or handle differently
+        # For now, excluding modules without submodules from quiz generation
+    
     # Render form to create a quiz for this specific course
     return templates.TemplateResponse(
         "quiz_creator.html",
         {
             "request": request,
             "course_id": course_id,
-            "modules": module,
+            "modules": eligible_modules,  # Only fully processed modules
             "topic": request.query_params.get("topic", ""),
             "study_material_html": "",
             "teacher_id": user.get("user_id", ""),
@@ -2109,16 +2575,40 @@ async def quiz_creation_page(
             "num_questions": 10,
             "courses": courses,
             "remaining_quota": remaining,
-            "quota_exceeded": quota_exceeded
+            "quota_exceeded": quota_exceeded,
+            "total_modules": len(all_modules),
+            "eligible_modules_count": len(eligible_modules)
         }
     )
+def get_template_context(request, course_id, teacher_id, db, **kwargs):
+    """Helper to get consistent template context"""
+    try:
+        _, remaining = check_quiz_quota(db, teacher_id, course_id)
+        modules = db.query(CourseModule).filter(CourseModule.course_id == course_id).all()
+        courses = db.query(Course).filter(Course.teacher_id == teacher_id).all()
+    except:
+        remaining = 0
+        modules = []
+        courses = []
+    
+    base_context = {
+        "request": request,
+        "course_id": course_id,
+        "teacher_id": teacher_id,
+        "remaining_quota": remaining,
+        "quota_exceeded": remaining <= 0,
+        "modules": modules,
+        "courses": courses
+    }
+    base_context.update(kwargs)
+    return base_context
 
 @ai_router.post("/courses/{course_id}/quiz/generate", response_class=HTMLResponse)
 async def generate_quiz(
     request: Request,
     course_id: int,
     topic: str = Form(""),  # Changed from Form(...) to Form("") to allow empty values
-    module_id: Optional[int] = Form(None), 
+    module_id: str = Form(""), 
     difficulty: str = Form("medium"), 
     question_types: List[str] = Form(...),
     num_questions: int = Form(10),
@@ -2130,55 +2620,62 @@ async def generate_quiz(
     if num_questions > MAX_QUESTIONS:
         num_questions = MAX_QUESTIONS
     
-    # If module is selected but no topic is provided, use module-based quiz generation
-    if module_id and (not topic or not topic.strip()):
+    parsed_module_id = None
+    if module_id and module_id.strip() and module_id != "":
         try:
-            module = db.query(CourseModule).filter_by(id=module_id, course_id=course_id).first()
+            parsed_module_id = int(module_id)
+        except ValueError:
+            return templates.TemplateResponse(
+                "quiz_creator.html",
+                get_template_context(
+                    request, course_id, teacher_id, db,
+                    topic=topic,
+                    error="Invalid module selection. Please try again.",
+                    question_types=question_types,
+                    num_questions=num_questions
+                )
+            )
+    
+    # If module is selected but no topic is provided, use module-based quiz generation
+    if parsed_module_id and (not topic or not topic.strip()):
+        try:
+            module = db.query(CourseModule).filter_by(id=parsed_module_id, course_id=course_id).first()
             if module:
                 topic = f"Module: {module.title}"
             else:
                 return templates.TemplateResponse(
-                    "quiz_creator.html",
-                    {
-                        "request": request,
-                        "course_id": course_id,
-                        "topic": topic,
-                        "error": "Selected module not found.",
-                        "teacher_id": teacher_id,
-                        "question_types": question_types,
-                        "num_questions": num_questions,
-                        "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
-                    }
+                "quiz_creator.html",
+                get_template_context(
+                    request, course_id, teacher_id, db,
+                    topic=topic,
+                    error="Selected module not found.",
+                    question_types=question_types,
+                    num_questions=num_questions
                 )
+            )
         except Exception as e:
             return templates.TemplateResponse(
                 "quiz_creator.html",
-                {
-                    "request": request,
-                    "course_id": course_id,
-                    "topic": topic,
-                    "error": f"Error retrieving module information: {str(e)}",
-                    "teacher_id": teacher_id,
-                    "question_types": question_types,
-                    "num_questions": num_questions,
-                    "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
-                }
+                get_template_context(
+                    request, course_id, teacher_id, db,
+                    topic=topic,
+                    error=f"Error retrieving module information: {str(e)}",
+                    question_types=question_types,
+                    num_questions=num_questions
+                )
             )
     
     # Validate that we have either a topic or a module selected
-    if (not topic or not topic.strip()) and not module_id:
+    if (not topic or not topic.strip()) and not parsed_module_id:
         return templates.TemplateResponse(
             "quiz_creator.html",
-            {
-                "request": request,
-                "course_id": course_id,
-                "topic": topic,
-                "error": "Please provide a topic or select a module for the quiz.",
-                "teacher_id": teacher_id,
-                "question_types": question_types,
-                "num_questions": num_questions,
-                "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
-            }
+            get_template_context(
+                request, course_id, teacher_id, db,
+                topic=topic,
+                error="Please provide a topic or select a module for the quiz.",
+                question_types=question_types,
+                num_questions=num_questions
+            )
         )
     
     try:
@@ -2187,21 +2684,16 @@ async def generate_quiz(
         
         if quota_exceeded:
             return templates.TemplateResponse(
-                "quiz_creator.html",
-                {
-                    "request": request,
-                    "course_id": course_id,
-                    "topic": topic,
-                    "error": "Daily quiz creation limit reached (5 quizzes per course). Please try again tomorrow.",
-                    "teacher_id": teacher_id,
-                    "question_types": question_types,
-                    "num_questions": num_questions,
-                    "remaining_quota": 0,
-                    "quota_exceeded": True,
-                    "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
-                }
+            "quiz_creator.html",
+            get_template_context(
+                request, course_id, teacher_id, db,
+                topic=topic,
+                error="Daily quiz creation limit reached (5 quizzes per course). Please try again tomorrow.",
+                question_types=question_types,
+                num_questions=num_questions
             )
-            
+        )
+                    
         # Generate the quiz materials
         materials_json = generate_study_material_quiz(
             query=topic,
@@ -2210,7 +2702,7 @@ async def generate_quiz(
             teacher_id=teacher_id,
             question_types=question_types,
             num_questions=num_questions,
-            module_id=module_id,     
+            module_id=parsed_module_id,     
             difficulty=difficulty 
         )
         print("Generated materials_json:", materials_json)
@@ -2232,7 +2724,7 @@ async def generate_quiz(
                     teacher_id=teacher_id,
                     topic=topic,
                     json_data=materials_json,
-                    module_id=module_id,     
+                    module_id=parsed_module_id,     
                     difficulty=difficulty 
 
                 )
@@ -2247,17 +2739,14 @@ async def generate_quiz(
         except Exception as db_exc:
             print("DB error:", db_exc)
             return templates.TemplateResponse(
-                "quiz_creator.html",
-                {
-                    "request": request,
-                    "course_id": course_id,
-                    "topic": topic,
-                    "error": f"Database error: {db_exc}",
-                    "teacher_id": teacher_id,
-                    "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all(),
-                    "remaining_quota": remaining
-                }
+            "quiz_creator.html",
+            get_template_context(
+                request, course_id, teacher_id, db,
+                topic=topic,
+                error=f"Database error: {db_exc}",
+                remaining_quota=remaining
             )
+        )
             
         study_material_html = render_quiz_htmx(materials_json)
         return templates.TemplateResponse(
@@ -2272,7 +2761,7 @@ async def generate_quiz(
                 "num_questions": num_questions,
                 "remaining_quota": remaining,
                 "difficulty":difficulty,
-                "module_id":module_id,
+                "module_id":parsed_module_id,
                 "quota_success": True,
                 "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
             }
@@ -2282,14 +2771,11 @@ async def generate_quiz(
         error_message = f"An unexpected error occurred: {str(e)}"
         return templates.TemplateResponse(
             "quiz_creator.html",
-            {
-                "request": request,
-                "course_id": course_id,
-                "topic": topic if 'topic' in locals() else "",
-                "error": error_message,
-                "teacher_id": teacher_id,
-                "courses": db.query(Course).filter(Course.teacher_id == teacher_id).all()
-            }
+            get_template_context(
+                request, course_id, teacher_id, db,
+                topic=topic if 'topic' in locals() else "",
+                error=error_message
+            )
         )
 @ai_router.get("/courses/{course_id}/quiz/export", response_class=HTMLResponse)
 async def export_quiz(

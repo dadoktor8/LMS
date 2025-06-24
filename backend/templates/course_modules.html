@@ -36,6 +36,15 @@
     .htmx-request.htmx-indicator {
       opacity: 1;
     }
+    .status-toggle {
+      @apply relative inline-flex items-center px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors;
+    }
+    .status-published {
+      @apply bg-green-100 text-green-800 hover:bg-green-200;
+    }
+    .status-draft {
+      @apply bg-gray-100 text-gray-600 hover:bg-gray-200;
+    }
     @keyframes slideIn {
       from { transform: translateX(100%); opacity: 0; }
       to { transform: translateX(0); opacity: 1; }
@@ -164,6 +173,23 @@
                 <button onclick="toggleLessonDetails({{ module.id }})" class="simple-button">
                   View Details
                 </button>
+                  {% if module.is_published %}
+                  <button 
+                    hx-post="/ai/courses/{{ course.id }}/modules/{{ module.id }}/unpublish"
+                    hx-target="this"
+                    hx-swap="outerHTML"
+                    class="status-toggle status-published">
+                    ✓ Published
+                  </button>
+                  {% else %}
+                  <button 
+                    hx-post="/ai/courses/{{ course.id }}/modules/{{ module.id }}/publish"
+                    hx-target="this"
+                    hx-swap="outerHTML"
+                    class="status-toggle status-draft">
+                    📝 Draft
+                  </button>
+                  {% endif %}
                 {% if module.submodules and module.submodules|selectattr('is_processed', 'equalto', False)|list %}
                 <button 
                   hx-post="/ai/courses/{{ course.id }}/modules/{{ module.id }}/process_all"
@@ -197,8 +223,8 @@
                 <h5 class="font-medium text-gray-900 mb-3">Lesson Parts:</h5>
                 <div class="space-y-2">
                   {% for submodule in module.submodules %}
-                  <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div>
+                  <div class="p-3 bg-gray-50 rounded-lg">
+                    <div class="mb-2">
                       <span class="font-medium text-gray-900">{{ submodule.title }}</span>
                       {% if submodule.page_range %}
                       <span class="text-sm text-gray-500 ml-2">(Pages {{ submodule.page_range }})</span>
@@ -209,42 +235,93 @@
                       <span class="ml-2 text-yellow-600 text-sm">⏳ Pending</span>
                       {% endif %}
                     </div>
-                    {% if not submodule.is_processed and submodule.page_range %}
-                    <button 
-                      hx-post="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/process"
-                      hx-target="this"
-                      hx-swap="none"
-                      hx-indicator="#process-{{ submodule.id }}-indicator"
-                      class="simple-button text-sm relative">
-                      Process
-                      <div id="process-{{ submodule.id }}-indicator" class="htmx-indicator absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
-                        <svg class="animate-spin h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24">
-                          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                      </div>
-                    </button>
-                    {% endif %}
+
+                    <div class="flex items-center space-x-2">
+                      <!-- Publish/Unpublish for processed submodules -->
+                      {% if submodule.is_processed %}
+                        {% if submodule.is_published %}
+                        <button 
+                          hx-post="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/unpublish"
+                          hx-target="closest .p-3"
+                          hx-swap="outerHTML"
+                          class="text-xs bg-orange-500 text-white px-2 py-1 rounded">
+                          Unpublish
+                        </button>
+                        {% else %}
+                        <button 
+                          hx-post="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/publish"
+                          hx-target="closest .p-3"
+                          hx-swap="outerHTML"
+                          class="text-xs bg-blue-500 text-white px-2 py-1 rounded">
+                          Publish
+                        </button>
+                        {% endif %}
+                      {% endif %}
+
+                      {% if submodule.page_range and submodule.material %}
+                      <a href="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/download/preview" 
+                        target="_blank"
+                        class="text-xs bg-purple-500 text-white px-2 py-1 rounded hover:bg-purple-600 transition-colors"
+                        title="Download pages {{ submodule.page_range }} as PDF">
+                        📄 Preview PDF
+                      </a>
+                      {% endif %}
+
+                      {% if not submodule.is_processed and submodule.page_range %}
+                      <button 
+                        hx-post="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/process"
+                        hx-target="this"
+                        hx-swap="none"
+                        hx-indicator="#process-{{ submodule.id }}-indicator"
+                        class="simple-button text-sm relative">
+                        Process
+                        <div id="process-{{ submodule.id }}-indicator" class="htmx-indicator absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
+                          <svg class="animate-spin h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        </div>
+                      </button>
+                      {% endif %}
+                    </div>
                   </div>
                   {% endfor %}
                 </div>
               {% else %}
                 <p class="text-gray-500 text-center py-4">No parts added yet</p>
               {% endif %}
-              {# Quiz section within lesson details dropdown #}
+              
+              <!-- Quiz section within lesson details dropdown -->
               <div class="mt-4 pt-4 border-t">
                 <h5 class="font-medium text-gray-900 mb-3">Quizzes in this Lesson:</h5>
                 {% set module_quizzes = quizzes_by_module_id.get(module.id, []) %}
                 {% if module_quizzes %}
                   <ul class="space-y-2">
                     {% for quiz in module_quizzes %}
-                      <li class="flex items-center justify-between bg-gray-100 px-3 py-2 rounded">
-                        <span class="font-medium">{{ quiz.topic }}</span>
-                        <div class="flex gap-2">
-                          <a href="/ai/courses/{{ course.id }}/quiz/{{ quiz.id }}/download?format=pdf" class="text-sm bg-blue-600 text-white px-2 py-1 rounded">PDF</a>
-                          <button onclick="deleteQuiz({{ quiz.id }}, '{{ quiz.topic }}')" class="text-sm bg-red-600 text-white px-2 py-1 rounded">Delete</button>
-                        </div>
-                      </li>
+                    <li class="flex items-center justify-between bg-gray-100 px-3 py-2 rounded">
+                      <span class="font-medium">{{ quiz.topic }}</span>
+                      <div class="flex items-center gap-2">
+                        {% if quiz.is_published %}
+                        <button 
+                          hx-post="/ai/courses/{{ course.id }}/quiz/{{ quiz.id }}/unpublish"
+                          hx-target="this"
+                          hx-swap="outerHTML"
+                          class="status-toggle status-published">
+                          ✓ Published
+                        </button>
+                        {% else %}
+                        <button 
+                          hx-post="/ai/courses/{{ course.id }}/quiz/{{ quiz.id }}/publish"
+                          hx-target="this"
+                          hx-swap="outerHTML"
+                          class="status-toggle status-draft">
+                          📝 Draft
+                        </button>
+                        {% endif %}
+                        <a href="/ai/courses/{{ course.id }}/quiz/{{ quiz.id }}/download?format=pdf" class="text-sm bg-blue-600 text-white px-2 py-1 rounded">PDF</a>
+                        <button onclick="deleteQuiz({{ quiz.id }}, '{{ quiz.topic }}')" class="text-sm bg-red-600 text-white px-2 py-1 rounded">Delete</button>
+                      </div>
+                    </li>
                     {% endfor %}
                   </ul>
                 {% else %}
@@ -256,6 +333,7 @@
                   </button>
                 </div>
               </div>
+              
               <div class="mt-4 pt-4 border-t">
                 <button onclick="showAddPartModal({{ module.id }})" class="simple-button">
                   + Add Part to This Lesson
@@ -281,6 +359,7 @@
         </div>
       {% endif %}
     </div>
+  </div>
 
     <!-- Auto-Generate Section -->
       <!-- 

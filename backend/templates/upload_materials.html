@@ -304,16 +304,13 @@
           <!-- Process Materials Button -->
           <div class="text-center mt-6">
             <button
-              hx-post="/ai/courses/{{ course_id }}/process_materials"
-              hx-target="#process-status"
-              hx-indicator="#loader"
+              onclick="showProcessConfirmation()"
               class="inline-flex items-center gap-2 px-5 py-2 bg-green-600 text-white 
-                     rounded-lg font-semibold hover:bg-green-700 transition"
-              hx-swap="outerHTML">
+                    rounded-lg font-semibold hover:bg-green-700 transition">
               ⚙️ Process Materials
             </button>
             <div id="loader" 
-                 class="animate-spin mx-auto mt-2 w-6 h-6 border-4 border-blue-200 
+                class="animate-spin mx-auto mt-2 w-6 h-6 border-4 border-blue-200 
                         border-t-blue-600 rounded-full hidden">
             </div>
           </div>
@@ -522,19 +519,21 @@
       </div>
     </div>
 
-    <!-- Delete Confirmation Modal -->
+<!-- Move the process confirmation modal OUTSIDE and AFTER the delete modal -->
+
+<!-- Delete Confirmation Modal -->
     <div id="delete-modal"
-         class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+        class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
       <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
         <div class="mt-3 text-center">
           <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
             <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M12 9v2m0 4h.01m-6.938 
-                       4h13.856c1.54 0 2.502-1.667 
-                       1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 
-                       0L3.732 16c-.77.833.192 2.5 
-                       1.732 2.5z"/>
+                      4h13.856c1.54 0 2.502-1.667 
+                      1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 
+                      0L3.732 16c-.77.833.192 2.5 
+                      1.732 2.5z"/>
             </svg>
           </div>
           <h3 class="text-lg font-medium text-gray-900 mt-2">
@@ -549,17 +548,64 @@
           <div class="items-center px-4 py-3">
             <button id="confirm-delete-btn"
                     class="px-4 py-2 bg-red-500 text-white text-base font-medium rounded-md w-24 mr-2
-                           hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-300">
+                          hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-300">
               Delete
             </button>
             <button onclick="closeDeleteModal()"
                     class="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md w-24
-                           hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300">
+                          hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300">
               Cancel
             </button>
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Process Confirmation Modal  -->
+    <div id="process-confirmation-modal"
+        class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+      <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3">
+          <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100">
+            <svg class="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16c-.77.833.192 2.5 1.732 2.5z"/>
+            </svg>
+          </div>
+          <h3 class="text-lg font-medium text-gray-900 mt-2 text-center">
+            ⚠️ Processing Warning
+          </h3>
+          <div class="mt-4 px-4 py-3 bg-yellow-50 rounded-lg border border-yellow-200">
+            <p class="text-sm text-yellow-800 font-medium mb-2">
+              Not recommended: Processing entire documents
+            </p>
+            <ul class="text-sm text-yellow-700 space-y-1 list-disc ml-4">
+              <li>Processing large documents takes significant time</li>
+              <li>Better to divide materials into focused modules first</li>
+              <li>Smaller modules are easier to manage and update</li>
+              <li>Students can navigate content more effectively</li>
+            </ul>
+          </div>
+          <div class="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <p class="text-sm text-blue-700">
+              <strong>Recommended:</strong> Use "Create Modules" to organize your materials into smaller, focused sections before processing.
+            </p>
+          </div>
+          <div class="mt-6 flex gap-3">
+            <button id="proceed-process-btn"
+                    class="flex-1 px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600
+                          focus:outline-none focus:ring-2 focus:ring-orange-300 text-sm">
+              Process Anyway
+            </button>
+            <button onclick="closeProcessConfirmationModal()"
+                    class="flex-1 px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600
+                          focus:outline-none focus:ring-2 focus:ring-gray-300 text-sm">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
     </div>
 
     <!-- Delete Status Toast -->
@@ -570,7 +616,14 @@
   <script>
     // Track which material the user wants to delete
     let materialToDelete = null;
+    function showProcessConfirmation() {
+      document.getElementById('process-confirmation-modal').classList.remove('hidden');
+    }
 
+    // Close process confirmation modal
+    function closeProcessConfirmationModal() {
+      document.getElementById('process-confirmation-modal').classList.add('hidden');
+    }
     // Show the “Module Creation” modal
     function showModuleCreationOptions() {
       document.getElementById('module-creation-modal').classList.remove('hidden');
@@ -642,7 +695,15 @@
         document.querySelector('.upload-button-text').textContent = 'Upload';
       }
     });
-
+    document.getElementById('proceed-process-btn').addEventListener('click', function() {
+      closeProcessConfirmationModal();
+      // Trigger the actual HTMX request
+      htmx.ajax('POST', `/ai/courses/{{ course_id }}/process_materials`, {
+        target: '#process-status',
+        indicator: '#loader',
+        swap: 'outerHTML'
+      });
+    });
     // Delete functionality
     function confirmDelete(materialId, filename) {
       materialToDelete = materialId;
@@ -721,6 +782,11 @@
         closeManualModuleModal();
       }
     });
+    document.getElementById('process-confirmation-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+      closeProcessConfirmationModal();
+    }
+  });
 
     // Close modals with Escape key
     document.addEventListener('keydown', function(e) {
@@ -734,6 +800,9 @@
         if (!document.getElementById('manual-module-modal').classList.contains('hidden')) {
           closeManualModuleModal();
         }
+        if (!document.getElementById('process-confirmation-modal').classList.contains('hidden')) {
+      closeProcessConfirmationModal();
+    }
       }
     });
   </script>
