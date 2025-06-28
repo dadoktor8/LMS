@@ -1289,14 +1289,23 @@ async def download_material(course_id: int, material_id: int, db: Session = Depe
 async def ask_tutor(
     query: str = Form(...),
     course_id: int = Form(...),
-    module_id: Optional[int] = Form(None),  # Optional module filter
+    module_id: str = Form(""),  # Changed to str to handle empty values
     db: Session = Depends(get_db),
     user: dict = Depends(require_role("student"))
 ):
     try:
         student_id = str(user["user_id"])
         session_id = f"{student_id}_{course_id}"
-        print(f"User ID: {user['user_id']}, Course ID: {course_id}, Module ID: {module_id}")
+        
+        # Convert module_id from string to int or None
+        parsed_module_id = None
+        if module_id and module_id.strip() and module_id != "":
+            try:
+                parsed_module_id = int(module_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid module ID format")
+        
+        print(f"User ID: {user['user_id']}, Course ID: {course_id}, Module ID: {parsed_module_id}")
         current_time = datetime.now()
         print(f"Current server time: {current_time}")
         
@@ -1335,9 +1344,9 @@ async def ask_tutor(
             raise HTTPException(status_code=404, detail="Course not found")
         
         # Validate module_id if provided (ensure it's published and belongs to the course)
-        if module_id:
+        if parsed_module_id:
             module = db.query(CourseModule).filter_by(
-                id=module_id, 
+                id=parsed_module_id, 
                 course_id=course_id, 
                 is_published=True
             ).first()
@@ -1356,7 +1365,7 @@ async def ask_tutor(
         db.commit()
         
         # Get answer using enhanced RAG system
-        answer = get_answer_from_rag_langchain_openai(query, course_id, student_id, module_id)
+        answer = get_answer_from_rag_langchain_openai(query, course_id, student_id, parsed_module_id)
         
         # Save AI response to DB
         ai_message = ChatHistory(
@@ -1738,14 +1747,43 @@ async def generate_flashcards(
     topic: str = Form(...),
     course_id: int = Form(...),
     student_id: str = Form(...),
-    module_id: Optional[int] = Form(None),
+    module_id: str = Form(""),  # Changed to str to handle empty values
     db: Session = Depends(get_db),
     user=Depends(require_role("student"))
 ):
+    # Convert module_id from string to int or None
+    parsed_module_id = None
+    if module_id and module_id.strip() and module_id != "":
+        try:
+            parsed_module_id = int(module_id)
+        except ValueError:
+            # Return error for invalid module format
+            enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+            courses = [enroll.course for enroll in enrollments]
+            modules = db.query(CourseModule).filter_by(
+                course_id=course_id, 
+                is_published=True
+            ).order_by(CourseModule.order_index).all()
+            
+            return templates.TemplateResponse(
+                "flashcards.html",
+                {
+                    "request": request,
+                    "course_id": course_id,
+                    "topic": topic,
+                    "module_id": None,
+                    "modules": modules,
+                    "study_material_html": "",
+                    "student_id": student_id,
+                    "courses": courses,
+                    "error_message": "Invalid module ID format."
+                }
+            )
+    
     # Validate module_id if provided (ensure it's published and belongs to the course)
-    if module_id:
+    if parsed_module_id:
         module = db.query(CourseModule).filter_by(
-            id=module_id, 
+            id=parsed_module_id, 
             course_id=course_id, 
             is_published=True
         ).first()
@@ -1764,7 +1802,7 @@ async def generate_flashcards(
                     "request": request,
                     "course_id": course_id,
                     "topic": topic,
-                    "module_id": module_id,
+                    "module_id": parsed_module_id,
                     "modules": modules,
                     "study_material_html": "",
                     "student_id": student_id,
@@ -1800,7 +1838,7 @@ async def generate_flashcards(
                 "request": request,
                 "course_id": course_id,
                 "topic": topic,
-                "module_id": module_id,
+                "module_id": parsed_module_id,
                 "modules": modules,
                 "study_material_html": "",
                 "student_id": student_id,
@@ -1825,7 +1863,7 @@ async def generate_flashcards(
     db.commit()
     
     # Generate the flashcards with optional module focus
-    materials_json = generate_study_material(topic, "flashcards", course_id, student_id, module_id)
+    materials_json = generate_study_material(topic, "flashcards", course_id, student_id, parsed_module_id)
     request.session["flashcards_materials"] = materials_json
     study_material_html = render_flashcards_htmx(materials_json)
     
@@ -1843,7 +1881,7 @@ async def generate_flashcards(
             "request": request,
             "course_id": course_id,
             "topic": topic,
-            "module_id": module_id,
+            "module_id": parsed_module_id,
             "modules": modules,
             "study_material_html": study_material_html,
             "student_id": student_id,
@@ -1878,14 +1916,43 @@ async def generate_study_guide(
     topic: str = Form(...),
     course_id: int = Form(...),
     student_id: str = Form(...),
-    module_id: Optional[int] = Form(None),
+    module_id: str = Form(""),  # Changed to str to handle empty values
     db: Session = Depends(get_db),
     user=Depends(require_role("student"))
 ):
+    # Convert module_id from string to int or None
+    parsed_module_id = None
+    if module_id and module_id.strip() and module_id != "":
+        try:
+            parsed_module_id = int(module_id)
+        except ValueError:
+            # Return error for invalid module format
+            enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+            courses = [enroll.course for enroll in enrollments]
+            modules = db.query(CourseModule).filter_by(
+                course_id=course_id, 
+                is_published=True
+            ).order_by(CourseModule.order_index).all()
+            
+            return templates.TemplateResponse(
+                "study_guide.html",
+                {
+                    "request": request,
+                    "course_id": course_id,
+                    "topic": topic,
+                    "module_id": None,
+                    "modules": modules,
+                    "study_material_html": "",
+                    "student_id": student_id,
+                    "courses": courses,
+                    "error_message": "Invalid module ID format."
+                }
+            )
+    
     # Validate module_id if provided (ensure it's published and belongs to the course)
-    if module_id:
+    if parsed_module_id:
         module = db.query(CourseModule).filter_by(
-            id=module_id, 
+            id=parsed_module_id, 
             course_id=course_id, 
             is_published=True
         ).first()
@@ -1904,7 +1971,7 @@ async def generate_study_guide(
                     "request": request,
                     "course_id": course_id,
                     "topic": topic,
-                    "module_id": module_id,
+                    "module_id": parsed_module_id,
                     "modules": modules,
                     "study_material_html": "",
                     "student_id": student_id,
@@ -1937,7 +2004,7 @@ async def generate_study_guide(
                 "request": request,
                 "course_id": course_id,
                 "topic": topic,
-                "module_id": module_id,
+                "module_id": parsed_module_id,
                 "modules": modules,
                 "study_material_html": "",
                 "student_id": student_id,
@@ -1962,7 +2029,7 @@ async def generate_study_guide(
     print(f"Study guides remaining {usage and usage.count}")
     
     # Generate study material with optional module focus
-    materials_json = generate_study_material(topic, "study_guide", course_id, student_id, module_id)
+    materials_json = generate_study_material(topic, "study_guide", course_id, student_id, parsed_module_id)
     request.session["study_guide_materials"] = materials_json
     study_material_html = render_study_guide_htmx(materials_json)
     enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
@@ -1978,7 +2045,7 @@ async def generate_study_guide(
             "request": request,
             "course_id": course_id,
             "topic": topic,
-            "module_id": module_id,
+            "module_id": parsed_module_id,
             "modules": modules,
             "study_material_html": study_material_html,
             "student_id": student_id,
@@ -3210,13 +3277,14 @@ def check_daily_activity_limit(db: Session, student_id: int, course_id: int):
     return activities_today, activities_today >= 5
 
 # Muddiest Point endpoint
+# Fixed Muddiest Point Endpoint
 @ai_router.post("/student/courses/{course_id}/muddiest-point", response_class=HTMLResponse)
 async def process_muddiest_point(
     request: Request,
     course_id: int,
     topic: str = Form(...),
     confusion: str = Form(...),
-    module_id: Optional[int] = Form(None),
+    module_id: str = Form(""),  # Changed to str to handle empty values
     db: Session = Depends(get_db),
     user: dict = Depends(require_role("student"))
 ):
@@ -3226,10 +3294,18 @@ async def process_muddiest_point(
     if not enrollment:
         return JSONResponse(content={"error": "You are not enrolled in this course"}, status_code=403)
     
+    # Convert module_id from string to int or None
+    parsed_module_id = None
+    if module_id and module_id.strip() and module_id != "":
+        try:
+            parsed_module_id = int(module_id)
+        except ValueError:
+            return JSONResponse(content={"error": "Invalid module ID format"}, status_code=400)
+    
     # Validate module_id if provided
-    if module_id:
+    if parsed_module_id:
         module = db.query(CourseModule).filter_by(
-            id=module_id, 
+            id=parsed_module_id, 
             course_id=course_id, 
             is_published=True
         ).first()
@@ -3247,12 +3323,12 @@ async def process_muddiest_point(
     query = f"Topic: {topic}. Confusion: {confusion}"
     try:
         # Get context with optional module focus
-        context = get_engagement_context(course_id, query, module_id)
+        context = get_engagement_context(course_id, query, parsed_module_id)
         chat = get_openai_client()
         
         # Determine context scope for prompt
-        context_scope = "the specific module content" if module_id else "the course materials"
-        context_note = f" (focusing on module content)" if module_id else " (using all available course content)"
+        context_scope = "the specific module content" if parsed_module_id else "the course materials"
+        context_note = f" (focusing on module content)" if parsed_module_id else " (using all available course content)"
         
         system_prompt = f"""
 You are an educational AI tutor analyzing a student's confusion about a topic. Use the provided {context_scope} to:
@@ -3291,7 +3367,7 @@ Return your response as valid JSON with the following structure:
             topic=topic,
             user_input=confusion,
             ai_response=json.dumps(ai_response),
-            module_id=module_id,  # Store module reference
+            module_id=parsed_module_id,  # Store module reference
             created_at=datetime.utcnow()
         )
         db.add(new_activity)
@@ -3302,7 +3378,7 @@ Return your response as valid JSON with the following structure:
             "ai_response": ai_response,
             "activities_today": activities_today + 1,
             "daily_limit": 5,
-            "module_id": module_id
+            "module_id": parsed_module_id
         })
     except HTTPException as e:
         return JSONResponse(content={"error": e.detail}, status_code=e.status_code)
@@ -3310,14 +3386,14 @@ Return your response as valid JSON with the following structure:
         print(traceback.format_exc())
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
-# Misconception Check endpoint with module support
+# Fixed Misconception Check Endpoint
 @ai_router.post("/student/courses/{course_id}/misconception-check", response_class=HTMLResponse)
 async def process_misconception_check(
     request: Request,
     course_id: int,
     topic: str = Form(...),
     beliefs: str = Form(...),
-    module_id: Optional[int] = Form(None),
+    module_id: str = Form(""),  # Changed to str to handle empty values
     db: Session = Depends(get_db),
     user: dict = Depends(require_role("student"))
 ):
@@ -3327,10 +3403,18 @@ async def process_misconception_check(
     if not enrollment:
         return JSONResponse(content={"error": "You are not enrolled in this course"}, status_code=403)
     
+    # Convert module_id from string to int or None
+    parsed_module_id = None
+    if module_id and module_id.strip() and module_id != "":
+        try:
+            parsed_module_id = int(module_id)
+        except ValueError:
+            return JSONResponse(content={"error": "Invalid module ID format"}, status_code=400)
+    
     # Validate module_id if provided
-    if module_id:
+    if parsed_module_id:
         module = db.query(CourseModule).filter_by(
-            id=module_id, 
+            id=parsed_module_id, 
             course_id=course_id, 
             is_published=True
         ).first()
@@ -3348,12 +3432,12 @@ async def process_misconception_check(
     query = f"Topic: {topic}. Student beliefs: {beliefs}"
     try:
         # Get context with optional module focus
-        context = get_engagement_context(course_id, query, module_id)
+        context = get_engagement_context(course_id, query, parsed_module_id)
         chat = get_openai_client()
 
         # Determine context scope for prompt
-        context_scope = "the specific module content" if module_id else "the course materials"
-        context_note = f" (focusing on module content)" if module_id else " (using all available course content)"
+        context_scope = "the specific module content" if parsed_module_id else "the course materials"
+        context_note = f" (focusing on module content)" if parsed_module_id else " (using all available course content)"
 
         system_prompt = f"""
 You are an educational AI tutor analyzing a student's beliefs or understanding about a topic. Use the provided {context_scope} to:
@@ -3396,7 +3480,7 @@ Return your response as valid JSON with the following structure:
             topic=topic,
             user_input=beliefs,
             ai_response=json.dumps(ai_response),
-            module_id=module_id,  # Store module reference
+            module_id=parsed_module_id,  # Store module reference
             created_at=datetime.utcnow()
         )
         db.add(new_activity)
@@ -3407,7 +3491,7 @@ Return your response as valid JSON with the following structure:
             "ai_response": ai_response,
             "activities_today": activities_today + 1,
             "daily_limit": 5,
-            "module_id": module_id
+            "module_id": parsed_module_id
         })
     except HTTPException as e:
         return JSONResponse(content={"error": e.detail}, status_code=e.status_code)
