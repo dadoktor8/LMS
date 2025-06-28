@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Solve Peer Quizzes | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-6xl mx-auto p-6">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <h1 class="text-3xl font-bold text-blue-700 mb-2">🧩 Solve Peer Quizzes</h1>
+      <p class="text-gray-600">{{ activity.activity_name }}</p>
+      {% if participation.group_id %}
+      <p class="text-sm text-purple-600">Your Group: {{ participation.group.group_name }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Available Quizzes -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+      <h2 class="text-2xl font-semibold mb-6">Available Quizzes</h2>
+      
+      {% if submitted_quizzes %}
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for quiz_participation, group, user in submitted_quizzes %}
+        <!-- Skip own quiz -->
+        {% if quiz_participation.student_id != participation.student_id %}
+        <div class="border rounded-lg p-4 hover:shadow-md transition-shadow">
+          <div class="flex items-start justify-between mb-3">
+            <div>
+              <h3 class="font-semibold text-lg">
+                {% if group %}
+                  {{ group.group_name }}
+                {% else %}
+                  {{ user.f_name }}'s Quiz
+                {% endif %}
+              </h3>
+              <p class="text-sm text-gray-600">Created by: {{ user.f_name }}</p>
+              <p class="text-xs text-gray-500">{{ quiz_participation.submitted_at.strftime('%m/%d %H:%M') }}</p>
+            </div>
+            <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">5 Questions</span>
+          </div>
+          
+          <!-- Check if already attempted -->
+          {% set attempted = user_attempts | selectattr('creator_participation_id', 'equalto', quiz_participation.id) | list %}
+          
+          {% if attempted %}
+          <div class="mb-3">
+            {% set attempt = attempted[0] %}
+            <div class="bg-blue-50 border border-blue-200 rounded p-2">
+              <p class="text-sm text-blue-800">
+                ✅ Completed: {{ attempt.score }}% ({{ attempt.correct_count }}/{{ attempt.total_questions }})
+              </p>
+              <p class="text-xs text-blue-600">{{ attempt.completed_at.strftime('%m/%d %H:%M') }}</p>
+            </div>
+          </div>
+          {% endif %}
+          
+          <div class="flex gap-2">
+            <a href="/ai/student/activities/{{ activity.id }}/quiz/{{ quiz_participation.id }}/take" 
+               class="flex-1 bg-blue-600 text-white px-3 py-2 rounded text-center text-sm hover:bg-blue-700">
+              {% if attempted %}Retake Quiz{% else %}Take Quiz{% endif %}
+            </a>
+            
+            {% if attempted %}
+            <a href="/ai/student/activities/{{ activity.id }}/quiz/{{ quiz_participation.id }}/results" 
+               class="bg-purple-600 text-white px-3 py-2 rounded text-sm hover:bg-purple-700">
+              View Results
+            </a>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="text-center py-12">
+        <p class="text-gray-500 text-lg">No quizzes available yet.</p>
+        <p class="text-gray-400 text-sm mt-2">Wait for other groups to submit their quizzes!</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Your Performance Summary -->
+    {% if user_attempts %}
+    <div class="mt-8 bg-white rounded-lg shadow-md p-6">
+      <h2 class="text-2xl font-semibold mb-4">📊 Your Performance Summary</h2>
+      
+      <div class="grid md:grid-cols-3 gap-4 mb-4">
+        <div class="bg-blue-50 rounded-lg p-4 text-center">
+          <div class="text-2xl font-bold text-blue-600">{{ user_attempts|length }}</div>
+          <div class="text-sm text-blue-800">Quizzes Attempted</div>
+        </div>
+        <div class="bg-green-50 rounded-lg p-4 text-center">
+          <div class="text-2xl font-bold text-green-600">
+            {{ "%.1f"|format(user_attempts|map(attribute='score')|sum / user_attempts|length) }}%
+          </div>
+          <div class="text-sm text-green-800">Average Score</div>
+        </div>
+        <div class="bg-purple-50 rounded-lg p-4 text-center">
+          <div class="text-2xl font-bold text-purple-600">
+            {{ user_attempts|selectattr('score', 'ge', 80)|list|length }}
+          </div>
+          <div class="text-sm text-purple-800">Scores ≥80%</div>
+        </div>
+      </div>
+      
+      <div class="space-y-2">
+        {% for attempt in user_attempts|sort(attribute='completed_at', reverse=true) %}
+        <div class="flex items-center justify-between p-3 bg-gray-50 rounded">
+          <div>
+            <span class="font-medium">Quiz by {{ attempt.creator_participation.student_id.f_name }}</span>
+            {% if attempt.creator_participation.group %}
+            <span class="text-gray-600">({{ attempt.creator_participation.group.group_name }})</span>
+            {% endif %}
+          </div>
+          <div class="flex items-center gap-4">
+            <span class="text-sm text-gray-600">{{ attempt.completed_at.strftime('%m/%d %H:%M') }}</span>
+            <span class="px-2 py-1 rounded text-sm {% if attempt.score >= 80 %}bg-green-100 text-green-800{% elif attempt.score >= 60 %}bg-yellow-100 text-yellow-800{% else %}bg-red-100 text-red-800{% endif %}">
+              {{ attempt.score }}%
+            </span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Navigation -->
+    <div class="mt-8 text-center">
+      <a href="/ai/student/activities/{{ activity.id }}/work" 
+         class="text-blue-600 hover:underline">← Back to Activity</a>
+    </div>
+  </div>
+</body>
+</html>

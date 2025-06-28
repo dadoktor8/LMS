@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Active Activities | {{ course.title }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-4xl mx-auto p-6">
+    <h1 class="text-3xl font-bold text-blue-700 mb-6">Active In-Class Activities</h1>
+    
+    {% if activities %}
+    <div class="space-y-6">
+      {% for activity in activities %}
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <div class="flex justify-between items-start mb-4">
+          <div>
+            <h2 class="text-xl font-semibold text-gray-800">{{ activity.activity_name }}</h2>
+            <div class="flex gap-2 mt-2">
+              <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">{{ activity.activity_type|title }}</span>
+              <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">{{ activity.participation_type|title }}</span>
+              <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-sm">{{ activity.complexity|title }}</span>
+            </div>
+          </div>
+          <div class="text-right text-sm text-gray-600">
+            <p>Duration: {{ activity.duration_minutes }} minutes</p>
+            {% if activity.started_at %}
+            <p>Started: {{ activity.started_at.strftime('%H:%M') }}</p>
+            {% endif %}
+          </div>
+        </div>
+        
+        {% if activity.instructions %}
+        <div class="bg-gray-50 rounded-md p-3 mb-4">
+          <p class="text-sm text-gray-700">{{ activity.instructions }}</p>
+        </div>
+        {% endif %}
+        
+        <!-- Activity-specific interfaces -->
+        {% if activity.activity_type == 'peer_quiz' %}
+        <div class="peer-quiz-interface">
+        <h3 class="font-semibold mb-3">🤝 Peer Quiz Builder</h3>
+        <p class="text-sm text-gray-600 mb-4">
+            {% if activity.participation_type == 'group' %}
+            Work with your group to create a 5-question quiz.
+            {% else %}
+            Create a 5-question quiz individually.
+            {% endif %}
+        </p>
+        
+        <a href="/ai/student/activities/{{ activity.id }}/join-page" 
+            class="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 inline-block">
+            {% if activity.participation_type == 'group' %}Join/Create Group{% else %}Start Quiz{% endif %}
+        </a>
+        </div>
+
+        {% elif activity.activity_type == 'concept_mapping' %}
+        <div class="concept-mapping-interface">
+          <h3 class="font-semibold mb-3">🗺️ Concept Mapping</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            Create a concept map showing relationships between key ideas from today's material.
+          </p>
+          
+          {% if activity.participation_type == 'group' %}
+          <form hx-post="/ai/student/activities/{{ activity.id }}/join" class="mb-4">
+            <label class="block text-sm font-medium mb-2">Join or Create Group</label>
+            <div class="flex gap-2">
+              <input type="text" name="group_name" placeholder="Enter group name" required
+                     class="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
+              <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                Join Group
+              </button>
+            </div>
+          </form>
+          {% else %}
+          <button hx-post="/ai/student/activities/{{ activity.id }}/join" 
+                  class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 mb-4">
+            Start Concept Mapping
+          </button>
+          {% endif %}
+          
+          <div id="concept-map-builder-{{ activity.id }}" class="hidden">
+            <form hx-post="/ai/student/activities/{{ activity.id }}/concept-map/submit"
+                  hx-target="#concept-map-feedback-{{ activity.id }}" class="space-y-4">
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Key Concepts (one per line)</label>
+                <textarea name="concepts" rows="6" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="List your key concepts here..."></textarea>
+              </div>
+              
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Connections & Relationships</label>
+                <textarea name="connections" rows="8" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="Describe how concepts connect (e.g., 'Concept A relates to Concept B because...')"></textarea>
+              </div>
+              
+              <button type="submit" class="w-full bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium">
+                Submit Concept Map for AI Review
+              </button>
+            </form>
+          </div>
+          <div id="concept-map-feedback-{{ activity.id }}"></div>
+        </div>
+
+        {% elif activity.activity_type == 'case_study' %}
+        <div class="case-study-interface">
+          <h3 class="font-semibold mb-3">📋 Case Study Analysis</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            Analyze the provided case study and apply course concepts to solve the problem.
+          </p>
+          
+          {% if activity.participation_type == 'group' %}
+          <form hx-post="/ai/student/activities/{{ activity.id }}/join" class="mb-4">
+            <label class="block text-sm font-medium mb-2">Join or Create Group</label>
+            <div class="flex gap-2">
+              <input type="text" name="group_name" placeholder="Enter group name" required
+                     class="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
+              <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                Join Group
+              </button>
+            </div>
+          </form>
+          {% else %}
+          <button hx-post="/ai/student/activities/{{ activity.id }}/join" 
+                  class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 mb-4">
+            Start Case Analysis
+          </button>
+          {% endif %}
+          
+          <div id="case-study-builder-{{ activity.id }}" class="hidden">
+            <form hx-post="/ai/student/activities/{{ activity.id }}/case-study/submit"
+                  hx-target="#case-study-feedback-{{ activity.id }}" class="space-y-4">
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Problem Identification</label>
+                <textarea name="problem_analysis" rows="4" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="What is the main problem or challenge in this case?"></textarea>
+              </div>
+              
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Course Concepts Applied</label>
+                <textarea name="concepts_applied" rows="4" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="Which course concepts are relevant? How do they apply?"></textarea>
+              </div>
+              
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Proposed Solution</label>
+                <textarea name="solution" rows="6" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="What is your recommended solution and why?"></textarea>
+              </div>
+              
+              <button type="submit" class="w-full bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium">
+                Submit Case Analysis for AI Review
+              </button>
+            </form>
+          </div>
+          <div id="case-study-feedback-{{ activity.id }}"></div>
+        </div>
+
+        {% elif activity.activity_type == 'debate' %}
+        <div class="debate-interface">
+          <h3 class="font-semibold mb-3">⚖️ Structured Debate</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            Participate in a structured debate on the assigned topic. Present evidence-based arguments.
+          </p>
+          
+          <form hx-post="/ai/student/activities/{{ activity.id }}/join" class="mb-4">
+            <label class="block text-sm font-medium mb-2">Choose Your Position</label>
+            <div class="flex gap-2">
+              <select name="debate_side" required class="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
+                <option value="">Select position</option>
+                <option value="pro">Pro/For</option>
+                <option value="con">Con/Against</option>
+              </select>
+              <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                Join Debate
+              </button>
+            </div>
+          </form>
+          
+          <div id="debate-builder-{{ activity.id }}" class="hidden">
+            <form hx-post="/ai/student/activities/{{ activity.id }}/debate/submit"
+                  hx-target="#debate-feedback-{{ activity.id }}" class="space-y-4">
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Opening Argument</label>
+                <textarea name="opening_argument" rows="4" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="Present your main argument with supporting evidence..."></textarea>
+              </div>
+              
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Supporting Evidence</label>
+                <textarea name="evidence" rows="4" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="List facts, data, or examples that support your position..."></textarea>
+              </div>
+              
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Counter-argument Response</label>
+                <textarea name="counter_response" rows="4" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="Address potential opposing arguments..."></textarea>
+              </div>
+              
+              <button type="submit" class="w-full bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium">
+                Submit Debate Position for AI Review
+              </button>
+            </form>
+          </div>
+          <div id="debate-feedback-{{ activity.id }}"></div>
+        </div>
+
+        {% elif activity.activity_type == 'problem_solving' %}
+        <div class="problem-solving-interface">
+          <h3 class="font-semibold mb-3">🧩 Collaborative Problem Solving</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            Work together to solve complex problems using systematic approaches.
+          </p>
+          
+          {% if activity.participation_type == 'group' %}
+          <form hx-post="/ai/student/activities/{{ activity.id }}/join" class="mb-4">
+            <label class="block text-sm font-medium mb-2">Join or Create Group</label>
+            <div class="flex gap-2">
+              <input type="text" name="group_name" placeholder="Enter group name" required
+                     class="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
+              <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                Join Group
+              </button>
+            </div>
+          </form>
+          {% else %}
+          <button hx-post="/ai/student/activities/{{ activity.id }}/join" 
+                  class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 mb-4">
+            Start Problem Solving
+          </button>
+          {% endif %}
+          
+          <div id="problem-solving-builder-{{ activity.id }}" class="hidden">
+            <form hx-post="/ai/student/activities/{{ activity.id }}/problem-solving/submit"
+                  hx-target="#problem-solving-feedback-{{ activity.id }}" class="space-y-4">
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Problem Understanding</label>
+                <textarea name="problem_understanding" rows="3" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="Restate the problem in your own words..."></textarea>
+              </div>
+              
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Approach & Strategy</label>
+                <textarea name="approach" rows="4" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="Describe your problem-solving approach..."></textarea>
+              </div>
+              
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Solution Steps</label>
+                <textarea name="solution_steps" rows="6" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="List the steps to solve this problem..."></textarea>
+              </div>
+              
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Final Answer</label>
+                <textarea name="final_answer" rows="3" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="Your final solution or answer..."></textarea>
+              </div>
+              
+              <button type="submit" class="w-full bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium">
+                Submit Solution for AI Review
+              </button>
+            </form>
+          </div>
+          <div id="problem-solving-feedback-{{ activity.id }}"></div>
+        </div>
+
+        {% else %}
+        <div class="generic-activity-interface">
+          <h3 class="font-semibold mb-3">📝 Activity Participation</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            Follow your instructor's guidance for this activity.
+          </p>
+          
+          {% if activity.participation_type == 'group' %}
+          <form hx-post="/ai/student/activities/{{ activity.id }}/join" class="mb-4">
+            <label class="block text-sm font-medium mb-2">Join or Create Group</label>
+            <div class="flex gap-2">
+              <input type="text" name="group_name" placeholder="Enter group name" required
+                     class="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
+              <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                Join Group
+              </button>
+            </div>
+          </form>
+          {% else %}
+          <button hx-post="/ai/student/activities/{{ activity.id }}/join" 
+                  class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 mb-4">
+            Join Activity
+          </button>
+          {% endif %}
+          
+          <div id="generic-activity-{{ activity.id }}" class="hidden">
+            <form hx-post="/ai/student/activities/{{ activity.id }}/generic/submit"
+                  hx-target="#generic-feedback-{{ activity.id }}" class="space-y-4">
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Your Response</label>
+                <textarea name="response" rows="8" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="Enter your response or work here..."></textarea>
+              </div>
+              
+              <button type="submit" class="w-full bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium">
+                Submit for Review
+              </button>
+            </form>
+          </div>
+          <div id="generic-feedback-{{ activity.id }}"></div>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    
+    {% else %}
+    <div class="text-center py-12">
+      <div class="text-6xl text-gray-300 mb-4">📚</div>
+      <h2 class="text-xl font-semibold text-gray-600 mb-2">No Active Activities</h2>
+      <p class="text-gray-500">Your instructor hasn't started any activities yet. Check back during class time.</p>
+    </div>
+    {% endif %}
+          <div class="text-center my-8">
+          <a href="/auth/student/courses" class="text-blue-700 hover:underline flex items-center gap-1 text-base">⬅ Back to Dashboard</a>
+        </div>
+  </div>
+
+
+<script>
+function prepareQuizData(activityId) {
+  const form = document.getElementById(`quiz-form-${activityId}`);
+  const formData = new FormData(form);
+  const questions = [];
+  
+  for (let i = 1; i <= 5; i++) {
+    questions.push({
+      question: formData.get(`question_${i}`),
+      options: {
+        a: formData.get(`option_${i}_a`),
+        b: formData.get(`option_${i}_b`),
+        c: formData.get(`option_${i}_c`),
+        d: formData.get(`option_${i}_d`)
+      },
+      correct: formData.get(`correct_${i}`)
+    });
+  }
+  
+  document.getElementById(`questions-data-${activityId}`).value = JSON.stringify(questions);
+}
+// Show activity interface after joining
+document.body.addEventListener('htmx:afterRequest', function(event) {
+  if (event.detail.xhr.status === 200 && event.target.matches('form[hx-post*="/join"]')) {
+    try {
+      const response = JSON.parse(event.detail.xhr.responseText);
+      if (response.success) {
+        const activityId = event.target.action.match(/activities\/(\d+)\/join/)[1];
+        
+        // Show the quiz builder
+        const quizBuilder = document.getElementById(`quiz-builder-${activityId}`);
+        if (quizBuilder) {
+          quizBuilder.classList.remove('hidden');
+        }
+        
+        // Hide all join forms/buttons for this activity
+        const joinForms = document.querySelectorAll(`form[hx-post*="activities/${activityId}/join"]`);
+        const joinButtons = document.querySelectorAll(`button[hx-post*="activities/${activityId}/join"]`);
+        const groupSection = document.querySelector(`#existing-groups-${activityId}`).parentElement;
+        
+        joinForms.forEach(form => form.style.display = 'none');
+        joinButtons.forEach(btn => btn.style.display = 'none');
+        if (groupSection) groupSection.style.display = 'none';
+        
+        // Show success message
+        const resultDiv = document.getElementById(`join-result-${activityId}`);
+        if (resultDiv) {
+          resultDiv.innerHTML = '<div class="bg-green-100 text-green-800 p-2 rounded mb-4">✅ Joined successfully! Complete the quiz below.</div>';
+        }
+      }
+    } catch (e) {
+      console.error('Error parsing join response:', e);
+    }
+  }
+});
+
+// Load groups function
+function loadGroups(activityId) {
+  fetch(`/ai/student/activities/${activityId}/groups`)
+    .then(response => response.json())
+    .then(data => {
+      const container = document.getElementById(`existing-groups-${activityId}`);
+      container.innerHTML = '';
+      
+      if (data.groups && data.groups.length > 0) {
+        data.groups.forEach(group => {
+          const groupDiv = document.createElement('div');
+          groupDiv.className = 'flex justify-between items-center p-2 border rounded-md bg-gray-50';
+          groupDiv.innerHTML = `
+            <span class="font-medium">${group.name}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-gray-600">${group.member_count} members</span>
+              <form hx-post="/ai/student/activities/${activityId}/join" 
+                    hx-target="#join-result-${activityId}" class="inline">
+                <input type="hidden" name="group_name" value="${group.name}">
+                <button type="submit" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700">
+                  Join
+                </button>
+              </form>
+            </div>
+          `;
+          container.appendChild(groupDiv);
+        });
+        container.classList.remove('hidden');
+      } else {
+        container.innerHTML = '<p class="text-gray-500 text-sm">No groups created yet.</p>';
+        container.classList.remove('hidden');
+      }
+    })
+    .catch(error => {
+      console.error('Error loading groups:', error);
+    });
+}
+
+// Auto-refresh every 30 seconds
+setInterval(function() {
+  htmx.trigger(document.body, 'refresh');
+}, 30000);
+</script>
+</body>
+</html>

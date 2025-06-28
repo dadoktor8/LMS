@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>My Quiz Performance | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-6xl mx-auto p-6">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <h1 class="text-3xl font-bold text-blue-700 mb-2">📊 My Quiz Performance</h1>
+      <p class="text-gray-600">{{ activity.activity_name }}</p>
+      {% if participation.group_id %}
+      <p class="text-sm text-purple-600">Your Group: {{ participation.group.group_name }}</p>
+      {% endif %}
+    </div>
+
+    <!-- Performance Overview -->
+    <div class="grid md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-blue-600">{{ attempts|length }}</div>
+        <div class="text-sm text-gray-600">Total Attempts</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-green-600">
+          {% if attempts %}
+          {{ "%.1f"|format(attempts|map(attribute='QuizAttempt.score')|sum / attempts|length) }}%
+          {% else %}
+          0%
+          {% endif %}
+        </div>
+        <div class="text-sm text-gray-600">Average Score</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-purple-600">
+          {% if attempts %}
+          {{ attempts|map(attribute='QuizAttempt.score')|max }}%
+          {% else %}
+          0%
+          {% endif %}
+        </div>
+        <div class="text-sm text-gray-600">Highest Score</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-orange-600">{{ comments|length }}</div>
+        <div class="text-sm text-gray-600">Comments Received</div>
+      </div>
+    </div>
+
+    <div class="grid lg:grid-cols-3 gap-6">
+      <!-- Quiz Attempts -->
+      <div class="lg:col-span-2 bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-2xl font-semibold mb-6">🎯 Who Took Your Quiz</h2>
+        
+        {% if attempts %}
+        <div class="space-y-4">
+          {% for attempt, user, group in attempts %}
+          <div class="border rounded-lg p-4 hover:shadow-md transition-shadow">
+            <div class="flex justify-between items-start mb-2">
+              <div>
+                <h3 class="font-semibold">{{ user.f_name }}</h3>
+                {% if group %}
+                <p class="text-sm text-gray-600">Group: {{ group.group_name }}</p>
+                {% endif %}
+                <p class="text-xs text-gray-500">{{ attempt.completed_at.strftime('%m/%d/%Y %H:%M') }}</p>
+              </div>
+              <div class="text-right">
+                <div class="text-xl font-bold {% if attempt.score >= 80 %}text-green-600{% elif attempt.score >= 60 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                  {{ attempt.score }}%
+                </div>
+                <div class="text-sm text-gray-600">{{ attempt.correct_count }}/{{ attempt.total_questions }}</div>
+              </div>
+            </div>
+            
+            <!-- Performance breakdown -->
+            <div class="mt-3">
+              <div class="flex items-center justify-between text-sm">
+                <span>Performance:</span>
+                <div class="flex items-center space-x-2">
+                  {% for i in range(1, 6) %}
+                  <div class="w-3 h-3 rounded-full {% if attempt.answers.get('question_' + i|string) == quiz_data[i-1].correct %}bg-green-400{% else %}bg-red-400{% endif %}"></div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-12">
+          <p class="text-gray-500 text-lg">No one has taken your quiz yet.</p>
+          <p class="text-gray-400 text-sm mt-2">Share it with your classmates!</p>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Comments & Feedback -->
+      <div class="space-y-6">
+        <!-- Comments Summary -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h3 class="text-lg font-semibold mb-4">💬 Feedback Summary</h3>
+          
+          {% if comments %}
+          <div class="space-y-3">
+            <!-- Comment type breakdown -->
+            <div class="grid grid-cols-3 gap-2 text-center text-sm">
+              <div class="bg-green-50 p-2 rounded">
+                <div class="font-bold text-green-600">{{ comments|selectattr('QuizComment.comment_type', 'equalto', 'appreciation')|list|length }}</div>
+                <div class="text-green-800">Praise</div>
+              </div>
+              <div class="bg-yellow-50 p-2 rounded">
+                <div class="font-bold text-yellow-600">{{ comments|selectattr('QuizComment.comment_type', 'equalto', 'improvement')|list|length }}</div>
+                <div class="text-yellow-800">Suggestions</div>
+              </div>
+              <div class="bg-blue-50 p-2 rounded">
+                <div class="font-bold text-blue-600">{{ comments|selectattr('QuizComment.comment_type', 'equalto', 'general')|list|length }}</div>
+                <div class="text-blue-800">General</div>
+              </div>
+            </div>
+          </div>
+          {% else %}
+          <p class="text-gray-500 text-center py-4">No feedback yet.</p>
+          {% endif %}
+        </div>
+
+        <!-- Recent Comments -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h3 class="text-lg font-semibold mb-4">📝 Recent Comments</h3>
+          
+          {% if comments %}
+          <div class="space-y-4 max-h-96 overflow-y-auto">
+            {% for comment, user in comments[:10] %}
+            <div class="border-l-4 {% if comment.comment_type == 'appreciation' %}border-green-400{% elif comment.comment_type == 'improvement' %}border-yellow-400{% else %}border-blue-400{% endif %} pl-4 pb-3">
+              <div class="flex justify-between items-start mb-1">
+                <span class="font-medium text-sm">{{ user.f_name }}</span>
+                <div class="text-right">
+                  <span class="px-2 py-1 rounded text-xs {% if comment.comment_type == 'appreciation' %}bg-green-100 text-green-800{% elif comment.comment_type == 'improvement' %}bg-yellow-100 text-yellow-800{% else %}bg-blue-100 text-blue-800{% endif %}">
+                    {{ comment.comment_type|title }}
+                  </span>
+                  <div class="text-xs text-gray-500 mt-1">{{ comment.created_at.strftime('%m/%d %H:%M') }}</div>
+                </div>
+              </div>
+              
+              {% if comment.comment_type == 'question_specific' %}
+              <div class="text-xs text-gray-600 mb-1">Question {{ comment.question_number }}:</div>
+              {% endif %}
+              
+              <p class="text-gray-700 text-sm">{{ comment.comment_text }}</p>
+            </div>
+            {% endfor %}
+            
+            {% if comments|length > 10 %}
+            <div class="text-center">
+              <p class="text-sm text-gray-500">{{ comments|length - 10 }} more comments...</p>
+            </div>
+            {% endif %}
+          </div>
+          {% else %}
+          <p class="text-gray-500 text-center py-8">No comments yet.</p>
+          {% endif %}
+        </div>
+
+        <!-- Quiz Quality Insights -->
+        {% if attempts %}
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h3 class="text-lg font-semibold mb-4">🎯 Quiz Quality Insights</h3>
+          
+          <div class="space-y-3 text-sm">
+            <div class="flex justify-between">
+              <span>Difficulty Level:</span>
+              <span class="font-medium">
+                {% set avg_score = attempts|map(attribute='QuizAttempt.score')|sum / attempts|length %}
+                {% if avg_score >= 80 %}Easy{% elif avg_score >= 60 %}Medium{% else %}Hard{% endif %}
+              </span>
+            </div>
+            
+            <div class="flex justify-between">
+              <span>Most Missed Question:</span>
+              <span class="font-medium">
+                {% set question_stats = {} %}
+                {% for attempt, user, group in attempts %}
+                  {% for i in range(1, 6) %}
+                    {% set q_key = 'question_' + i|string %}
+                    {% if attempt.answers.get(q_key) != quiz_data[i-1].correct %}
+                      {% if question_stats.update({i: question_stats.get(i, 0) + 1}) %}{% endif %}
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+                
+                {% if question_stats %}
+                  Question {{ question_stats.keys()|list|sort()|last }}
+                {% else %}
+                  None
+                {% endif %}
+              </span>
+            </div>
+            
+            <div class="flex justify-between">
+              <span>Engagement Level:</span>
+              <span class="font-medium {% if comments|length >= 3 %}text-green-600{% elif comments|length >= 1 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {% if comments|length >= 3 %}High{% elif comments|length >= 1 %}Medium{% else %}Low{% endif %}
+              </span>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="mt-8 text-center">
+      <a href="/ai/student/activities/{{ activity.id }}/work" 
+         class="text-blue-600 hover:underline">← Back to Activity</a>
+    </div>
+  </div>
+</body>
+</html>

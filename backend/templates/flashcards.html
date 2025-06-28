@@ -85,28 +85,70 @@
       </ul>
     </nav>
 
-    <main class="mx-auto px-2 py-10 max-w-screen-xl">
-      <h1 class="text-3xl font-bold text-blue-700 mb-4 text-center">🃏 Flashcards</h1>
+    <main class="mx-auto px-4 py-10 max-w-6xl">
+      <h1 class="text-3xl font-bold text-blue-700 mb-4 text-center">🃏 Flashcard Generator</h1>
+      
       <div class="bg-white rounded-xl shadow p-8 border border-gray-100 mb-8">
-        <form action="/ai/study/flashcards/generate" method="post" class="flex flex-col gap-5">
-          <label for="topic" class="font-semibold text-gray-800 text-lg">
-            🧠 What would you like to study?
-          </label>
-          <input type="text"
-            id="topic"
-            name="topic"
-            placeholder="Enter a topic or concept from your course"
-            required
-            value="{{ topic }}"
-            class="px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
-          >
+        <form action="/ai/study/flashcards/generate" method="post" id="flashcards-form" class="flex flex-col gap-5">
+          
+          <!-- Module Selection -->
+          {% if modules %}
+          <div>
+            <label for="module-select" class="block font-semibold text-gray-800 text-lg mb-2">
+              Focus on specific module (optional):
+            </label>
+            <select id="module-select" name="module_id" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base">
+              <option value="">All published course content</option>
+              {% for module in modules %}
+              <option value="{{ module.id }}" {% if module_id and module.id == module_id %}selected{% endif %}>
+                {{ module.title }}
+              </option>
+              {% endfor %}
+            </select>
+            <p class="text-sm text-gray-600 mt-2">Select a module to create flashcards focused on that specific content, or leave blank for course-wide coverage.</p>
+          </div>
+          {% else %}
+          <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div class="flex items-center">
+              <svg class="w-5 h-5 text-amber-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+              </svg>
+              <p class="text-amber-800 text-sm">No published modules available yet. Your flashcards will use general course content.</p>
+            </div>
+          </div>
+          <input type="hidden" name="module_id" value="">
+          {% endif %}
+
+          <!-- Topic Input -->
+          <div>
+            <label for="topic" class="block font-semibold text-gray-800 text-lg mb-2">
+              🧠 What would you like to study?
+            </label>
+            <input type="text"
+              id="topic"
+              name="topic"
+              placeholder="Enter a topic or concept from your course (e.g., 'mitochondria', 'pythagorean theorem', 'french revolution')"
+              required
+              value="{{ topic }}"
+              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+            >
+            <p class="text-sm text-gray-600 mt-2">Be specific for better flashcards. Example: "cell membrane functions" instead of just "cells".Please type "None" if you want for the entire module</p>
+          </div>
+
           <input type="hidden" name="course_id" id="course-id" value="{{ course_id }}">
           <input type="hidden" name="student_id" id="student-id" value="{{ student_id }}">
+          
           <button
             type="submit"
-            class="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-lg"
-          >Generate Flashcards</button>
+            class="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-lg flex items-center justify-center gap-2"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+            </svg>
+            Generate Flashcards
+          </button>
         </form>
+
         {% if error_message %}
         <div class="mt-5 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg">
           <div class="flex items-center">
@@ -117,34 +159,56 @@
           </div>
         </div>
         {% endif %}
+
         <div id="loading" class="mt-5 hidden text-center">
-          <div class="inline-flex items-center gap-2 px-3 py-2 rounded bg-blue-100 text-blue-700 font-medium shadow animate-pulse">
-            <svg class="w-4 h-4 animate-spin mr-2" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+          <div class="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-blue-100 text-blue-700 font-medium shadow animate-pulse">
+            <svg class="w-5 h-5 animate-spin mr-2" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+            </svg>
             Generating your personalized flashcards...
           </div>
         </div>
       </div>
-      <div id="materials-output" class="bg-white rounded-xl shadow p-7 border border-gray-100 mb-8 w-full flex flex-col items-center">
+
+      <div id="materials-output" class="bg-white rounded-xl shadow p-8 border border-gray-100 mb-8 w-full flex flex-col items-center">
         {% if study_material_html %}
           {{ study_material_html | safe }}
         {% else %}
-          <div class="text-center py-8 text-gray-600">
-            <h3 class="text-xl font-semibold mb-2">Enter a topic to get started</h3>
-            <p>Lumi will create personalized flashcards based on your course content.</p>
+          <div class="text-center py-12 text-gray-600">
+            <div class="mb-4">
+              <svg class="w-16 h-16 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+              </svg>
+            </div>
+            <h3 class="text-xl font-semibold mb-2">Ready to Create Your Flashcards</h3>
+            <p class="text-base">Enter a topic above and Lumi will create personalized flashcards based on your course content.</p>
+            {% if modules %}
+            <p class="text-sm text-gray-500 mt-2">You can focus on specific modules or cover the entire course.</p>
+            {% endif %}
           </div>
         {% endif %}
       </div>
+
       <div class="flex flex-col sm:flex-row gap-4 items-center justify-center mt-8">
         <a href="/ai/study?course_id={{ course_id }}"
-          class="px-5 py-2 bg-gray-200 text-blue-700 font-semibold rounded-lg hover:bg-gray-300 transition">
-          ⬅ Back to Study Tools
+          class="px-6 py-3 bg-gray-200 text-blue-700 font-semibold rounded-lg hover:bg-gray-300 transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+          </svg>
+          Back to Study Tools
         </a>
         <a href="/auth/student/courses"
-          class="px-5 py-2 bg-gray-200 text-blue-700 font-semibold rounded-lg hover:bg-gray-300 transition">
-          ⬅ Back to Dashboard
+          class="px-6 py-3 bg-gray-200 text-blue-700 font-semibold rounded-lg hover:bg-gray-300 transition flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 21v-4a2 2 0 012-2h2a2 2 0 012 2v4"></path>
+          </svg>
+          Back to Dashboard
         </a>
       </div>
     </main>
+  </div>
 
   <script>
     document.addEventListener('DOMContentLoaded', function() {
@@ -162,17 +226,71 @@
       // Get URL parameters
       const urlParams = new URLSearchParams(window.location.search);
       const topicParam = urlParams.get('topic');
+      const moduleParam = urlParams.get('module_id');
+      
       if (topicParam && !document.getElementById('topic').value) {
         document.getElementById('topic').value = decodeURIComponent(topicParam);
       }
+      
+      // Set module selection if provided in URL
+      if (moduleParam) {
+        const moduleSelect = document.getElementById('module-select');
+        if (moduleSelect) {
+          moduleSelect.value = moduleParam;
+        }
+      }
+
+      // Module selection change handler
+      const moduleSelect = document.getElementById('module-select');
+      const topicInput = document.getElementById('topic');
+      
+      if (moduleSelect && topicInput) {
+        moduleSelect.addEventListener('change', function() {
+          // Update topic placeholder based on selected module
+          if (this.value) {
+            const selectedText = this.options[this.selectedIndex].text;
+            topicInput.placeholder = `Enter a topic from "${selectedText}" module...`;
+          } else {
+            topicInput.placeholder = "Enter a topic or concept from your course (e.g., 'mitochondria', 'pythagorean theorem', 'french revolution')";
+          }
+        });
+      }
     });
 
-    // Show/hide loading indicator
+    // Show/hide loading indicator and form state management
     htmx.on('htmx:beforeRequest', function(event) {
       document.getElementById('loading').classList.remove('hidden');
+      // Disable form while processing
+      const form = document.getElementById('flashcards-form');
+      const button = form.querySelector('button[type="submit"]');
+      const inputs = form.querySelectorAll('input, select');
+      
+      button.disabled = true;
+      button.innerHTML = `
+        <svg class="w-5 h-5 animate-spin mr-2" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+        </svg>
+        Generating...
+      `;
+      inputs.forEach(input => input.disabled = true);
     });
+
     htmx.on('htmx:afterRequest', function(event) {
       document.getElementById('loading').classList.add('hidden');
+      // Re-enable form
+      const form = document.getElementById('flashcards-form');
+      const button = form.querySelector('button[type="submit"]');
+      const inputs = form.querySelectorAll('input, select');
+      
+      button.disabled = false;
+      button.innerHTML = `
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+        </svg>
+        Generate Flashcards
+      `;
+      inputs.forEach(input => input.disabled = false);
     });
   </script>
 </body>

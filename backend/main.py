@@ -1,3 +1,4 @@
+import asyncio
 from dotenv import load_dotenv
 import os
 import sys
@@ -12,7 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from backend.ai.ai_routes import ai_router
+from backend.ai.ai_routes import ai_router, check_and_end_expired_activities
 
 
 sys.path.append(str(Path(__file__).resolve().parent))
@@ -44,9 +45,11 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/auth")
 app.include_router(ai_router, prefix="/ai")
-
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(check_and_end_expired_activities())
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
-#Made with love Docjenny&GPT4-o
+#Made with love Docjenny&GPT4-o,Claude

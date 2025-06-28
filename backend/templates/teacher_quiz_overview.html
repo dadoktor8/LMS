@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Quiz Overview | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-7xl mx-auto p-6">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div class="flex justify-between items-start">
+        <div>
+          <h1 class="text-3xl font-bold text-blue-700 mb-2">🧩 Quiz Overview</h1>
+          <p class="text-gray-600">{{ activity.activity_name }}</p>
+          <p class="text-sm text-gray-500">Monitor all submitted quizzes and peer interactions</p>
+        </div>
+        <div class="flex gap-2">
+          <a href="/ai/teacher/activities/{{ activity.id }}/peer-analytics" 
+             class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">
+            📈 Analytics
+          </a>
+          <a href="/ai/teacher/activities/{{ activity.id }}/monitor" 
+             class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
+            ← Back to Monitor
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="grid md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-blue-600">{{ submitted_quizzes|length }}</div>
+        <div class="text-sm text-gray-600">Submitted Quizzes</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-green-600">{{ all_attempts|length }}</div>
+        <div class="text-sm text-gray-600">Total Attempts</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-purple-600">{{ all_comments|length }}</div>
+        <div class="text-sm text-gray-600">Peer Comments</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-orange-600">
+          {% if all_attempts %}
+          {{ "%.1f"|format(all_attempts|map(attribute='QuizAttempt.score')|sum / all_attempts|length) }}%
+          {% else %}
+          0%
+          {% endif %}
+        </div>
+        <div class="text-sm text-gray-600">Average Score</div>
+      </div>
+    </div>
+
+    <div class="grid lg:grid-cols-3 gap-6">
+      <!-- Submitted Quizzes -->
+      <div class="lg:col-span-2 bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-2xl font-semibold mb-6">📝 Submitted Quizzes</h2>
+        
+        {% if submitted_quizzes %}
+        <div class="space-y-4">
+          {% for participation, user, group in submitted_quizzes %}
+          <div class="border rounded-lg p-4 hover:shadow-md transition-shadow">
+            <div class="flex justify-between items-start mb-3">
+              <div>
+                <h3 class="font-semibold text-lg">
+                  {% if group %}
+                    {{ group.group_name }}
+                  {% else %}
+                    {{ user.f_name }}'s Quiz
+                  {% endif %}
+                </h3>
+                <p class="text-sm text-gray-600">Created by: {{ user.f_name }}</p>
+                <p class="text-xs text-gray-500">{{ participation.submitted_at.strftime('%m/%d/%Y %H:%M') }}</p>
+              </div>
+              <div class="text-right">
+                <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">5 Questions</span>
+                {% set quiz_attempts = all_attempts|selectattr('QuizAttempt.creator_participation_id', 'equalto', participation.id)|list %}
+                <div class="text-sm text-gray-600 mt-1">{{ quiz_attempts|length }} attempts</div>
+              </div>
+            </div>
+            
+            <!-- Quick Stats -->
+            {% if quiz_attempts %}
+            <div class="bg-gray-50 rounded p-3 mb-3">
+              <div class="grid grid-cols-3 gap-4 text-center text-sm">
+                <div>
+                  <div class="font-bold text-blue-600">{{ quiz_attempts|length }}</div>
+                  <div class="text-gray-600">Attempts</div>
+                </div>
+                <div>
+                  <div class="font-bold text-green-600">
+                    {{ "%.1f"|format(quiz_attempts|map(attribute='QuizAttempt.score')|sum / quiz_attempts|length) }}%
+                  </div>
+                  <div class="text-gray-600">Avg Score</div>
+                </div>
+                <div>
+                  <div class="font-bold text-purple-600">
+                    {{ all_comments|selectattr('QuizComment.creator_participation_id', 'equalto', participation.id)|list|length }}
+                  </div>
+                  <div class="text-gray-600">Comments</div>
+                </div>
+              </div>
+            </div>
+            {% endif %}
+            
+            <div class="flex gap-2">
+              <a href="/ai/teacher/activities/{{ activity.id }}/quiz/{{ participation.id }}/view" 
+                 class="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700">
+                📊 View Details
+              </a>
+              {% if participation.ai_feedback %}
+              <button onclick="showAIFeedback('{{ participation.id }}')" 
+                      class="bg-green-600 text-white px-3 py-2 rounded text-sm hover:bg-green-700">
+                🤖 AI Feedback
+              </button>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-12">
+          <p class="text-gray-500 text-lg">No quizzes submitted yet.</p>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Recent Comments & Activity -->
+      <div class="space-y-6">
+        <!-- Recent Comments -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h3 class="text-lg font-semibold mb-4">💬 Recent Comments</h3>
+          
+          {% if all_comments %}
+          <div class="space-y-3 max-h-64 overflow-y-auto">
+            {% for comment, user, participation in all_comments %}
+            {% if loop.index <= 10 %}
+            <div class="border-l-4 {% if comment.comment_type == 'appreciation' %}border-green-400{% elif comment.comment_type == 'improvement' %}border-yellow-400{% else %}border-blue-400{% endif %} pl-3 pb-2">
+              <div class="flex justify-between items-start mb-1">
+                <span class="font-medium text-sm">{{ user.f_name }}</span>
+                <span class="text-xs text-gray-500">{{ comment.created_at.strftime('%m/%d %H:%M') }}</span>
+              </div>
+              <p class="text-gray-700 text-sm">{{ comment.comment_text[:80] }}{% if comment.comment_text|length > 80 %}...{% endif %}</p>
+              <p class="text-xs text-gray-500 mt-1">
+                On {% if participation.group %}{{ participation.group.group_name }}{% else %}{{ participation.user.f_name }}{% endif %}'s quiz
+              </p>
+            </div>
+            {% endif %}
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="text-gray-500 text-center py-8">No comments yet.</p>
+          {% endif %}
+        </div>
+
+        <!-- Top Performers -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h3 class="text-lg font-semibold mb-4">🏆 Top Performers</h3>
+          
+          {% if all_attempts %}
+          {% set sorted_attempts = all_attempts|sort(attribute='QuizAttempt.score', reverse=true) %}
+          <div class="space-y-2">
+            {% for attempt, user, group in sorted_attempts %}
+            {% if loop.index <= 5 %}
+            <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+              <div>
+                <span class="font-medium text-sm">{{ user.f_name }}</span>
+                {% if group %}
+                <span class="text-xs text-gray-500">({{ group.group_name }})</span>
+                {% endif %}
+              </div>
+              <span class="px-2 py-1 rounded text-sm {% if attempt.score >= 90 %}bg-green-100 text-green-800{% elif attempt.score >= 80 %}bg-blue-100 text-blue-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                {{ attempt.score }}%
+              </span>
+            </div>
+            {% endif %}
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="text-gray-500 text-center py-8">No attempts yet.</p>
+          {% endif %}
+        </div>
+
+        <!-- Activity Summary -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h3 class="text-lg font-semibold mb-4">📊 Activity Summary</h3>
+          
+          <div class="space-y-3 text-sm">
+            <div class="flex justify-between">
+              <span>Participation Rate:</span>
+              <span class="font-medium">
+                {% set total_students = activity.course.enrollments|length %}
+                {% if total_students > 0 %}
+                {{ "%.1f"|format((submitted_quizzes|length / total_students) * 100) }}%
+                {% else %}
+                0%
+                {% endif %}
+              </span>
+            </div>
+            
+            <div class="flex justify-between">
+              <span>Avg Attempts per Quiz:</span>
+              <span class="font-medium">
+                {% if submitted_quizzes %}
+                {{ "%.1f"|format(all_attempts|length / submitted_quizzes|length) }}
+                {% else %}
+                0
+                {% endif %}
+              </span>
+            </div>
+            
+            <div class="flex justify-between">
+              <span>Comments per Quiz:</span>
+              <span class="font-medium">
+                {% if submitted_quizzes %}
+                {{ "%.1f"|format(all_comments|length / submitted_quizzes|length) }}
+                {% else %}
+                0
+                {% endif %}
+              </span>
+            </div>
+            
+            <div class="flex justify-between">
+              <span>Engagement Level:</span>
+              <span class="font-medium {% if all_comments|length >= 20 %}text-green-600{% elif all_comments|length >= 10 %}text-yellow-600{% else %}text-red-600{% endif %}">
+                {% if all_comments|length >= 20 %}High{% elif all_comments|length >= 10 %}Medium{% else %}Low{% endif %}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Feedback Modal -->
+  <div id="ai-feedback-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-96 overflow-y-auto">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-semibold">🤖 AI Feedback</h3>
+        <button onclick="closeModal()" class="text-gray-500 hover:text-gray-700">✕</button>
+      </div>
+      <div id="feedback-content"></div>
+    </div>
+  </div>
+
+<script>
+function showAIFeedback(participationId) {
+  // This would fetch AI feedback via AJAX
+  const modal = document.getElementById('ai-feedback-modal');
+  const content = document.getElementById('feedback-content');
+  
+  // Show loading
+  content.innerHTML = '<p class="text-gray-500">Loading AI feedback...</p>';
+  modal.classList.remove('hidden');
+  
+  // Fetch actual feedback (you'll need to implement the endpoint)
+  fetch(`/ai/teacher/activities/{{ activity.id }}/participation/${participationId}/ai-feedback-json`)
+    .then(response => response.json())
+    .then(data => {
+      content.innerHTML = `<div class="prose max-w-none">${data.feedback.replace(/\n/g, '<br>')}</div>`;
+    })
+    .catch(error => {
+      content.innerHTML = '<p class="text-red-500">Error loading feedback.</p>';
+    });
+}
+
+function closeModal() {
+  document.getElementById('ai-feedback-modal').classList.add('hidden');
+}
+
+// Close modal on outside click
+document.getElementById('ai-feedback-modal').addEventListener('click', function(e) {
+  if (e.target === this) {
+    closeModal();
+  }
+});
+</script>
+</body>
+</html>

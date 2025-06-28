@@ -1035,8 +1035,70 @@ def detect_study_request(query: str) -> tuple[bool, Optional[str], Optional[str]
     return is_study_request, material_type, topic
 
 
-def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id: str) -> str:
-    
+def retrieve_course_context(course_id, query, module_id=None):
+    """Helper function to retrieve context from course knowledge base.
+    Optionally filter by specific module."""
+    try:
+        db_session = next(get_db())
+        
+        # If module_id is specified, get context only from that module
+        if module_id:
+            module = db_session.query(CourseModule).filter_by(
+                id=module_id, 
+                course_id=course_id, 
+                is_published=True
+            ).first()
+            if not module:
+                return {"error": f"Module {module_id} not found or not published in course {course_id}"}
+            
+            # Get text chunks from all published submodules of this module
+            chunks = db_session.query(ModuleTextChunk).join(CourseSubmodule).filter(
+                CourseSubmodule.module_id == module_id,
+                CourseSubmodule.is_published == True
+            ).all()
+            
+            if not chunks:
+                return {"error": f"No content found in module '{module.title}'"}
+            
+            # Combine chunks for context
+            context = "\n\n".join([chunk.chunk_text for chunk in chunks])
+            
+        else:
+            # Try to use existing FAISS retrieval for entire course
+            try:
+                db = load_faiss_vectorstore(course_id, openai_api_key=None)  
+                retriever = db.as_retriever(search_kwargs={"k": 10})
+                retrieved_docs = retriever.get_relevant_documents(query)
+                context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+            except (FileNotFoundError, Exception):
+                # If FAISS index doesn't exist, try to get content from published modules
+                modules = db_session.query(CourseModule).filter_by(
+                    course_id=course_id, 
+                    is_published=True
+                ).all()
+                if not modules:
+                    return {"error": "No published course content available"}
+                
+                # Get chunks from all published modules as fallback
+                chunks = db_session.query(ModuleTextChunk).join(CourseSubmodule).join(CourseModule).filter(
+                    CourseModule.course_id == course_id,
+                    CourseModule.is_published == True,
+                    CourseSubmodule.is_published == True
+                ).limit(50).all()  # Limit to prevent overwhelming context
+                
+                if chunks:
+                    context = "\n\n".join([chunk.chunk_text for chunk in chunks])
+                else:
+                    return {"error": "No processed content available"}
+        
+        if not context.strip():
+            return {"error": "Insufficient context found for your query."}
+        return context
+        
+    except Exception as e:
+        return {"error": f"Problem loading course content: {str(e)}"}
+
+def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id: str, module_id: Optional[int] = None) -> str:
     
     is_study_request, material_type, topic = detect_study_request(query)
     
@@ -1044,12 +1106,9 @@ def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id:
         # Redirect to specific study material page based on type
         if material_type == "flashcards":
             study_url = f"/ai/study/flashcards?course_id={course_id}&topic={topic}"
-        #elif material_type == "quiz":
-            #study_url = f"/ai/study/quiz?course_id={course_id}&topic={topic}"
         elif material_type == "study_guide":
             study_url = f"/ai/study/guide?course_id={course_id}&topic={topic}"
         else:
-            # Default to main study page if unsure about material type
             study_url = f"/ai/study?course_id={course_id}&topic={topic}"
         
         response = f"""
@@ -1069,25 +1128,18 @@ def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id:
         if not student_id or not isinstance(student_id, str):
             raise ValueError("Student ID must be a non-empty string")
             
-        # Load FAISS index
-        try:
-            faiss_vectorstore = load_faiss_vectorstore(
-                course_id=course_id,
-                openai_api_key=os.getenv("OPENAI_API_KEY"),  # Or None to auto-pickup
-                temp_dir="tmp"  # Or whatever temp location you want
-            )
-            retriever = faiss_vectorstore.as_retriever(search_kwargs={"k": 5})
-        except FileNotFoundError:
-            raise ValueError(f"FAISS index not found for course ID: {course_id}")
-        except Exception as e:
-            raise ConnectionError(f"Error loading or downloading FAISS index: {str(e)}")
-            
+        # Try to get course context
+        context_result = retrieve_course_context(course_id, query, module_id)
+        
+        # Check if we have an error (no content available)
+        has_course_content = not isinstance(context_result, dict) or "error" not in context_result
+        context = context_result if has_course_content else ""
+        
         # Chat history for memory
         session_id = f"{student_id}_{course_id}"
         try:
             sql_history = SQLChatMessageHistory(session_id=session_id, connection="sqlite:///chat_history.db")
         except Exception as e:
-            # Log but continue - history is non-critical
             print(f"Warning: Could not initialize chat history: {e}")
             sql_history = None
             
@@ -1104,49 +1156,116 @@ def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id:
             )
         except Exception as e:
             raise ConnectionError(f"Error initializing OpenAI client: {str(e)}")
-            
-        # Prompt Template with Personality
-        prompt_template = PromptTemplate(
-            input_variables=["context", "question"],
-            template="""
-            You are Lumi, a warm, caring AI tutor helping students understand complex topics using their course materials.
-            Be thoughtful, empathetic, and encouraging. Always thank them for asking and explain clearly.
-            
-            FORMATTING INSTRUCTIONS:
-            1. Start with a brief, friendly greeting and acknowledgment of their question
-            2. Structure your response as a set of clear, numbered or bulleted points instead of dense paragraphs
-            3. Use <strong> HTML tags to highlight important terms or concepts </strong>
-            4. Keep each point focused on a single idea or concept
-            5. If explaining a process or sequence, use numbered lists with the <ol> and <li> HTML tags
-            6. For general points, use bullet points with the <ul> and <li> HTML tags
-            7. For especially important information, wrap it in <div class="key-point">Important information here</div>
-            8. Conclude with a brief encouraging note
-            9. Let them know that can type "Make Flash-Cards 'Topic'" or "Make Study Guide 'Topic' and you will make one for them"
-            
-            If the answer is not in the provided materials, let them know gently.
-            
-            Course Materials:
-            {context}
-            
-            Student's Question:
-            {question}
-            
-            Lumi's Helpful Answer:
-            """
-        )
         
-        # RetrievalQA chain
-        try:
-            qa_chain = RetrievalQA.from_chain_type(
-                llm=chat,
-                retriever=retriever,
-                return_source_documents=False,
-                chain_type_kwargs={"prompt": prompt_template, "verbose":False},
-                chain_type="stuff"
+        # Enhanced Prompt Template with fallback capability
+        if has_course_content:
+            if module_id:
+                # Module-specific response
+                prompt_template = PromptTemplate(
+                    input_variables=["context", "question"],
+                    template="""
+                    You are Lumi, a warm, caring AI tutor helping students understand complex topics using their course materials.
+                    You are currently focusing on a specific module within the course.
+                    Be thoughtful, empathetic, and encouraging. Always thank them for asking and explain clearly.
+                    
+                    FORMATTING INSTRUCTIONS:
+                    1. Start with a brief, friendly greeting and acknowledgment of their question
+                    2. Structure your response as a set of clear, numbered or bulleted points instead of dense paragraphs
+                    3. Use <strong> HTML tags to highlight important terms or concepts </strong>
+                    4. Keep each point focused on a single idea or concept
+                    5. If explaining a process or sequence, use numbered lists with the <ol> and <li> HTML tags
+                    6. For general points, use bullet points with the <ul> and <li> HTML tags
+                    7. For especially important information, wrap it in <div class="key-point">Important information here</div>
+                    8. Conclude with a brief encouraging note
+                    9. Let them know that can type "Make Flash-Cards 'Topic'" or "Make Study Guide 'Topic' and you will make one for them
+                    
+                    If the answer is not in the provided module materials, let them know gently and offer to help with general knowledge.
+                    
+                    Module Content:
+                    {context}
+                    
+                    Student's Question:
+                    {question}
+                    
+                    Lumi's Helpful Answer:
+                    """
+                )
+            else:
+                # Course-wide response
+                prompt_template = PromptTemplate(
+                    input_variables=["context", "question"],
+                    template="""
+                    You are Lumi, a warm, caring AI tutor helping students understand complex topics using their course materials.
+                    Be thoughtful, empathetic, and encouraging. Always thank them for asking and explain clearly.
+                    
+                    FORMATTING INSTRUCTIONS:
+                    1. Start with a brief, friendly greeting and acknowledgment of their question
+                    2. Structure your response as a set of clear, numbered or bulleted points instead of dense paragraphs
+                    3. Use <strong> HTML tags to highlight important terms or concepts </strong>
+                    4. Keep each point focused on a single idea or concept
+                    5. If explaining a process or sequence, use numbered lists with the <ol> and <li> HTML tags
+                    6. For general points, use bullet points with the <ul> and <li> HTML tags
+                    7. For especially important information, wrap it in <div class="key-point">Important information here</div>
+                    8. Conclude with a brief encouraging note
+                    9. Let them know that can type "Make Flash-Cards 'Topic'" or "Make Study Guide 'Topic' and you will make one for them
+                    
+                    If the answer is not in the provided materials, let them know gently.
+                    
+                    Course Materials:
+                    {context}
+                    
+                    Student's Question:
+                    {question}
+                    
+                    Lumi's Helpful Answer:
+                    """
+                )
+        else:
+            # Fallback mode - no course content available
+            prompt_template = PromptTemplate(
+                input_variables=["question"],
+                template="""
+                You are Lumi, a warm, caring AI tutor. While no specific course materials are available for this course yet, 
+                you can still help students learn and understand various topics using your general knowledge.
+                Be thoughtful, empathetic, and encouraging. Always thank them for asking and explain clearly.
+                
+                FORMATTING INSTRUCTIONS:
+                1. Start with a brief, friendly greeting and acknowledgment of their question
+                2. Mention that you don't have specific course materials available but can still help with general knowledge
+                3. Structure your response as a set of clear, numbered or bulleted points instead of dense paragraphs
+                4. Use <strong> HTML tags to highlight important terms or concepts </strong>
+                5. Keep each point focused on a single idea or concept
+                6. If explaining a process or sequence, use numbered lists with the <ol> and <li> HTML tags
+                7. For general points, use bullet points with the <ul> and <li> HTML tags
+                8. For especially important information, wrap it in <div class="key-point">Important information here</div>
+                9. Conclude with a brief encouraging note
+                10. Let them know that can type "Make Flash-Cards 'Topic'" or "Make Study Guide 'Topic' and you will make one for them
+                
+                Student's Question:
+                {question}
+                
+                Lumi's Helpful Answer:
+                """
             )
+        
+        # Create response based on available content
+        try:
+            if has_course_content:
+                # Use retrieval-based response
+                retriever = None  # We already have context from retrieve_course_context
+                qa_chain = RetrievalQA.from_llm(
+                    llm=chat,
+                    retriever=None,  # We'll pass context directly
+                    return_source_documents=False,
+                    chain_type_kwargs={"prompt": prompt_template, "verbose": False},
+                    chain_type="stuff"
+                )
+                # Pass context directly
+                result = {"result": chat.predict(prompt_template.format(context=context, question=query))}
+            else:
+                # Direct LLM response without course materials
+                result = {"result": chat.predict(prompt_template.format(question=query))}
             
-            # Get response with timeout
-            result = qa_chain({"query": query})
             response = result.get("result", "")
             
             if not response:
@@ -1163,6 +1282,7 @@ def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id:
         response = re.sub(r"\s+", " ", response)
         response = re.sub(r"[\s\S]*<\/think>\n?", "", response).strip()
         response = post_process_response(response)
+        
         # Store in DB history
         if sql_history:
             try:
@@ -1188,7 +1308,6 @@ def get_answer_from_rag_langchain_openai(query: str, course_id: int, student_id:
     except Exception as e:
         error_msg = f"Unexpected error in RAG system: {str(e)}"
         print(error_msg)
-        # Log the full traceback for debugging
         import traceback
         traceback.print_exc()
         return "I apologize, but I encountered an unexpected error. Our team has been notified, and we're working to fix it."

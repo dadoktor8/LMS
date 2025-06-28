@@ -59,6 +59,7 @@ class Course(Base):
     quiz_quotas = relationship("QuizQuota", back_populates="course")
     modules = relationship("CourseModule", back_populates="course", cascade="all, delete-orphan")
     quizzes = relationship("Quiz", back_populates="course", cascade="all, delete-orphan")
+    inclass_activities = relationship("InClassActivity", back_populates="course", cascade="all, delete-orphan")
 
 
 class CourseModule(Base):
@@ -79,6 +80,8 @@ class CourseModule(Base):
     submodules = relationship("CourseSubmodule", back_populates="module", cascade="all, delete-orphan")
     quizzes = relationship("Quiz", back_populates="module")
     assignments = relationship("Assignment", back_populates="module")
+    inclass_activities = relationship("InClassActivity", back_populates="module")
+    student_activities = relationship("StudentActivity", back_populates="module")
     
 class CourseSubmodule(Base):
     """Represents a submodule within a module (like sections within a chapter)"""
@@ -370,6 +373,7 @@ class StudentActivity(Base):
     student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
     activity_type = Column(String(50), nullable=False)  # "Muddiest Point" or "Misconception Check"
+    module_id = Column(Integer, ForeignKey("course_modules.id", ondelete="SET NULL"), nullable=True)
     topic = Column(String(255), nullable=False)
     user_input = Column(Text, nullable=False)
     ai_response = Column(Text, nullable=False)  # Store as JSON string
@@ -378,6 +382,7 @@ class StudentActivity(Base):
     # Relationships
     student = relationship("User", back_populates="activities")
     course = relationship("Course", back_populates="student_activities")
+    module = relationship("CourseModule", back_populates="student_activities")
     
     def __repr__(self):
         return f"<StudentActivity {self.activity_type} for {self.topic}>"
@@ -435,3 +440,117 @@ class CourseUploadQuota(Base):
     __table_args__ = (
         UniqueConstraint('course_id', 'usage_date', name='uix_course_date'),
     )
+
+
+class InClassActivity(Base):
+    """Teacher-created in-class activities"""
+    __tablename__ = "inclass_activities"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
+    module_id = Column(Integer, ForeignKey("course_modules.id"), nullable=True)
+    teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Activity details
+    activity_name = Column(String(255), nullable=False)
+    activity_type = Column(String(100), nullable=False)  # "peer_quiz", "concept_mapping", etc.
+    participation_type = Column(String(50), nullable=False)  # "individual", "group"
+    complexity = Column(String(50), nullable=False)  # "low", "moderate", "high"
+    
+    # Configuration
+    instructions = Column(Text, nullable=True)
+    duration_minutes = Column(Integer, default=15)
+    max_participants = Column(Integer, nullable=True)
+    is_active = Column(Boolean, default=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+    
+    # Relationships
+    course = relationship("Course", back_populates="inclass_activities")
+    module = relationship("CourseModule", back_populates="inclass_activities")
+    teacher = relationship("User")
+    participations = relationship("ActivityParticipation", back_populates="activity", cascade="all, delete-orphan")
+    groups = relationship("ActivityGroup", back_populates="activity", cascade="all, delete-orphan")
+
+class ActivityGroup(Base):
+    """Groups for group-based activities"""
+    __tablename__ = "activity_groups"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    activity_id = Column(Integer, ForeignKey("inclass_activities.id"), nullable=False)
+    group_name = Column(String(100), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    activity = relationship("InClassActivity", back_populates="groups")
+    participations = relationship("ActivityParticipation", back_populates="group")
+
+class ActivityParticipation(Base):
+    """Student participation in activities"""
+    __tablename__ = "activity_participations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    activity_id = Column(Integer, ForeignKey("inclass_activities.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    group_id = Column(Integer, ForeignKey("activity_groups.id"), nullable=True)
+    
+    # Submission data
+    submission_data = Column(JSON)  # Store quiz questions, concept maps, etc.
+    peer_feedback = Column(JSON)    # Store peer evaluations
+    ai_feedback = Column(JSON)      # Store AI analysis
+    
+    # Status
+    status = Column(String(50), default="active")  # active, submitted, completed
+    submitted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    activity = relationship("InClassActivity", back_populates="participations")
+    student = relationship("User")
+    group = relationship("ActivityGroup", back_populates="participations")
+
+
+class QuizAttempt(Base):
+    __tablename__ = "quiz_attempts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    activity_id = Column(Integer, ForeignKey("inclass_activities.id"))
+    creator_participation_id = Column(Integer, ForeignKey("activity_participations.id"))
+    solver_id = Column(Integer, ForeignKey("users.id"))
+    solver_group_id = Column(Integer, ForeignKey("activity_groups.id"), nullable=True)
+    
+    answers = Column(JSON)  # Store user's answers
+    score = Column(Float, default=0.0)
+    correct_count = Column(Integer, default=0)
+    total_questions = Column(Integer, default=0)
+    
+    completed_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    activity = relationship("InClassActivity", backref="quiz_attempts")
+    creator_participation = relationship("ActivityParticipation", foreign_keys=[creator_participation_id])
+    solver = relationship("User", backref="quiz_attempts_solved")
+    solver_group = relationship("ActivityGroup", backref="quiz_attempts")
+
+class QuizComment(Base):
+    __tablename__ = "quiz_comments"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    creator_participation_id = Column(Integer, ForeignKey("activity_participations.id"))
+    commenter_id = Column(Integer, ForeignKey("users.id"))
+    commenter_group_id = Column(Integer, ForeignKey("activity_groups.id"), nullable=True)
+    
+    comment_text = Column(Text, nullable=False)
+    comment_type = Column(String(50), default="general")  # general, question_specific, improvement
+    question_number = Column(Integer, nullable=True)  # For question-specific comments
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    creator_participation = relationship("ActivityParticipation", backref="quiz_comments")
+    commenter = relationship("User", backref="quiz_comments_made")
+    commenter_group = relationship("ActivityGroup", backref="quiz_comments")

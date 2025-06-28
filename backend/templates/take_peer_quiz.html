@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Take Quiz | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-4xl mx-auto p-6">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div class="flex justify-between items-start">
+        <div>
+          <h1 class="text-3xl font-bold text-blue-700 mb-2">📝 Take Quiz</h1>
+          <p class="text-gray-600">Created by: 
+            {% if quiz_creator.group %}
+              {{ quiz_creator.group.group_name }} ({{ quiz_creator.user.f_name }})
+            {% else %}
+              {{ quiz_creator.user.f_name }}
+            {% endif %}
+          </p>
+          {% if participation.group_id %}
+          <p class="text-sm text-purple-600">Your Group: {{ participation.group.group_name }}</p>
+          {% endif %}
+        </div>
+        <div class="text-right">
+          <div class="bg-blue-100 text-blue-800 px-3 py-2 rounded">
+            5 Questions
+          </div>
+          {% if existing_attempt %}
+          <div class="mt-2 bg-yellow-100 text-yellow-800 px-3 py-2 rounded text-sm">
+            Previous: {{ existing_attempt.score }}%
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Quiz Form -->
+    <form id="quiz-form" method="post" action="/ai/student/activities/{{ activity.id }}/quiz/{{ quiz_creator.id }}/submit" class="space-y-6">
+      {% for question in quiz_data %}
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold mb-4">Question {{ loop.index }}</h3>
+        <p class="text-gray-800 mb-4">{{ question.question }}</p>
+        
+        <div class="space-y-3">
+          {% for option_key, option_text in question.options.items() %}
+          <label class="flex items-start space-x-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
+            <input type="radio" name="question_{{ loop.index }}" value="{{ option_key }}" 
+                   class="mt-1 text-blue-600 focus:ring-blue-500"
+                   {% if existing_attempt and existing_attempt.answers.get('question_' + loop.index|string) == option_key %}checked{% endif %}>
+            <div class="flex-1">
+              <span class="font-medium">{{ option_key.upper() }})</span>
+              <span class="ml-2">{{ option_text }}</span>
+            </div>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+      
+      <input type="hidden" name="answers" id="answers-data">
+      
+      <!-- Submit Section -->
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <div class="flex justify-between items-center">
+          <div>
+            {% if existing_attempt %}
+            <p class="text-sm text-gray-600">You previously scored {{ existing_attempt.score }}% on this quiz.</p>
+            <p class="text-xs text-gray-500">Submitted: {{ existing_attempt.completed_at.strftime('%m/%d %H:%M') }}</p>
+            {% else %}
+            <p class="text-sm text-gray-600">Ready to submit your answers?</p>
+            {% endif %}
+          </div>
+          <button type="submit" onclick="prepareAnswerData()" 
+                  class="bg-green-600 text-white px-8 py-3 rounded-lg hover:bg-green-700 font-medium">
+            {% if existing_attempt %}Retake Quiz{% else %}Submit Answers{% endif %}
+          </button>
+        </div>
+      </div>
+    </form>
+
+    <!-- Progress Indicator -->
+    <div class="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg p-4 min-w-48">
+      <div class="text-sm font-medium mb-2">Progress</div>
+      <div class="text-2xl font-bold text-blue-600" id="progress-counter">0/5</div>
+      <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
+        <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" id="progress-bar" style="width: 0%"></div>
+      </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="mt-8 text-center">
+      <a href="/ai/student/activities/{{ activity.id }}/peer-quiz/solve" 
+         class="text-blue-600 hover:underline">← Back to Quiz List</a>
+    </div>
+  </div>
+
+<script>
+function prepareAnswerData() {
+  const answers = {};
+  
+  for (let i = 1; i <= 5; i++) {
+    const selectedOption = document.querySelector(`input[name="question_${i}"]:checked`);
+    if (selectedOption) {
+      answers[`question_${i}`] = selectedOption.value;
+    }
+  }
+  
+  document.getElementById('answers-data').value = JSON.stringify(answers);
+}
+
+// Progress tracking
+function updateProgress() {
+  let answered = 0;
+  for (let i = 1; i <= 5; i++) {
+    const selectedOption = document.querySelector(`input[name="question_${i}"]:checked`);
+    if (selectedOption) {
+      answered++;
+    }
+  }
+  
+  document.getElementById('progress-counter').textContent = `${answered}/5`;
+  document.getElementById('progress-bar').style.width = `${(answered / 5) * 100}%`;
+}
+
+// Add event listeners to all radio buttons
+document.addEventListener('DOMContentLoaded', function() {
+  const radioButtons = document.querySelectorAll('input[type="radio"]');
+  radioButtons.forEach(radio => {
+    radio.addEventListener('change', updateProgress);
+  });
+  
+  // Initial progress update
+  updateProgress();
+});
+
+// Form validation
+document.getElementById('quiz-form').addEventListener('submit', function(e) {
+  let allAnswered = true;
+  for (let i = 1; i <= 5; i++) {
+    const selectedOption = document.querySelector(`input[name="question_${i}"]:checked`);
+    if (!selectedOption) {
+      allAnswered = false;
+      break;
+    }
+  }
+  
+  if (!allAnswered) {
+    e.preventDefault();
+    alert('Please answer all questions before submitting.');
+    return false;
+  }
+  
+  prepareAnswerData();
+});

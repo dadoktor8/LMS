@@ -260,7 +260,7 @@ class StudyMaterials(BaseModel):
         return json.dumps({"error": "I encountered an unexpected error. Our team has been notified, and we're working to fix it."})'''
 
 
-def generate_study_material(query:str, material_type:str, course_id:int, student_id:str) -> str:
+def generate_study_material(query: str, material_type: str, course_id: int, student_id: str, module_id: Optional[int] = None) -> str:
     # --- Step 1: Validate inputs ---
     if not query or not query.strip():
         return json.dumps({"error": "Query cannot be empty."})
@@ -270,31 +270,26 @@ def generate_study_material(query:str, material_type:str, course_id:int, student
         return json.dumps({"error": "Student ID must be a non-empty string."})
     if material_type not in {"flashcards", "quiz", "study_guide"}:
         return json.dumps({"error": "Invalid material type."})
-
-    # --- Step 2: Load FAISS index and fetch context ---
+    
+    # --- Step 2: Get context using the enhanced retrieve_course_context function ---
     try:
-        faiss_vectorstore = load_faiss_vectorstore(
-            course_id=course_id,
-            openai_api_key=os.getenv("OPENAI_API_KEY"),  # Or None to auto-pickup
-            temp_dir="tmp"  # Or whatever temp location you want
-        )
-        retriever = faiss_vectorstore.as_retriever(search_kwargs={"k": 5})
-    except FileNotFoundError:
-        raise ValueError(f"FAISS index not found for course ID: {course_id}")
+        context_result = retrieve_course_context(course_id, query, module_id)
+        
+        # Check if we have an error (no content available)
+        if isinstance(context_result, dict) and "error" in context_result:
+            return json.dumps({"error": f"Content retrieval failed: {context_result['error']}"})
+        
+        context = context_result
+        if not context.strip():
+            return json.dumps({"error": "Insufficient context found for your query."})
+            
     except Exception as e:
-        raise ConnectionError(f"Error loading or downloading FAISS index: {str(e)}")
-
-    retrieved_docs = retriever.get_relevant_documents(query)
-    context = "\n\n".join([doc.page_content for doc in retrieved_docs])
-
-    if not context.strip():
-        return json.dumps({"error":"Insufficient context found for your query."})
-
+        return json.dumps({"error": f"Error retrieving course content: {str(e)}"})
+    
     # --- Step 3: Setup OpenAI Client ---
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return json.dumps({"error": "OpenAI API key missing in environment variables."})
-
     try:
         chat = ChatOpenAI(
             model="gpt-4.1-mini",  
@@ -303,136 +298,185 @@ def generate_study_material(query:str, material_type:str, course_id:int, student
         )
     except Exception as e:
         return json.dumps({"error": f"Could not setup OpenAI Client: {str(e)}"})
-
+    
     # --- Step 4: Fetch Prompt Template ---
     try:
-        prompt_template = get_prompt_for_material_type(material_type)
+        prompt_template = get_prompt_for_material_type(material_type, module_id)
         if not prompt_template:
             return json.dumps({"error": "Invalid or missing prompt template."})
     except Exception as e:
         return json.dumps({"error": f"Error fetching Prompt: {str(e)}"})
-
+    
     # --- Step 5: Generate Study Material ---
     try:
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=chat,
-            retriever=retriever,
-            chain_type_kwargs={"prompt": prompt_template, "verbose": False},
-            chain_type="stuff"
-        )
-
-        result = qa_chain({"query": query})
-        response = result.get("result", "").strip()
-
+        # Use direct LLM call with context instead of retrieval chain
+        formatted_prompt = prompt_template.format(context=context, question=query)
+        response = chat.predict(formatted_prompt).strip()
+        
         if not response:
             return json.dumps({"error": "No response from LLM. Please retry with a different or more specific query."})
-
     except TimeoutError:
         return json.dumps({"error": "OpenAI response timed out. Retry with simpler or shorter query."})
     except Exception as e:
         return json.dumps({"error": f"LLM generation failed: {str(e)}"})
-
+    
     # --- Step 6: Robust JSON Parsing ---
     try:
         # Extract JSON based on type (flashcards are [], others {})
-        start_char, end_char = ("[", "]") if material_type=="flashcards" else ("{","}")
+        start_char, end_char = ("[", "]") if material_type == "flashcards" else ("{", "}")
         json_start = response.find(start_char)
         json_end = response.rfind(end_char) + 1
-
-        if json_start==-1 or json_end==-1:
+        if json_start == -1 or json_end == -1:
             raise ValueError("Invalid/malformed JSON from LLM response.")
-
         json_content = response[json_start:json_end]
-
         # Validate JSON parsing
         parsed_json = json.loads(json_content)
-
         return json.dumps(parsed_json, indent=2)
-
     except (json.JSONDecodeError, ValueError) as e:
         return json.dumps({
             "error": f"Generated material isn't parsable JSON: {str(e)}",
             "raw_response": response
         })
-
     finally:
         log_generation_event(student_id, course_id, material_type, query)
 
-def get_prompt_for_material_type(material_type: str) -> PromptTemplate:
-    """Returns the appropriate prompt template based on material type"""
+def get_prompt_for_material_type(material_type: str, module_id: Optional[int] = None):
+    """Get the appropriate prompt template based on material type and context."""
     
-    if material_type == "flashcards":
-        return PromptTemplate(
-            input_variables=["context", "question"],
-            template="""
-            You are creating flashcards for a student on a specific topic using their course materials.
+    if material_type == "study_guide":
+        if module_id:
+            template_text = """
+            You are an expert educational content creator. Create a comprehensive study guide based on the specific module content.
             
-            Based on the course materials below, create 10 flashcards on the topic: {question}
+            The study guide should be well-structured, informative, and easy to follow.
             
-            Each flashcard should have:
-            1. A clear, concise question
-            2. A comprehensive but brief answer
-            3. 1-3 relevant tags or categories
-            
-            Format your output as a JSON array of flashcard objects with the following structure:
-            [
-              {{
-                "question": "Question text here",
-                "answer": "Answer text here",
-                "tags": ["tag1", "tag2"]
-              }},
-              ...more flashcards...
-            ]
-            
-            Course Materials:
+            Course Content:
             {context}
             
             Topic: {question}
             
-            Flashcards (JSON format):
-            """
-        )
-    else:  # study_guide
-        return PromptTemplate(
-        input_variables=["context", "question"],
-        template="""
-            You are Lumi, a warm, caring AI tutor creating a study guide for students using provided course materials.
-
-            Your task is to:
-            - Extract only relevant points from the context.
-            - Create a *concise*, *structured*, and *easy-to-read* JSON-based study guide.
-            - Focus on clarity and educational value.
-
-            💡 Format your response strictly as a JSON object like this:
-
+            Create a study guide in the following JSON format:
             {{
-            "title": "Study Guide Title",
-            "sections": [
-                {{
-                "heading": "Section Heading",
-                "points": [
-                    "Concise key point 1",
-                    "Concise key point 2",
-                    "Use examples if relevant",
-                    "Avoid long paragraphs"
-                ]
-                }},
-                ...more sections...
-            ],
-            "summary": "1-2 sentence recap of the most important takeaways"
+                "title": "Study Guide: [Topic Name]",
+                "sections": [
+                    {{
+                        "heading": "Section Title",
+                        "points": ["Key point 1", "Key point 2", "Key point 3"]
+                    }}
+                ],
+                "summary": "Brief summary of the key takeaways"
             }}
-
-            Only use relevant information from the provided course materials. Do not make up facts.
-
-            📘 Course Materials:
-            {context}
-
-            📍 Topic: {question}
-
-            Now, generate the study guide JSON:
+            
+            Make sure to:
+            1. Include 4-6 main sections
+            2. Each section should have 3-5 key points
+            3. Focus on the most important concepts
+            4. Use clear, student-friendly language
+            5. Include practical examples where relevant
+            6. Provide a concise summary at the end
+            
+            Return only the JSON object, no additional text.
             """
-                )
-
+        else:
+            template_text = """
+            You are an expert educational content creator. Create a comprehensive study guide based on the course materials.
+            
+            The study guide should be well-structured, informative, and easy to follow.
+            
+            Course Content:
+            {context}
+            
+            Topic: {question}
+            
+            Create a study guide in the following JSON format:
+            {{
+                "title": "Study Guide: [Topic Name]",
+                "sections": [
+                    {{
+                        "heading": "Section Title",
+                        "points": ["Key point 1", "Key point 2", "Key point 3"]
+                    }}
+                ],
+                "summary": "Brief summary of the key takeaways"
+            }}
+            
+            Make sure to:
+            1. Include 4-6 main sections
+            2. Each section should have 3-5 key points
+            3. Focus on the most important concepts
+            4. Use clear, student-friendly language
+            5. Include practical examples where relevant
+            6. Provide a concise summary at the end
+            
+            Return only the JSON object, no additional text.
+            """
+        
+        return PromptTemplate(
+            input_variables=["context", "question"],
+            template=template_text
+        )
+        
+    elif material_type == "flashcards":
+        if module_id:
+            template_text = """
+            You are an expert educational content creator. Create flashcards based on the specific module content.
+            
+            Course Content:
+            {context}
+            
+            Topic: {question}
+            
+            Create flashcards in the following JSON format:
+            [
+                {{
+                    "front": "Question or term",
+                    "back": "Answer or definition"
+                }}
+            ]
+            
+            Make sure to:
+            1. Create 8-12 flashcards
+            2. Cover key concepts, definitions, and important facts
+            3. Use clear, concise language
+            4. Include both factual and conceptual questions
+            5. Make questions specific and answerable
+            
+            Return only the JSON array, no additional text.
+            """
+        else:
+            template_text = """
+            You are an expert educational content creator. Create flashcards based on the course materials.
+            
+            Course Content:
+            {context}
+            
+            Topic: {question}
+            
+            Create flashcards in the following JSON format:
+            [
+                {{
+                    "front": "Question or term",
+                    "back": "Answer or definition"
+                }}
+            ]
+            
+            Make sure to:
+            1. Create 8-12 flashcards
+            2. Cover key concepts, definitions, and important facts
+            3. Use clear, concise language
+            4. Include both factual and conceptual questions
+            5. Make questions specific and answerable
+            
+            Return only the JSON array, no additional text.
+            """
+            
+        return PromptTemplate(
+            input_variables=["context", "question"],
+            template=template_text
+        )
+    else:
+        # Default case or other material types
+        return None
 
 def log_generation_event(student_id: str, course_id: int, material_type: str, query: str):
     """Log the generation of study materials"""
@@ -443,21 +487,35 @@ def log_generation_event(student_id: str, course_id: int, material_type: str, qu
         print(f"Error logging generation event: {e}")
 
 def render_flashcards_htmx(materials_json):
-    """Render responsive, square, Tailwind-styled flashcards (not stuck in a narrow div)."""
+    """Render responsive, square, Tailwind-styled flashcards with error handling."""
     try:
         materials = json.loads(materials_json)
+        
+        # Handle error cases
+        if "error" in materials:
+            return f'''
+            <div class="text-center py-8">
+                <div class="text-red-600 font-semibold mb-2">⚠️ Error</div>
+                <p class="text-gray-700">{materials["error"]}</p>
+            </div>
+            '''
+        
         html = '''
         <div class="w-full mx-auto px-2 py-6">
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-12 place-items-center">
         '''
         for i, card in enumerate(materials):
+            # Handle both old format (question/answer) and new format (front/back)
+            front_text = card.get("front", card.get("question", "No question"))
+            back_text = card.get("back", card.get("answer", "No answer"))
+            
             html += f'''
             <div class="perspective w-[23rem] h-[23rem] max-w-full" id="card-{i}">
                 <div class="flashcard-inner w-full h-full" id="inner-{i}">
                     <!-- Front -->
                     <div class="flashcard-front absolute inset-0 bg-white border-2 border-blue-300 shadow-xl rounded-2xl flex flex-col h-full w-full justify-between items-center p-8 [backface-visibility:hidden]">
                         <div class="w-full flex-1 flex flex-col justify-center items-center">
-                            <h3 class="text-2xl font-bold text-blue-800 text-center break-words">{card["question"]}</h3>
+                            <h3 class="text-2xl font-bold text-blue-800 text-center break-words">{front_text}</h3>
                         </div>
                         <div class="w-full flex justify-center mt-4">
                             <button type="button"
@@ -470,7 +528,7 @@ def render_flashcards_htmx(materials_json):
                     <!-- Back -->
                     <div class="flashcard-back absolute inset-0 bg-blue-50 border-2 border-blue-300 shadow-xl rounded-2xl flex flex-col h-full w-full justify-between items-center p-8 [backface-visibility:hidden]" style="transform: rotateY(180deg);">
                         <div class="w-full flex-1 flex flex-col justify-center items-center">
-                            <div class="text-xl font-semibold text-green-800 text-center break-words">{card["answer"]}</div>
+                            <div class="text-xl font-semibold text-green-800 text-center break-words">{back_text}</div>
                             <div class="mt-6 flex flex-wrap justify-center gap-2">
                                 {''.join([f'<span class="inline-block bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium">{tag}</span>' for tag in card.get("tags", [])])}
                             </div>
@@ -820,6 +878,16 @@ def render_study_guide_htmx(materials_json):
     """Render study guide HTML (Tailwind-friendly) ready for drop-in into your studyguide.html template."""
     try:
         materials = json.loads(materials_json)
+        
+        # Handle error cases
+        if "error" in materials:
+            return f'''
+            <div class="text-center py-8">
+                <div class="text-red-600 font-semibold mb-2">⚠️ Error</div>
+                <p class="text-gray-700">{materials["error"]}</p>
+            </div>
+            '''
+        
         html = f'''
         <div>
             <h2 class="text-2xl font-bold text-blue-800 mb-6">{materials["title"]}</h2>

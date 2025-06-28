@@ -1,4 +1,5 @@
 # backend/ai/ai_routes.py
+import asyncio
 import html
 import json
 import logging
@@ -10,19 +11,21 @@ from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Dep
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 import pandas as pd
 from pydantic import BaseModel
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, func, text
 from sqlalchemy.orm import Session
 import shutil
 import os
 from datetime import date, datetime, time, timedelta
 
 import urllib
+
+from urllib3 import request
 from backend.ai.ai_grader import evaluate_assignment_text, prepare_rubric_for_ai
 from backend.ai.aws_ai import S3_BUCKET_NAME, delete_file_from_s3, generate_presigned_url, generate_s3_download_link, get_s3_client, upload_file_to_s3
-from backend.ai.open_notes_system import check_quiz_quota, generate_quiz_export, generate_study_material, generate_study_material_quiz, increment_quiz_quota, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx
+from backend.ai.open_notes_system import check_quiz_quota, generate_quiz_export, generate_study_material, generate_study_material_quiz, increment_quiz_quota, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx, retrieve_course_context
 from backend.auth.routes import require_role
 from backend.db.database import engine,get_db
-from backend.db.models import Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, CourseModule, CourseSubmodule, CourseUploadQuota, Enrollment, FlashcardUsage, PDFQuotaUsage, ProcessedMaterial,Quiz, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity, StudyGuideUsage, TextChunk  # Make sure this is correct
+from backend.db.models import ActivityGroup, ActivityParticipation, Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, CourseModule, CourseSubmodule, CourseUploadQuota, Enrollment, FlashcardUsage, InClassActivity, PDFQuotaUsage, ProcessedMaterial,Quiz, QuizAttempt, QuizComment, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity, StudyGuideUsage, TextChunk, User  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
@@ -1286,39 +1289,31 @@ async def download_material(course_id: int, material_id: int, db: Session = Depe
 async def ask_tutor(
     query: str = Form(...),
     course_id: int = Form(...),
+    module_id: Optional[int] = Form(None),  # Optional module filter
     db: Session = Depends(get_db),
     user: dict = Depends(require_role("student"))
 ):
     try:
         student_id = str(user["user_id"])
         session_id = f"{student_id}_{course_id}"
-        print(f"User ID: {user['user_id']}, Course ID: {course_id}")
+        print(f"User ID: {user['user_id']}, Course ID: {course_id}, Module ID: {module_id}")
         current_time = datetime.now()
         print(f"Current server time: {current_time}")
+        
         # Check daily message limit PER COURSE (100 messages per day per course)
         today = current_time.date()
         today_start = datetime.combine(today, time.min)
         today_end = datetime.combine(today, time.max)
         print(f"Date range: {today_start} to {today_end}")
 
-        all_messages = db.query(ChatHistory).filter(
-            ChatHistory.user_id == user["user_id"],
-            ChatHistory.course_id == course_id,
-            ChatHistory.sender == "student"
-        ).all()
-        
-        print(f"Total messages ever sent in this course: {len(all_messages)}")
-        if all_messages:
-            print(f"First message timestamp: {all_messages[0].timestamp}")
-            print(f"Last message timestamp: {all_messages[-1].timestamp}")
-
         message_count = db.query(ChatHistory).filter(
             ChatHistory.user_id == user["user_id"],
-            ChatHistory.course_id == course_id,  # Added course_id filter to restrict count to current course
+            ChatHistory.course_id == course_id,
             ChatHistory.sender == "student",
             ChatHistory.timestamp >= today_start,
             ChatHistory.timestamp <= today_end
         ).count()
+        
         print(f"Current message count: {message_count} for course {course_id}")
         if message_count >= 100:
             return HTMLResponse(
@@ -1330,23 +1325,24 @@ async def ask_tutor(
                     document.body.dispatchEvent(new CustomEvent('ai-response-complete'));
                 </script>
                 """,
-                status_code=429,  # Too Many Requests
+                status_code=429,
                 headers={"HX-Trigger": "ai-response-complete"}
             )
         
-        # Ensure materials exist
-        course_materials = db.query(CourseMaterial).filter_by(course_id=course_id).all()
-        if not course_materials:
-            raise HTTPException(status_code=404, detail="No course materials found")
-            
-        processed_materials = db.query(ProcessedMaterial).filter_by(course_id=course_id).all()
-        if not processed_materials:
-            raise HTTPException(status_code=404, detail="Course materials haven't been processed yet")
-            
-        faiss_index_dir = f"faiss_index_{course_id}"
-        if not os.path.exists(faiss_index_dir):
-            raise HTTPException(status_code=404, detail="FAISS index not found")
-
+        # Check if course exists
+        course = db.query(Course).filter_by(id=course_id).first()
+        if not course:
+            raise HTTPException(status_code=404, detail="Course not found")
+        
+        # Validate module_id if provided (ensure it's published and belongs to the course)
+        if module_id:
+            module = db.query(CourseModule).filter_by(
+                id=module_id, 
+                course_id=course_id, 
+                is_published=True
+            ).first()
+            if not module:
+                raise HTTPException(status_code=400, detail="Invalid or unpublished module selected")
             
         # Save student message to DB
         student_message = ChatHistory(
@@ -1354,13 +1350,13 @@ async def ask_tutor(
             course_id=course_id, 
             sender="student", 
             message=query,
-            timestamp=current_time  # Explicitly set the current time
+            timestamp=current_time
         )
         db.add(student_message)
         db.commit()
         
-        # Get answer using LangChain RAG
-        answer = get_answer_from_rag_langchain_openai(query, course_id, student_id)
+        # Get answer using enhanced RAG system
+        answer = get_answer_from_rag_langchain_openai(query, course_id, student_id, module_id)
         
         # Save AI response to DB
         ai_message = ChatHistory(
@@ -1368,7 +1364,7 @@ async def ask_tutor(
             course_id=course_id, 
             sender="ai", 
             message=answer,
-            timestamp=datetime.now()  # Use fresh timestamp
+            timestamp=datetime.now()
         )
         db.add(ai_message)
         db.commit()
@@ -1392,7 +1388,6 @@ async def ask_tutor(
                 💡 {answer}
             </div>
             <script>
-                // Dispatch a custom event to signal that the AI response is complete
                 document.body.dispatchEvent(new CustomEvent('ai-response-complete'));
             </script>
             """, 
@@ -1435,7 +1430,15 @@ async def show_student_tutor(
     user=Depends(require_role("student"))
 ):
     course = db.query(Course).filter(Course.id == course_id).first()
-    materials = db.query(CourseMaterial).filter_by(course_id=course_id).order_by(CourseMaterial.uploaded_at.desc()).all()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    
+    # Get only published course modules for selection dropdown
+    modules = db.query(CourseModule).filter_by(
+        course_id=course_id, 
+        is_published=True
+    ).order_by(CourseModule.order_index).all()
+    
     messages = db.query(ChatHistory).filter_by(user_id=user["user_id"], course_id=course_id).order_by(ChatHistory.timestamp).all()
     enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
     courses = [enroll.course for enroll in enrollments]
@@ -1447,7 +1450,7 @@ async def show_student_tutor(
     
     message_count = db.query(ChatHistory).filter(
         ChatHistory.user_id == user["user_id"],
-        ChatHistory.course_id == course_id,  # Added course_id filter to count messages per course
+        ChatHistory.course_id == course_id,
         ChatHistory.sender == "student",
         ChatHistory.timestamp >= today_start,
         ChatHistory.timestamp <= today_end
@@ -1457,11 +1460,12 @@ async def show_student_tutor(
 
     print(f"{remaining_messages} to get!")
     print("COURSE ID:", course_id)
+    
     return templates.TemplateResponse("student_ai_tutor.html", {
         "request": request,
         "course": course,
         "course_id": course_id,
-        "materials": materials,
+        "modules": modules,  # Pass modules instead of materials
         "messages": messages,
         "courses": courses,
         "remaining_messages": remaining_messages
@@ -1642,6 +1646,7 @@ async def flashcards_page(
     request: Request,
     course_id: int = Query(...),
     topic: Optional[str] = Query(None),
+    module_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     user=Depends(require_role("student"))
 ):
@@ -1649,13 +1654,21 @@ async def flashcards_page(
     study_material_html = render_flashcards_htmx(materials_json) if materials_json else ""
     enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
     courses = [enroll.course for enroll in enrollments]
-   
+    
+    # Get only published modules for the course
+    modules = db.query(CourseModule).filter_by(
+        course_id=course_id, 
+        is_published=True
+    ).order_by(CourseModule.order_index).all()
+    
     return templates.TemplateResponse(
         "flashcards.html",
         {
             "request": request,
             "course_id": course_id,
             "topic": topic,
+            "module_id": module_id,
+            "modules": modules,
             "study_material_html": study_material_html,
             "student_id": request.session.get("student_id", ""),
             "courses": courses
@@ -1689,6 +1702,7 @@ async def study_guide_page(
     request: Request,
     course_id: int = Query(...),
     topic: Optional[str] = Query(None),
+    module_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     user=Depends(require_role("student"))
 ):
@@ -1697,15 +1711,23 @@ async def study_guide_page(
     enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
     courses = [enroll.course for enroll in enrollments]
     
+    # Get only published modules for the course
+    modules = db.query(CourseModule).filter_by(
+        course_id=course_id, 
+        is_published=True
+    ).order_by(CourseModule.order_index).all()
+    
     return templates.TemplateResponse(
         "study_guide.html",
         {
             "request": request,
             "course_id": course_id,
             "topic": topic,
+            "module_id": module_id,
+            "modules": modules,
             "study_material_html": study_material_html,
             "student_id": request.session.get("student_id", ""),
-            "courses":courses
+            "courses": courses
         }
     )
 
@@ -1716,9 +1738,41 @@ async def generate_flashcards(
     topic: str = Form(...),
     course_id: int = Form(...),
     student_id: str = Form(...),
+    module_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     user=Depends(require_role("student"))
 ):
+    # Validate module_id if provided (ensure it's published and belongs to the course)
+    if module_id:
+        module = db.query(CourseModule).filter_by(
+            id=module_id, 
+            course_id=course_id, 
+            is_published=True
+        ).first()
+        if not module:
+            # Return error for invalid module
+            enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+            courses = [enroll.course for enroll in enrollments]
+            modules = db.query(CourseModule).filter_by(
+                course_id=course_id, 
+                is_published=True
+            ).order_by(CourseModule.order_index).all()
+            
+            return templates.TemplateResponse(
+                "flashcards.html",
+                {
+                    "request": request,
+                    "course_id": course_id,
+                    "topic": topic,
+                    "module_id": module_id,
+                    "modules": modules,
+                    "study_material_html": "",
+                    "student_id": student_id,
+                    "courses": courses,
+                    "error_message": "Invalid or unpublished module selected."
+                }
+            )
+    
     # Check today's usage for this student and course
     today = date.today()
     usage = db.query(FlashcardUsage).filter(
@@ -1735,6 +1789,10 @@ async def generate_flashcards(
         # Return the page with an error message
         enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
         courses = [enroll.course for enroll in enrollments]
+        modules = db.query(CourseModule).filter_by(
+            course_id=course_id, 
+            is_published=True
+        ).order_by(CourseModule.order_index).all()
         
         return templates.TemplateResponse(
             "flashcards.html",
@@ -1742,6 +1800,8 @@ async def generate_flashcards(
                 "request": request,
                 "course_id": course_id,
                 "topic": topic,
+                "module_id": module_id,
+                "modules": modules,
                 "study_material_html": "",
                 "student_id": student_id,
                 "courses": courses,
@@ -1764,21 +1824,27 @@ async def generate_flashcards(
     # Commit changes to the database
     db.commit()
     
-    # Generate the flashcards
-    materials_json = generate_study_material(topic, "flashcards", course_id, student_id)
+    # Generate the flashcards with optional module focus
+    materials_json = generate_study_material(topic, "flashcards", course_id, student_id, module_id)
     request.session["flashcards_materials"] = materials_json
     study_material_html = render_flashcards_htmx(materials_json)
     
     # Get courses for the sidebar
     enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
     courses = [enroll.course for enroll in enrollments]
-   
+    modules = db.query(CourseModule).filter_by(
+        course_id=course_id, 
+        is_published=True
+    ).order_by(CourseModule.order_index).all()
+    
     return templates.TemplateResponse(
         "flashcards.html",
         {
             "request": request,
             "course_id": course_id,
             "topic": topic,
+            "module_id": module_id,
+            "modules": modules,
             "study_material_html": study_material_html,
             "student_id": student_id,
             "courses": courses,
@@ -1812,9 +1878,41 @@ async def generate_study_guide(
     topic: str = Form(...),
     course_id: int = Form(...),
     student_id: str = Form(...),
+    module_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     user=Depends(require_role("student"))
 ):
+    # Validate module_id if provided (ensure it's published and belongs to the course)
+    if module_id:
+        module = db.query(CourseModule).filter_by(
+            id=module_id, 
+            course_id=course_id, 
+            is_published=True
+        ).first()
+        if not module:
+            # Return error for invalid module
+            enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
+            courses = [enroll.course for enroll in enrollments]
+            modules = db.query(CourseModule).filter_by(
+                course_id=course_id, 
+                is_published=True
+            ).order_by(CourseModule.order_index).all()
+            
+            return templates.TemplateResponse(
+                "study_guide.html",
+                {
+                    "request": request,
+                    "course_id": course_id,
+                    "topic": topic,
+                    "module_id": module_id,
+                    "modules": modules,
+                    "study_material_html": "",
+                    "student_id": student_id,
+                    "courses": courses,
+                    "error_message": "Invalid or unpublished module selected."
+                }
+            )
+    
     today = date.today()
     usage = db.query(StudyGuideUsage).filter(
         StudyGuideUsage.student_id == student_id,
@@ -1828,6 +1926,10 @@ async def generate_study_guide(
         # Return the page with an error message
         enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
         courses = [enroll.course for enroll in enrollments]
+        modules = db.query(CourseModule).filter_by(
+            course_id=course_id, 
+            is_published=True
+        ).order_by(CourseModule.order_index).all()
         
         return templates.TemplateResponse(
             "study_guide.html",
@@ -1835,6 +1937,8 @@ async def generate_study_guide(
                 "request": request,
                 "course_id": course_id,
                 "topic": topic,
+                "module_id": module_id,
+                "modules": modules,
                 "study_material_html": "",
                 "student_id": student_id,
                 "courses": courses,
@@ -1856,12 +1960,17 @@ async def generate_study_guide(
     # Commit changes to the database
     db.commit()
     print(f"Study guides remaining {usage and usage.count}")
-    materials_json = generate_study_material(topic, "study_guide", course_id, student_id)
+    
+    # Generate study material with optional module focus
+    materials_json = generate_study_material(topic, "study_guide", course_id, student_id, module_id)
     request.session["study_guide_materials"] = materials_json
     study_material_html = render_study_guide_htmx(materials_json)
-
     enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
     courses = [enroll.course for enroll in enrollments]
+    modules = db.query(CourseModule).filter_by(
+        course_id=course_id, 
+        is_published=True
+    ).order_by(CourseModule.order_index).all()
     
     return templates.TemplateResponse(
         "study_guide.html",
@@ -1869,12 +1978,13 @@ async def generate_study_guide(
             "request": request,
             "course_id": course_id,
             "topic": topic,
+            "module_id": module_id,
+            "modules": modules,
             "study_material_html": study_material_html,
             "student_id": student_id,
             "courses": courses,
         }
     )
-
 # Modified route handlers to support rubrics
 
 @ai_router.get("/courses/{course_id}/create-assignment", response_class=HTMLResponse)
@@ -3034,14 +3144,23 @@ async def student_engagement_activities(
     ).first()
     if not enrollment:
         raise HTTPException(status_code=403, detail="You are not enrolled in this course")
+    
     course = db.query(Course).filter_by(id=course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
+    
     student_activities = db.query(StudentActivity).filter_by(
         student_id=user["user_id"], course_id=course_id
     ).order_by(StudentActivity.created_at.desc()).all()
+    
     enrollments = db.query(Enrollment).filter_by(student_id=user["user_id"], is_accepted=True).all()
     courses = [enroll.course for enroll in enrollments]
+    
+    # Get only published modules for the course
+    modules = db.query(CourseModule).filter_by(
+        course_id=course_id, 
+        is_published=True
+    ).order_by(CourseModule.order_index).all()
     
     # Calculate how many activities were done today
     today = datetime.utcnow().date()
@@ -3052,12 +3171,28 @@ async def student_engagement_activities(
         "request": request,
         "course": course,
         "courses": courses,
+        "modules": modules,
         "student_activities": student_activities,
         "activities_today": activities_today,
         "daily_limit": 5,
         "daily_limit_reached": daily_limit_reached
     })
 
+# Enhanced helper function to get context with module support
+def get_engagement_context(course_id: int, query: str, module_id: Optional[int] = None) -> str:
+    """Get context for engagement activities with optional module focus."""
+    try:
+        context_result = retrieve_course_context(course_id, query, module_id)
+        
+        # Check if we have an error (no content available)
+        if isinstance(context_result, dict) and "error" in context_result:
+            # Return empty context if no specific content found
+            return ""
+        
+        return context_result if isinstance(context_result, str) else ""
+    except Exception as e:
+        print(f"Error retrieving engagement context: {e}")
+        return ""
 # Helper function to check daily activity limit
 def check_daily_activity_limit(db: Session, student_id: int, course_id: int):
     today = datetime.utcnow().date()
@@ -3081,6 +3216,7 @@ async def process_muddiest_point(
     course_id: int,
     topic: str = Form(...),
     confusion: str = Form(...),
+    module_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     user: dict = Depends(require_role("student"))
 ):
@@ -3090,28 +3226,43 @@ async def process_muddiest_point(
     if not enrollment:
         return JSONResponse(content={"error": "You are not enrolled in this course"}, status_code=403)
     
+    # Validate module_id if provided
+    if module_id:
+        module = db.query(CourseModule).filter_by(
+            id=module_id, 
+            course_id=course_id, 
+            is_published=True
+        ).first()
+        if not module:
+            return JSONResponse(content={"error": "Invalid or unpublished module selected"}, status_code=400)
+    
     # Check daily activity limit
     activities_today, limit_reached = check_daily_activity_limit(db, user["user_id"], course_id)
     if limit_reached:
         return JSONResponse(
             content={"error": f"Daily limit of 5 engagement activities per course reached. Please try again tomorrow."},
-            status_code=429  # Too Many Requests
+            status_code=429
         )
     
     query = f"Topic: {topic}. Confusion: {confusion}"
     try:
-        retriever = get_course_retriever(course_id)
-        context = get_context_for_query(retriever, query)
+        # Get context with optional module focus
+        context = get_engagement_context(course_id, query, module_id)
         chat = get_openai_client()
         
+        # Determine context scope for prompt
+        context_scope = "the specific module content" if module_id else "the course materials"
+        context_note = f" (focusing on module content)" if module_id else " (using all available course content)"
+        
         system_prompt = f"""
-You are an educational AI tutor analyzing a student's confusion about a topic. Use the provided course materials to:
+You are an educational AI tutor analyzing a student's confusion about a topic. Use the provided {context_scope} to:
 1. Identify the core confusion areas
 2. Suggest specific review topics that would help clarify understanding
 3. Provide a list of key resources or concepts to focus on
-Base your analysis ONLY on the context provided.
+Base your analysis ONLY on the context provided{context_note}.
 CONTEXT FROM COURSE MATERIALS: {context}
         """
+        
         user_message = f"""
 Topic: {topic}
 Student's confusion: {confusion}
@@ -3120,24 +3271,19 @@ Return your response as valid JSON with the following structure:
 {{ "summary": "...", "confusion_areas": [ ... ], "review_topics": [ ... ], "resources": [ ... ] }}
         """
 
-        # Modern Langchain/OpenAI expects a message list for chat models
         response = chat.invoke([
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
         ])
         
-        # response.content if using Langchain's OpenAI chat model (extract string)
-        if hasattr(response, "content"):
-            ai_text = response.content
-        else:
-            ai_text = response  # fallback
+        ai_text = getattr(response, "content", response)
         
         try:
             ai_response = json.loads(ai_text)
         except Exception as e:
             return JSONResponse(content={"error": "Failed to parse AI response: " + str(e)}, status_code=500)
 
-        # Save activity
+        # Save activity with module information
         new_activity = StudentActivity(
             student_id=user["user_id"],
             course_id=course_id,
@@ -3145,17 +3291,18 @@ Return your response as valid JSON with the following structure:
             topic=topic,
             user_input=confusion,
             ai_response=json.dumps(ai_response),
+            module_id=module_id,  # Store module reference
             created_at=datetime.utcnow()
         )
         db.add(new_activity)
         db.commit()
 
-        # Render response using your template/component
         return templates.TemplateResponse("muddiest_point_response.html", {
             "request": request,
             "ai_response": ai_response,
             "activities_today": activities_today + 1,
-            "daily_limit": 5
+            "daily_limit": 5,
+            "module_id": module_id
         })
     except HTTPException as e:
         return JSONResponse(content={"error": e.detail}, status_code=e.status_code)
@@ -3163,13 +3310,14 @@ Return your response as valid JSON with the following structure:
         print(traceback.format_exc())
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
-# Misconception Check endpoint
+# Misconception Check endpoint with module support
 @ai_router.post("/student/courses/{course_id}/misconception-check", response_class=HTMLResponse)
 async def process_misconception_check(
     request: Request,
     course_id: int,
     topic: str = Form(...),
     beliefs: str = Form(...),
+    module_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     user: dict = Depends(require_role("student"))
 ):
@@ -3179,29 +3327,44 @@ async def process_misconception_check(
     if not enrollment:
         return JSONResponse(content={"error": "You are not enrolled in this course"}, status_code=403)
     
+    # Validate module_id if provided
+    if module_id:
+        module = db.query(CourseModule).filter_by(
+            id=module_id, 
+            course_id=course_id, 
+            is_published=True
+        ).first()
+        if not module:
+            return JSONResponse(content={"error": "Invalid or unpublished module selected"}, status_code=400)
+    
     # Check daily activity limit
     activities_today, limit_reached = check_daily_activity_limit(db, user["user_id"], course_id)
     if limit_reached:
         return JSONResponse(
             content={"error": f"Daily limit of 5 engagement activities per course reached. Please try again tomorrow."},
-            status_code=429  # Too Many Requests
+            status_code=429
         )
     
     query = f"Topic: {topic}. Student beliefs: {beliefs}"
     try:
-        retriever = get_course_retriever(course_id)
-        context = get_context_for_query(retriever, query)
+        # Get context with optional module focus
+        context = get_engagement_context(course_id, query, module_id)
         chat = get_openai_client()
 
+        # Determine context scope for prompt
+        context_scope = "the specific module content" if module_id else "the course materials"
+        context_note = f" (focusing on module content)" if module_id else " (using all available course content)"
+
         system_prompt = f"""
-You are an educational AI tutor analyzing a student's beliefs or understanding about a topic. Use the provided course materials to:
+You are an educational AI tutor analyzing a student's beliefs or understanding about a topic. Use the provided {context_scope} to:
 1. Compare the student's stated beliefs with accurate information
 2. Identify any misconceptions
 3. Provide helpful corrections and explanations
 4. Suggest resources for further learning
-Base your analysis ONLY on the context provided.
+Base your analysis ONLY on the context provided{context_note}.
 CONTEXT FROM COURSE MATERIALS: {context}
         """
+        
         user_message = f"""
 Topic: {topic}
 Student's beliefs: {beliefs}
@@ -3210,13 +3373,13 @@ Return your response as valid JSON with the following structure:
 {{ "summary": "...", "beliefs": [{{ "statement": "...", "is_accurate": true/false, "explanation": "..." }}], "resources": [ ... ] }}
         """
 
-        # UPDATED: Use .invoke with a message list!
         response = chat.invoke([
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message}
         ])
-        # For langchain.chat_models.base.BaseChatModel, .content contains the response text.
+        
         ai_text = getattr(response, "content", response)
+        
         try:
             ai_response = json.loads(ai_text)
         except Exception as e:
@@ -3224,6 +3387,8 @@ Return your response as valid JSON with the following structure:
                 content={"error": f"Failed to parse AI response: {e}\nRaw response: {ai_text}"},
                 status_code=500
             )
+            
+        # Save activity with module information
         new_activity = StudentActivity(
             student_id=user["user_id"],
             course_id=course_id,
@@ -3231,15 +3396,18 @@ Return your response as valid JSON with the following structure:
             topic=topic,
             user_input=beliefs,
             ai_response=json.dumps(ai_response),
+            module_id=module_id,  # Store module reference
             created_at=datetime.utcnow()
         )
         db.add(new_activity)
         db.commit()
+        
         return templates.TemplateResponse("misconception_response.html", {
             "request": request,
             "ai_response": ai_response,
             "activities_today": activities_today + 1,
-            "daily_limit": 5
+            "daily_limit": 5,
+            "module_id": module_id
         })
     except HTTPException as e:
         return JSONResponse(content={"error": e.detail}, status_code=e.status_code)
@@ -3280,4 +3448,1341 @@ async def view_activity_detail(
         "request": request,
         "activity": activity,
         "ai_response_html": ai_response_html
+    })
+
+def expire_activity_if_due(activity, db):
+    if activity.is_active and activity.started_at:
+        now = datetime.utcnow()
+        expected_end = activity.started_at + timedelta(minutes=activity.duration_minutes or 0)
+        if now >= expected_end:
+            activity.is_active = False
+            activity.ended_at = expected_end
+            db.commit()
+
+@ai_router.get("/teacher/courses/{course_id}/inclass-activities", response_class=HTMLResponse)
+async def teacher_inclass_activities(
+    request: Request,
+    course_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    course = db.query(Course).filter_by(id=course_id, teacher_id=user["user_id"]).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    
+    # Get course modules for selection
+    modules = db.query(CourseModule).filter_by(course_id=course_id, is_active=True).order_by(CourseModule.order_index).all()
+    
+    # Get existing activities
+    activities = db.query(InClassActivity).filter_by(course_id=course_id).order_by(InClassActivity.created_at.desc()).all()
+    for act in activities:
+        expire_activity_if_due(act, db)
+    
+    return templates.TemplateResponse("teacher_inclass_activities.html", {
+        "request": request,
+        "course": course,
+        "modules": modules,
+        "activities": activities
+    })
+
+@ai_router.post("/teacher/courses/{course_id}/inclass-activities/create")
+async def create_inclass_activity(
+    request: Request,
+    course_id: int,
+    activity_name: str = Form(...),
+    activity_type: str = Form(...),
+    participation_type: str = Form(...),
+    complexity: str = Form(...),
+    module_id: int = Form(None),
+    duration_minutes: int = Form(15),
+    instructions: str = Form(""),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    course = db.query(Course).filter_by(id=course_id, teacher_id=user["user_id"]).first()
+    if not course:
+        return JSONResponse(content={"error": "Course not found"}, status_code=404)
+    
+    # Create activity
+    activity = InClassActivity(
+        course_id=course_id,
+        module_id=module_id if module_id else None,
+        teacher_id=user["user_id"],
+        activity_name=activity_name,
+        activity_type=activity_type,
+        participation_type=participation_type,
+        complexity=complexity,
+        duration_minutes=duration_minutes,
+        instructions=instructions,
+        is_active=False
+    )
+    
+    db.add(activity)
+    db.commit()
+    db.refresh(activity)
+    
+    activities = db.query(InClassActivity).filter_by(course_id=course_id).order_by(InClassActivity.created_at.desc()).all()
+    
+    activity_html = ""
+    for act in activities:
+        status_badge = ""
+        action_buttons = ""
+        timer_display = ""
+        
+        if act.is_active:
+            status_badge = '''
+            <div class="text-sm">
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    🟢 Active
+                </span>
+                <span class="ml-2 text-gray-500" id="timer-{0}">
+                    Time remaining: <span class="font-mono"></span>
+                </span>
+            </div>
+            <script>startTimer({0}, {1}, '{2}Z');</script>
+            '''.format(act.id, act.duration_minutes, act.started_at.isoformat() if act.started_at else '')
+            
+            action_buttons = f'''
+            <button hx-post="/ai/teacher/activities/{act.id}/end"
+                    hx-target="#activity-{act.id}"
+                    hx-swap="outerHTML"
+                    class="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600 transition">
+                End Activity
+            </button>
+            <a href="/ai/teacher/activities/{act.id}/monitor"
+               class="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600 transition inline-block">
+                Monitor
+            </a>
+            '''
+        else:
+            action_buttons = f'''
+            <button hx-post="/ai/teacher/activities/{act.id}/start"
+                    hx-target="#activity-{act.id}"
+                    hx-swap="outerHTML"
+                    class="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600 transition">
+                Start Activity
+            </button>
+            '''
+        
+        module_text = f"• {act.module.title}" if act.module else ""
+        
+        activity_html += f'''
+        <div class="border rounded-lg p-4" id="activity-{act.id}">
+          <div class="flex justify-between items-start">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-2">
+                <h3 class="font-semibold text-lg" id="activity-name-{act.id}">{act.activity_name}</h3>
+                <button onclick="editActivityName({act.id}, '{act.activity_name}')" 
+                        class="text-blue-500 hover:text-blue-700 text-sm">
+                  ✏️ Edit
+                </button>
+              </div>
+              <p class="text-sm text-gray-600 mb-1">
+                {act.activity_type.title()} • {act.participation_type.title()} • {act.complexity.title()}
+                {module_text}
+              </p>
+              <p class="text-sm text-gray-600 mb-1">
+                Duration: {act.duration_minutes} minutes
+              </p>
+              {status_badge}
+              <p class="text-xs text-gray-500 mt-1">
+                Created {act.created_at.strftime('%Y-%m-%d %H:%M')}
+              </p>
+            </div>
+            <div class="flex gap-2 ml-4">
+              {action_buttons}
+              <button hx-delete="/ai/teacher/activities/{act.id}/delete"
+                      hx-target="#activity-{act.id}"
+                      hx-swap="outerHTML"
+                      hx-confirm="Are you sure you want to delete this activity?"
+                      class="bg-gray-500 text-white px-3 py-1 rounded text-sm hover:bg-gray-600 transition">
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+        '''
+    
+    if not activity_html:
+        activity_html = '<p class="text-gray-500 text-center py-8">No activities created yet.</p>'
+    
+    return HTMLResponse(content=activity_html)
+
+@ai_router.post("/teacher/activities/{activity_id}/start")
+async def start_activity(
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(id=activity_id, teacher_id=user["user_id"]).first()
+    if not activity:
+        return HTMLResponse(content="<div class='text-red-500'>Activity not found</div>", status_code=404)
+    
+    activity.started_at = datetime.utcnow()
+    activity.is_active = True
+    db.commit()
+    
+    # Return updated activity HTML
+    module_text = f"• {activity.module.title}" if activity.module else ""
+    
+    return HTMLResponse(f'''
+    <div class="border rounded-lg p-4" id="activity-{activity.id}">
+      <div class="flex justify-between items-start">
+        <div class="flex-1">
+          <div class="flex items-center gap-2 mb-2">
+            <h3 class="font-semibold text-lg" id="activity-name-{activity.id}">{activity.activity_name}</h3>
+            <button onclick="editActivityName({activity.id}, '{activity.activity_name}')" 
+                    class="text-blue-500 hover:text-blue-700 text-sm">
+              ✏️ Edit
+            </button>
+          </div>
+          <p class="text-sm text-gray-600 mb-1">
+            {activity.activity_type.title()} • {activity.participation_type.title()} • {activity.complexity.title()}
+            {module_text}
+          </p>
+          <p class="text-sm text-gray-600 mb-1">
+            Duration: {activity.duration_minutes} minutes
+          </p>
+          <div class="text-sm">
+            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+              🟢 Active
+            </span>
+            <span class="ml-2 text-gray-500" id="timer-{activity.id}">
+              Time remaining: <span class="font-mono"></span>
+            </span>
+          </div>
+          <p class="text-xs text-gray-500 mt-1">
+            Created {activity.created_at.strftime('%Y-%m-%d %H:%M')}
+          </p>
+        </div>
+        <div class="flex gap-2 ml-4">
+          <button hx-post="/ai/teacher/activities/{activity.id}/end"
+                  hx-target="#activity-{activity.id}"
+                  hx-swap="outerHTML"
+                  class="bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600 transition">
+            End Activity
+          </button>
+          <a href="/ai/teacher/activities/{activity.id}/monitor"
+             class="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600 transition inline-block">
+            Monitor
+          </a>
+          <button hx-delete="/ai/teacher/activities/{activity.id}/delete"
+                  hx-target="#activity-{activity.id}"
+                  hx-swap="outerHTML"
+                  hx-confirm="Are you sure you want to delete this activity?"
+                  class="bg-gray-500 text-white px-3 py-1 rounded text-sm hover:bg-gray-600 transition">
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+    <script>startTimer({activity.id}, {activity.duration_minutes}, '{activity.started_at.isoformat()}Z');</script>
+    ''')
+
+@ai_router.post("/teacher/activities/{activity_id}/end")
+async def end_activity(
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(id=activity_id, teacher_id=user["user_id"]).first()
+    if not activity:
+        return HTMLResponse(content="<div class='text-red-500'>Activity not found</div>", status_code=404)
+    
+    activity.ended_at = datetime.utcnow()
+    activity.is_active = False
+    db.commit()
+    
+    # Return updated activity HTML
+    module_text = f"• {activity.module.title}" if activity.module else ""
+    
+    return HTMLResponse(f'''
+    <div class="border rounded-lg p-4" id="activity-{activity.id}">
+      <div class="flex justify-between items-start">
+        <div class="flex-1">
+          <div class="flex items-center gap-2 mb-2">
+            <h3 class="font-semibold text-lg" id="activity-name-{activity.id}">{activity.activity_name}</h3>
+            <button onclick="editActivityName({activity.id}, '{activity.activity_name}')" 
+                    class="text-blue-500 hover:text-blue-700 text-sm">
+              ✏️ Edit
+            </button>
+          </div>
+          <p class="text-sm text-gray-600 mb-1">
+            {activity.activity_type.title()} • {activity.participation_type.title()} • {activity.complexity.title()}
+            {module_text}
+          </p>
+          <p class="text-sm text-gray-600 mb-1">
+            Duration: {activity.duration_minutes} minutes
+          </p>
+          <p class="text-xs text-gray-500 mt-1">
+            Created {activity.created_at.strftime('%Y-%m-%d %H:%M')}
+          </p>
+        </div>
+        <div class="flex gap-2 ml-4">
+          <button hx-post="/ai/teacher/activities/{activity.id}/start"
+                  hx-target="#activity-{activity.id}"
+                  hx-swap="outerHTML"
+                  class="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600 transition">
+            Start Activity
+          </button>
+          <button hx-delete="/ai/teacher/activities/{activity.id}/delete"
+                  hx-target="#activity-{activity.id}"
+                  hx-swap="outerHTML"
+                  hx-confirm="Are you sure you want to delete this activity?"
+                  class="bg-gray-500 text-white px-3 py-1 rounded text-sm hover:bg-gray-600 transition">
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+    ''')
+
+@ai_router.delete("/teacher/activities/{activity_id}/delete")
+async def delete_activity(
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(id=activity_id, teacher_id=user["user_id"]).first()
+    if not activity:
+        return HTMLResponse(content="<div class='text-red-500'>Activity not found</div>", status_code=404)
+    
+    # Delete related records first (if any)
+    db.query(ActivityParticipation).filter_by(activity_id=activity_id).delete()
+    db.query(ActivityGroup).filter_by(activity_id=activity_id).delete()
+    
+    # Delete the activity
+    db.delete(activity)
+    db.commit()
+    
+    # Return empty content (this will remove the activity from the DOM)
+    return HTMLResponse(content="")
+
+@ai_router.post("/teacher/activities/{activity_id}/update-name")
+async def update_activity_name(
+    activity_id: int,
+    activity_name: str = Form(...),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(id=activity_id, teacher_id=user["user_id"]).first()
+    if not activity:
+        return JSONResponse(content={"success": False, "error": "Activity not found"}, status_code=404)
+    
+    activity.activity_name = activity_name
+    db.commit()
+    
+    return JSONResponse(content={"success": True})
+
+@ai_router.get("/teacher/activities/{activity_id}/monitor", response_class=HTMLResponse)
+async def monitor_activity(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(id=activity_id, teacher_id=user["user_id"]).first()
+    expire_activity_if_due(activity, db)
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    
+    # Get participations with student info
+    participations = db.query(ActivityParticipation).filter_by(activity_id=activity_id).all()
+    
+    # Get groups if group activity
+    groups = []
+    if activity.participation_type == "group":
+        groups = db.query(ActivityGroup).filter_by(activity_id=activity_id).all()
+    
+    return templates.TemplateResponse("activity_monitor.html", {
+        "request": request,
+        "activity": activity,
+        "participations": participations,
+        "groups": groups
+    })
+
+
+@ai_router.get("/student/courses/{course_id}/active-activities", response_class=HTMLResponse)
+async def student_active_activities(
+    request: Request,
+    course_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check enrollment
+    enrollment = db.query(Enrollment).filter_by(
+        student_id=user["user_id"], course_id=course_id, is_accepted=True
+    ).first()
+    if not enrollment:
+        raise HTTPException(status_code=403, detail="Not enrolled in course")
+    
+    # Get active activities
+    active_activities = db.query(InClassActivity).filter_by(
+        course_id=course_id, is_active=True
+    ).filter(InClassActivity.started_at.isnot(None)).all()
+    
+    return templates.TemplateResponse("student_active_activities.html", {
+        "request": request,
+        "course": enrollment.course,
+        "activities": active_activities
+    })
+
+@ai_router.post("/student/activities/{activity_id}/join")
+async def join_activity_fixed(
+    activity_id: int,
+    group_name: str = Form(None),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    activity = db.query(InClassActivity).filter_by(id=activity_id, is_active=True).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    
+    # Check if already participating
+    existing = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if existing:
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/work", status_code=303)
+    
+    group_id = None
+    if activity.participation_type == "group":
+        if not group_name:
+            raise HTTPException(status_code=400, detail="Group name required")
+        
+        # Find or create group
+        group = db.query(ActivityGroup).filter_by(
+            activity_id=activity_id, group_name=group_name
+        ).first()
+        if not group:
+            group = ActivityGroup(activity_id=activity_id, group_name=group_name)
+            db.add(group)
+            db.flush()
+        group_id = group.id
+    
+    # Create participation
+    participation = ActivityParticipation(
+        activity_id=activity_id,
+        student_id=user["user_id"],
+        group_id=group_id
+    )
+    
+    db.add(participation)
+    db.commit()
+    
+    return RedirectResponse(url=f"/ai/student/activities/{activity_id}/work", status_code=303)
+
+@ai_router.get("/student/activities/{activity_id}/groups")
+async def get_activity_groups(
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    activity = db.query(InClassActivity).filter_by(id=activity_id, is_active=True).first()
+    if not activity:
+        return JSONResponse(content={"error": "Activity not found"}, status_code=404)
+    
+    groups = db.query(ActivityGroup).filter_by(activity_id=activity_id).all()
+    
+    group_data = []
+    for group in groups:
+        member_count = db.query(ActivityParticipation).filter_by(
+            activity_id=activity_id, group_id=group.id
+        ).count()
+        
+        group_data.append({
+            "id": group.id,
+            "name": group.group_name,
+            "member_count": member_count
+        })
+    
+    return JSONResponse(content={"groups": group_data})
+
+async def check_and_end_expired_activities():
+    """Background task to automatically end activities that have exceeded their duration."""
+    while True:
+        try:
+            db = next(get_db())
+            current_time = datetime.utcnow()
+            
+            # Find active activities that should be ended
+            active_activities = db.query(InClassActivity).filter_by(is_active=True).all()
+            
+            for activity in active_activities:
+                if activity.started_at:
+                    # Calculate when the activity should end
+                    end_time = activity.started_at + timedelta(minutes=activity.duration_minutes)
+                    
+                    if current_time >= end_time:
+                        # Auto-end the activity
+                        activity.ended_at = current_time
+                        activity.is_active = False
+                        db.commit()
+                        print(f"Auto-ended activity {activity.id}: {activity.activity_name}")
+            
+            db.close()
+            
+        except Exception as e:
+            print(f"Error in background task: {e}")
+        
+        # Check every 30 seconds
+        await asyncio.sleep(30)
+# Peer Quiz Builder Activity
+@ai_router.post("/student/activities/{activity_id}/peer-quiz/submit")
+async def submit_peer_quiz(
+    request: Request,
+    activity_id: int,
+    questions: str = Form(...),  # JSON string of questions
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=404, detail="Not participating in activity")
+    
+    try:
+        quiz_data = json.loads(questions)
+        
+        # Validate quiz data
+        if not isinstance(quiz_data, list) or len(quiz_data) != 5:
+            raise HTTPException(status_code=400, detail="Quiz must have exactly 5 questions")
+        
+        for i, question in enumerate(quiz_data, 1):
+            if not all(key in question for key in ['question', 'options', 'correct']):
+                raise HTTPException(status_code=400, detail=f"Question {i} missing required fields")
+            if not all(option in question['options'] for option in ['a', 'b', 'c', 'd']):
+                raise HTTPException(status_code=400, detail=f"Question {i} missing options")
+        
+        # AI evaluation of quiz quality
+        activity = db.query(InClassActivity).filter_by(id=activity_id).first()
+        if not activity:
+            raise HTTPException(status_code=404, detail="Activity not found")
+        module_id = activity.module_id
+        course_id = activity.course_id
+        # Retrieve context for the module if available, or for the whole course
+        context = retrieve_course_context(course_id, "Quiz questions about course material", module_id=module_id)
+        if isinstance(context, dict) and "error" in context:
+            raise HTTPException(status_code=404, detail=context["error"])
+        chat = get_openai_client()
+        
+        # Format questions for AI review
+        questions_text = ""
+        for i, q in enumerate(quiz_data, 1):
+            questions_text += f"Question {i}: {q['question']}\n"
+            questions_text += f"A) {q['options']['a']}\n"
+            questions_text += f"B) {q['options']['b']}\n"
+            questions_text += f"C) {q['options']['c']}\n"
+            questions_text += f"D) {q['options']['d']}\n"
+            questions_text += f"Correct: {q['correct'].upper()}\n\n"
+        
+        system_prompt = f"""
+You are evaluating student-created quiz questions for educational quality.
+Analyze the questions for:
+1. Clarity and appropriate difficulty level
+2. Alignment with learning objectives
+3. Question type variety and educational value
+4. Accuracy of content and correct answers
+5. Distractors quality (incorrect options should be plausible)
+
+Provide specific feedback for improvement and highlight strengths.
+Context from course materials: {context}
+        """
+        
+        response = chat.invoke([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Evaluate these quiz questions:\n\n{questions_text}"}
+        ])
+        
+        ai_feedback_text = response.content if hasattr(response, "content") else str(response)
+        
+        # Update participation
+        participation.submission_data = quiz_data
+        participation.ai_feedback = {"feedback": ai_feedback_text, "score": "pending"}
+        participation.status = "submitted"
+        participation.submitted_at = datetime.utcnow()
+        
+        db.commit()
+        
+        # Redirect back to work page to show results
+        return RedirectResponse(
+            url=f"/ai/student/activities/{activity_id}/work", 
+            status_code=303
+        )
+        
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid quiz data format")
+    except Exception as e:
+        #logger.error(f"Error submitting peer quiz: {str(e)}")
+        print(f"Error submitting peer quiz: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing quiz submission")
+    
+@ai_router.get("/teacher/activities/{activity_id}/participation/{participation_id}/ai-feedback", response_class=HTMLResponse)
+async def teacher_view_ai_feedback(
+    request: Request,
+    activity_id: int,
+    participation_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    # Optionally, check the teacher owns this activity/course for security!
+    participation = db.query(ActivityParticipation).filter_by(id=participation_id, activity_id=activity_id).first()
+    if not participation or not participation.ai_feedback:
+        return HTMLResponse("<div class='p-6 bg-gray-100 rounded'>No AI feedback available.</div>")
+    feedback = participation.ai_feedback
+    if isinstance(feedback, dict):
+        feedback_text = feedback.get("feedback", "")
+    else:
+        # fallback in case it's stored as string
+        feedback_text = feedback
+
+    return templates.TemplateResponse(
+        "partial_ai_feedback_modal.html",  # name your modal partial here
+        {"request": request, "student": participation.student, "feedback_text": feedback_text}
+    )
+
+# Concept Mapping Activity  
+@ai_router.post("/student/activities/{activity_id}/concept-map/submit")
+async def submit_concept_map(
+    activity_id: int,
+    concepts: str = Form(...),
+    connections: str = Form(...),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        return JSONResponse(content={"error": "Not participating in activity"}, status_code=404)
+    
+    try:
+        map_data = {
+            "concepts": json.loads(concepts),
+            "connections": json.loads(connections)
+        }
+        
+        # AI evaluation of concept map
+        retriever = get_course_retriever(participation.activity.course_id)
+        context = get_context_for_query(retriever, f"Concept map: {concepts} {connections}")
+        chat = get_openai_client()
+        
+        system_prompt = f"""
+You are evaluating a student-created concept map for understanding.
+Analyze for:
+1. Concept accuracy and relevance
+2. Connection quality and logic
+3. Completeness of understanding
+4. Missing key concepts or relationships
+CONTEXT: {context}
+        """
+        
+        response = chat.invoke([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Evaluate this concept map - Concepts: {concepts}, Connections: {connections}"}
+        ])
+        
+        ai_feedback = json.loads(response.content if hasattr(response, "content") else response)
+        
+        # Update participation
+        participation.submission_data = map_data
+        participation.ai_feedback = ai_feedback
+        participation.status = "submitted"
+        participation.submitted_at = datetime.utcnow()
+        
+        db.commit()
+        
+        return templates.TemplateResponse("concept_map_feedback.html", {
+            "request": request,
+            "ai_feedback": ai_feedback,
+            "map_data": map_data
+        })
+        
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+    
+@ai_router.get("/student/activities/{activity_id}/join-page", response_class=HTMLResponse)
+async def activity_join_page(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    activity = db.query(InClassActivity).filter_by(id=activity_id, is_active=True).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    
+    # Check if already participating
+    existing_participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    
+    # Get all groups for this activity
+    groups = db.query(ActivityGroup).filter_by(activity_id=activity_id).all()
+    group_data = []
+    for group in groups:
+        member_count = db.query(ActivityParticipation).filter_by(
+            activity_id=activity_id, group_id=group.id
+        ).count()
+        
+        # Get member names
+        members = db.query(ActivityParticipation, User).join(User).filter(
+            ActivityParticipation.activity_id == activity_id,
+            ActivityParticipation.group_id == group.id
+        ).all()
+        
+        group_data.append({
+            "group": group,
+            "member_count": member_count,
+            "members": [member.User.f_name for member in members],
+            "is_owner": any(member.ActivityParticipation.student_id == user["user_id"] for member in members)
+        })
+    
+    return templates.TemplateResponse("activity_join.html", {
+        "request": request,
+        "activity": activity,
+        "existing_participation": existing_participation,
+        "groups": group_data,
+        "user_id": user["user_id"]
+    })
+
+# Group management routes
+@ai_router.post("/student/groups/{group_id}/rename")
+async def rename_group(
+    group_id: int,
+    new_name: str = Form(...),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check if user is in this group
+    participation = db.query(ActivityParticipation).filter_by(
+        group_id=group_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    group = db.query(ActivityGroup).filter_by(id=group_id).first()
+    group.group_name = new_name
+    db.commit()
+    
+    return RedirectResponse(url=f"/ai/student/activities/{group.activity_id}/join-page", status_code=303)
+
+@ai_router.post("/student/groups/{group_id}/delete")
+async def delete_group(
+    group_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check if user is in this group
+    participation = db.query(ActivityParticipation).filter_by(
+        group_id=group_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    group = db.query(ActivityGroup).filter_by(id=group_id).first()
+    activity_id = group.activity_id
+    
+    # Delete all participations first
+    db.query(ActivityParticipation).filter_by(group_id=group_id).delete()
+    # Delete group
+    db.delete(group)
+    db.commit()
+    
+    return RedirectResponse(url=f"/ai/student/activities/{activity_id}/join-page", status_code=303)
+
+@ai_router.post("/student/groups/{group_id}/leave")
+async def leave_group(
+    group_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        group_id=group_id, student_id=user["user_id"]
+    ).first()
+    if participation:
+        activity_id = participation.activity.id
+        db.delete(participation)
+        db.commit()
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/join-page", status_code=303)
+    
+    raise HTTPException(status_code=404, detail="Participation not found")
+
+@ai_router.get("/student/activities/{activity_id}/work", response_class=HTMLResponse)
+async def activity_work_page(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check participation
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/join-page")
+    
+    activity = participation.activity
+    
+    return templates.TemplateResponse("activity_work.html", {
+        "request": request,
+        "activity": activity,
+        "participation": participation
+    })
+
+@ai_router.get("/student/activities/{activity_id}/peer-quiz/solve", response_class=HTMLResponse)
+async def peer_quiz_solve_page(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check participation
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/join-page")
+    
+    activity = participation.activity
+    
+    # Get all groups with submitted quizzes
+    submitted_quizzes = db.query(ActivityParticipation, ActivityGroup, User).join(
+        ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True
+    ).join(User).filter(
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted",
+        ActivityParticipation.submission_data.isnot(None)
+    ).all()
+    
+    # Get quiz attempts by current user/group
+    user_attempts = db.query(QuizAttempt).filter_by(
+        activity_id=activity_id,
+        solver_id=user["user_id"]
+    ).all()
+    
+    return templates.TemplateResponse("peer_quiz_solve.html", {
+        "request": request,
+        "activity": activity,
+        "participation": participation,
+        "submitted_quizzes": submitted_quizzes,
+        "user_attempts": user_attempts
+    })
+
+# 2. Route to take a specific quiz
+@ai_router.get("/student/activities/{activity_id}/quiz/{creator_participation_id}/take", response_class=HTMLResponse)
+async def take_peer_quiz(
+    request: Request,
+    activity_id: int,
+    creator_participation_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check participation
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=404, detail="Not participating in activity")
+    
+    # Get the quiz to solve
+    quiz_creator = db.query(ActivityParticipation).filter_by(
+        id=creator_participation_id,
+        activity_id=activity_id,
+        status="submitted"
+    ).first()
+    if not quiz_creator or not quiz_creator.submission_data:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    
+    # Check if already attempted
+    existing_attempt = db.query(QuizAttempt).filter_by(
+        activity_id=activity_id,
+        creator_participation_id=creator_participation_id,
+        solver_id=user["user_id"]
+    ).first()
+    
+    return templates.TemplateResponse("take_peer_quiz.html", {
+        "request": request,
+        "activity": participation.activity,
+        "participation": participation,
+        "quiz_creator": quiz_creator,
+        "quiz_data": quiz_creator.submission_data,
+        "existing_attempt": existing_attempt
+    })
+
+# 3. Route to submit quiz answers
+@ai_router.post("/student/activities/{activity_id}/quiz/{creator_participation_id}/submit")
+async def submit_quiz_answers(
+    request: Request,
+    activity_id: int,
+    creator_participation_id: int,
+    answers: str = Form(...),  # JSON string of answers
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=404, detail="Not participating in activity")
+    
+    # Get the original quiz
+    quiz_creator = db.query(ActivityParticipation).filter_by(
+        id=creator_participation_id,
+        activity_id=activity_id,
+        status="submitted"
+    ).first()
+    if not quiz_creator:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    
+    try:
+        answer_data = json.loads(answers)
+        quiz_questions = quiz_creator.submission_data
+        
+        # Calculate score
+        correct_count = 0
+        total_questions = len(quiz_questions)
+        
+        for i, question in enumerate(quiz_questions):
+            user_answer = answer_data.get(f"question_{i+1}")
+            if user_answer and user_answer.lower() == question['correct'].lower():
+                correct_count += 1
+        
+        score = (correct_count / total_questions) * 100 if total_questions > 0 else 0
+        
+        # Check if already attempted
+        existing_attempt = db.query(QuizAttempt).filter_by(
+            activity_id=activity_id,
+            creator_participation_id=creator_participation_id,
+            solver_id=user["user_id"]
+        ).first()
+        
+        if existing_attempt:
+            # Update existing attempt
+            existing_attempt.answers = answer_data
+            existing_attempt.score = score
+            existing_attempt.correct_count = correct_count
+            existing_attempt.total_questions = total_questions
+            existing_attempt.completed_at = datetime.utcnow()
+        else:
+            # Create new attempt
+            attempt = QuizAttempt(
+                activity_id=activity_id,
+                creator_participation_id=creator_participation_id,
+                solver_id=user["user_id"],
+                solver_group_id=participation.group_id,
+                answers=answer_data,
+                score=score,
+                correct_count=correct_count,
+                total_questions=total_questions,
+                completed_at=datetime.utcnow()
+            )
+            db.add(attempt)
+        
+        db.commit()
+        
+        return RedirectResponse(
+            url=f"/ai/student/activities/{activity_id}/quiz/{creator_participation_id}/results",
+            status_code=303
+        )
+        
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid answer format")
+    except Exception as e:
+        print(f"Error submitting quiz answers: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing quiz submission")
+
+# 4. Route to view quiz results and add comments
+@ai_router.get("/student/activities/{activity_id}/quiz/{creator_participation_id}/results", response_class=HTMLResponse)
+async def quiz_results_page(
+    request: Request,
+    activity_id: int,
+    creator_participation_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=404, detail="Not participating in activity")
+    
+    # Get quiz attempt
+    attempt = db.query(QuizAttempt).filter_by(
+        activity_id=activity_id,
+        creator_participation_id=creator_participation_id,
+        solver_id=user["user_id"]
+    ).first()
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Quiz attempt not found")
+    
+    # Get quiz creator info
+    quiz_creator = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.id == creator_participation_id
+    ).first()
+    
+    # Get comments for this quiz
+    comments = db.query(QuizComment, User).join(User).filter(
+        QuizComment.creator_participation_id == creator_participation_id
+    ).order_by(QuizComment.created_at.desc()).all()
+    
+    return templates.TemplateResponse("quiz_results.html", {
+        "request": request,
+        "activity": participation.activity,
+        "participation": participation,
+        "attempt": attempt,
+        "quiz_creator": quiz_creator,
+        "quiz_data": quiz_creator.ActivityParticipation.submission_data,
+        "comments": comments
+    })
+
+# 5. Route to add comments to quizzes
+@ai_router.post("/student/activities/{activity_id}/quiz/{creator_participation_id}/comment")
+async def add_quiz_comment(
+    activity_id: int,
+    creator_participation_id: int,
+    comment_text: str = Form(...),
+    comment_type: str = Form("general"),  # general, question_specific, improvement
+    question_number: int = Form(None),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=404, detail="Not participating in activity")
+    
+    # Validate comment
+    if not comment_text.strip():
+        raise HTTPException(status_code=400, detail="Comment cannot be empty")
+    
+    comment = QuizComment(
+        creator_participation_id=creator_participation_id,
+        commenter_id=user["user_id"],
+        commenter_group_id=participation.group_id,
+        comment_text=comment_text.strip(),
+        comment_type=comment_type,
+        question_number=question_number,
+        created_at=datetime.utcnow()
+    )
+    
+    db.add(comment)
+    db.commit()
+    
+    return RedirectResponse(
+        url=f"/ai/student/activities/{activity_id}/quiz/{creator_participation_id}/results",
+        status_code=303
+    )
+
+# 6. Route to view all quiz attempts for your created quiz
+@ai_router.get("/student/activities/{activity_id}/my-quiz/attempts", response_class=HTMLResponse)
+async def my_quiz_attempts(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, 
+        student_id=user["user_id"],
+        status="submitted"
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=404, detail="No submitted quiz found")
+    
+    # Get all attempts on this user's quiz
+    attempts = db.query(QuizAttempt, User, ActivityGroup).join(
+        User, QuizAttempt.solver_id == User.id
+    ).join(
+        ActivityGroup, QuizAttempt.solver_group_id == ActivityGroup.id, isouter=True
+    ).filter(
+        QuizAttempt.creator_participation_id == participation.id
+    ).order_by(QuizAttempt.completed_at.desc()).all()
+    
+    # Get comments on this quiz
+    comments = db.query(QuizComment, User).join(User).filter(
+        QuizComment.creator_participation_id == participation.id
+    ).order_by(QuizComment.created_at.desc()).all()
+    
+    return templates.TemplateResponse("my_quiz_attempts.html", {
+        "request": request,
+        "activity": participation.activity,
+        "participation": participation,
+        "attempts": attempts,
+        "comments": comments,
+        "quiz_data": participation.submission_data
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/quiz-overview", response_class=HTMLResponse)
+async def teacher_quiz_overview(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="peer_quiz"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Quiz activity not found")
+    
+    # Get all submitted quizzes with group info
+    submitted_quizzes = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted",
+        ActivityParticipation.submission_data.isnot(None)
+    ).all()
+    
+    # Get all quiz attempts
+    all_attempts = db.query(QuizAttempt, User, ActivityGroup).join(
+        User, QuizAttempt.solver_id == User.id
+    ).join(
+        ActivityGroup, QuizAttempt.solver_group_id == ActivityGroup.id, isouter=True
+    ).filter(
+        QuizAttempt.activity_id == activity_id
+    ).all()
+    
+    # Get all comments
+    all_comments = db.query(QuizComment, User, ActivityParticipation).join(
+        User, QuizComment.commenter_id == User.id
+    ).join(
+        ActivityParticipation, QuizComment.creator_participation_id == ActivityParticipation.id
+    ).filter(
+        ActivityParticipation.activity_id == activity_id
+    ).order_by(QuizComment.created_at.desc()).all()
+    
+    return templates.TemplateResponse("teacher_quiz_overview.html", {
+        "request": request,
+        "activity": activity,
+        "submitted_quizzes": submitted_quizzes,
+        "all_attempts": all_attempts,
+        "all_comments": all_comments
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/quiz/{participation_id}/view", response_class=HTMLResponse)
+async def teacher_view_quiz(
+    request: Request,
+    activity_id: int,
+    participation_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"]
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    
+    # Get the quiz participation
+    quiz_participation = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.id == participation_id,
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted"
+    ).first()
+    
+    if not quiz_participation:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    
+    # Get all attempts on this quiz
+    quiz_attempts = db.query(QuizAttempt, User, ActivityGroup).join(
+        User, QuizAttempt.solver_id == User.id
+    ).join(
+        ActivityGroup, QuizAttempt.solver_group_id == ActivityGroup.id, isouter=True
+    ).filter(
+        QuizAttempt.creator_participation_id == participation_id
+    ).order_by(QuizAttempt.completed_at.desc()).all()
+    
+    # Get comments on this quiz
+    quiz_comments = db.query(QuizComment, User, ActivityGroup).join(
+        User, QuizComment.commenter_id == User.id
+    ).join(
+        ActivityGroup, QuizComment.commenter_group_id == ActivityGroup.id, isouter=True
+    ).filter(
+        QuizComment.creator_participation_id == participation_id
+    ).order_by(QuizComment.created_at.desc()).all()
+    
+    return templates.TemplateResponse("teacher_quiz_detail.html", {
+        "request": request,
+        "activity": activity,
+        "quiz_participation": quiz_participation,
+        "quiz_data": quiz_participation[0].submission_data,
+        "quiz_attempts": quiz_attempts,
+        "quiz_comments": quiz_comments
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/peer-analytics", response_class=HTMLResponse)
+async def teacher_peer_analytics(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="peer_quiz"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Quiz activity not found")
+    
+    # Get comprehensive analytics data
+    submitted_quizzes = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id,
+        status="submitted"
+    ).count()
+    
+    total_attempts = db.query(QuizAttempt).filter_by(activity_id=activity_id).count()
+    total_comments = db.query(QuizComment).join(ActivityParticipation).filter(
+        ActivityParticipation.activity_id == activity_id
+    ).count()
+    
+    # Average scores by group
+    group_performance = db.query(
+        ActivityGroup.group_name,
+        func.avg(QuizAttempt.score).label('avg_score'),
+        func.count(QuizAttempt.id).label('attempt_count')
+    ).join(
+        QuizAttempt, ActivityGroup.id == QuizAttempt.solver_group_id
+    ).filter(
+        QuizAttempt.activity_id == activity_id
+    ).group_by(ActivityGroup.id, ActivityGroup.group_name).all()
+    
+    # Most active commenters
+    top_commenters = db.query(
+        User.f_name,
+        func.count(QuizComment.id).label('comment_count')
+    ).join(
+        QuizComment, User.id == QuizComment.commenter_id
+    ).join(
+        ActivityParticipation, QuizComment.creator_participation_id == ActivityParticipation.id
+    ).filter(
+        ActivityParticipation.activity_id == activity_id
+    ).group_by(User.id, User.f_name).order_by(
+        func.count(QuizComment.id).desc()
+    ).limit(10).all()
+    
+    return templates.TemplateResponse("teacher_peer_analytics.html", {
+        "request": request,
+        "activity": activity,
+        "submitted_quizzes": submitted_quizzes,
+        "total_attempts": total_attempts,
+        "total_comments": total_comments,
+        "group_performance": group_performance,
+        "top_commenters": top_commenters
+    })
+
+# Add this route to fetch recent quiz activity for the monitor page
+
+@ai_router.get("/teacher/activities/{activity_id}/quiz-activity", response_class=HTMLResponse)
+async def get_recent_quiz_activity(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"]
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    
+    # Get recent quiz attempts (last 10)
+    recent_attempts = db.query(QuizAttempt, User, ActivityParticipation, ActivityGroup).join(
+        User, QuizAttempt.solver_id == User.id
+    ).join(
+        ActivityParticipation, QuizAttempt.creator_participation_id == ActivityParticipation.id
+    ).join(
+        User, ActivityParticipation.student_id == User.id
+    ).join(
+        ActivityGroup, QuizAttempt.solver_group_id == ActivityGroup.id, isouter=True
+    ).filter(
+        QuizAttempt.activity_id == activity_id
+    ).order_by(QuizAttempt.completed_at.desc()).limit(10).all()
+    
+    # Get recent comments (last 10)
+    recent_comments = db.query(QuizComment, User, ActivityParticipation, User).join(
+        User, QuizComment.commenter_id == User.id
+    ).join(
+        ActivityParticipation, QuizComment.creator_participation_id == ActivityParticipation.id
+    ).join(
+        User, ActivityParticipation.student_id == User.id
+    ).filter(
+        ActivityParticipation.activity_id == activity_id
+    ).order_by(QuizComment.created_at.desc()).limit(10).all()
+    
+    # Combine and sort by timestamp
+    activity_feed = []
+    
+    for attempt, solver, creator_participation, creator_user, solver_group in recent_attempts:
+        activity_feed.append({
+            'type': 'attempt',
+            'timestamp': attempt.completed_at,
+            'solver_name': solver.f_name,
+            'solver_group': solver_group.group_name if solver_group else None,
+            'creator_name': creator_user.f_name,
+            'creator_group': creator_participation.group.group_name if creator_participation.group else None,
+            'score': attempt.score,
+            'participation_id': creator_participation.id
+        })
+    
+    for comment, commenter, creator_participation, creator_user in recent_comments:
+        activity_feed.append({
+            'type': 'comment',
+            'timestamp': comment.created_at,
+            'commenter_name': commenter.f_name,
+            'creator_name': creator_user.f_name,
+            'creator_group': creator_participation.group.group_name if creator_participation.group else None,
+            'comment_type': comment.comment_type,
+            'comment_text': comment.comment_text[:50] + "..." if len(comment.comment_text) > 50 else comment.comment_text,
+            'participation_id': creator_participation.id
+        })
+    
+    # Sort by timestamp (most recent first)
+    activity_feed.sort(key=lambda x: x['timestamp'], reverse=True)
+    activity_feed = activity_feed[:15]  # Keep only 15 most recent
+    
+    return templates.TemplateResponse("quiz_activity_feed.html", {
+        "request": request,
+        "activity": activity,
+        "activity_feed": activity_feed
+    })
+
+# Add route to get AI feedback as JSON for modal display
+@ai_router.get("/teacher/activities/{activity_id}/participation/{participation_id}/ai-feedback-json")
+async def get_ai_feedback_json(
+    activity_id: int,
+    participation_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        id=participation_id, 
+        activity_id=activity_id
+    ).first()
+    
+    if not participation or not participation.ai_feedback:
+        return JSONResponse(content={"error": "No AI feedback available"}, status_code=404)
+    
+    feedback = participation.ai_feedback
+    if isinstance(feedback, dict):
+        feedback_text = feedback.get("feedback", "")
+    else:
+        feedback_text = str(feedback)
+    
+    return JSONResponse(content={
+        "feedback": feedback_text,
+        "student_name": participation.student.f_name if participation.student else "Unknown",
+        "group_name": participation.group.group_name if participation.group else None
     })
