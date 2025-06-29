@@ -11,110 +11,89 @@
     <h1 class="text-3xl font-bold text-blue-700 mb-6">In-Class Activities - {{ course.title }}</h1>
     
     <!-- Create New Activity -->
-    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-      <h2 class="text-xl font-semibold mb-4">Create New Activity</h2>
-      <form hx-post="/ai/teacher/courses/{{ course.id }}/inclass-activities/create"
-            hx-target="#activity-list"
-            hx-swap="innerHTML"
-            hx-on::after-request="this.reset()"
-            class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        
-        <div>
-          <label class="block text-sm font-medium mb-2">Activity Name</label>
-          <input type="text" name="activity_name" required
-                 class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
-        </div>
-        
-        <div>
-          <label class="block text-sm font-medium mb-2">Activity Type</label>
-          <select name="activity_type" required
-                  class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
-            <option value="peer_quiz">Peer Quiz Builder</option>
-            <option value="concept_mapping">Concept Mapping</option>
-          </select>
-        </div>
-        
-        <div>
-          <label class="block text-sm font-medium mb-2">Participation Type</label>
-          <select name="participation_type" required
-                  class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
-            <option value="individual">Individual</option>
-            <option value="group">Group</option>
-          </select>
-        </div>
-        
-        <div>
-          <label class="block text-sm font-medium mb-2">Complexity</label>
-          <select name="complexity" required
-                  class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
-            <option value="low">Low</option>
-            <option value="moderate">Moderate</option>
-            <option value="high">High</option>
-          </select>
-        </div>
-        
-        <div>
-          <label class="block text-sm font-medium mb-2">Module (Optional)</label>
-          <select name="module_id" class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
-            <option value="">No specific module</option>
-            {% for module in modules %}
-            <option value="{{ module.id }}">{{ module.title }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        
-        <div>
-          <label class="block text-sm font-medium mb-2">Duration (minutes)</label>
-          <input type="number" name="duration_minutes" value="15" min="5" max="60"
-                 class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
-        </div>
-        
-        <div class="md:col-span-2">
-          <label class="block text-sm font-medium mb-2">Instructions</label>
-          <textarea name="instructions" rows="3"
-                    class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
-                    placeholder="Optional instructions for students..."></textarea>
-        </div>
-        
-        <div class="md:col-span-2">
-          <button type="submit" 
-                  class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
-            Create Activity
-          </button>
-        </div>
-      </form>
+<div class="bg-white rounded-lg shadow-md p-6 mb-6">
+  <h2 class="text-xl font-semibold mb-4">Create New Activity</h2>
+  
+  <form hx-post="/ai/teacher/courses/{{ course.id }}/inclass-activities/create"
+        hx-target="#activity-list"
+        hx-swap="innerHTML"
+        hx-on::after-request="this.reset()"
+        class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    
+    <div>
+      <label class="block text-sm font-medium mb-2">Activity Name</label>
+      <input type="text" name="activity_name" required
+             class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+             placeholder="Enter activity name...">
     </div>
     
-    <!-- Activity Templates -->
-    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-      <h2 class="text-xl font-semibold mb-4">Activity Templates</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        
-        <div class="border rounded-lg p-4 bg-blue-50">
-          <h3 class="font-bold text-blue-800 mb-2">🤝 Peer Quiz Builder</h3>
-          <p class="text-sm text-gray-700 mb-2">
-            Groups create a 5-question quiz and exchange with peers for mutual testing.
-          </p>
-          <div class="flex gap-2 text-xs">
-            <span class="bg-green-100 text-green-800 px-2 py-1 rounded">Group</span>
-            <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded">Moderate</span>
+    <div>
+      <label class="block text-sm font-medium mb-2">Activity Type</label>
+      <select name="activity_type" required onchange="updateActivityInfo(this.value)"
+              class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
+        <option value="">Select activity type...</option>
+        <option value="peer_quiz">Peer Quiz Builder</option>
+        <option value="concept_mapping">Concept Mapping</option>
+        <option value="case_study">Case Study Analysis</option>
+        <option value="debate">Structured Debate</option>
+        <option value="problem_solving">Problem Solving</option>
+      </select>
+    </div>
+    
+    <div>
+      <label class="block text-sm font-medium mb-2">Module (Optional)</label>
+      <select name="module_id" class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
+        <option value="">No specific module</option>
+        {% for module in modules %}
+        <option value="{{ module.id }}">{{ module.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    
+    <div>
+      <label class="block text-sm font-medium mb-2">Duration (minutes)</label>
+      <input type="number" name="duration_minutes" value="15" min="5" max="60"
+             class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500">
+    </div>
+    
+    <div class="md:col-span-2">
+      <label class="block text-sm font-medium mb-2">Instructions</label>
+      <textarea name="instructions" rows="3"
+                class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                placeholder="Optional instructions for students..."></textarea>
+    </div>
+    
+    <!-- Hidden fields that will be set automatically -->
+    <input type="hidden" name="participation_type" id="participation_type" value="">
+    <input type="hidden" name="complexity" id="complexity" value="">
+    
+    <!-- Activity Info Display -->
+    <div class="md:col-span-2">
+      <div id="activity-info" class="hidden p-4 rounded-lg border-l-4 mb-4">
+        <div class="flex items-center">
+          <div class="flex-shrink-0">
+            <span id="activity-icon" class="text-2xl"></span>
+          </div>
+          <div class="ml-3">
+            <h3 id="activity-title" class="text-sm font-medium"></h3>
+            <p id="activity-description" class="text-sm text-gray-600 mt-1"></p>
+            <div class="flex gap-2 mt-2">
+              <span id="participation-badge" class="px-2 py-1 rounded text-xs font-medium"></span>
+              <span id="complexity-badge" class="px-2 py-1 rounded text-xs font-medium"></span>
+            </div>
           </div>
         </div>
-        
-        <div class="border rounded-lg p-4 bg-purple-50">
-          <h3 class="font-bold text-purple-800 mb-2">🗺️ Concept Mapping</h3>
-          <p class="text-sm text-gray-700 mb-2">
-            Students create visual maps showing relationships between key concepts.
-          </p>
-          <div class="flex gap-2 text-xs">
-            <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded">Individual</span>
-            <span class="bg-orange-100 text-orange-800 px-2 py-1 rounded">High</span>
-          </div>
-        </div>
-        
       </div>
     </div>
     
+    <div class="md:col-span-2">
+      <button type="submit" 
+              class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition">
+        Create Activity
+      </button>
+    </div>
+  </form>
+</div>
     <!-- Existing Activities -->
     <div class="bg-white rounded-lg shadow-md p-6">
       <h2 class="text-xl font-semibold mb-4">Your Activities</h2>
@@ -294,6 +273,292 @@
         closeEditModal();
       }
     });
+
+    document.addEventListener('DOMContentLoaded', function() {
+    const activityTypeSelect = document.querySelector('select[name="activity_type"]');
+    const participationTypeSelect = document.querySelector('select[name="participation_type"]');
+    const complexitySelect = document.querySelector('select[name="complexity"]');
+    
+    function updateActivityOptions() {
+        const activityType = activityTypeSelect.value;
+        const participationType = participationTypeSelect.value;
+        const complexity = complexitySelect.value;
+        
+        // Clear previous constraints styling
+        activityTypeSelect.classList.remove('border-red-500', 'bg-red-50');
+        participationTypeSelect.classList.remove('border-red-500', 'bg-red-50');
+        complexitySelect.classList.remove('border-red-500', 'bg-red-50');
+        
+        // Remove any existing error messages
+        const existingError = document.querySelector('.activity-constraint-error');
+        if (existingError) {
+            existingError.remove();
+        }
+        
+        // Apply constraints based on activity type
+        if (activityType === 'peer_quiz') {
+            // Peer Quiz: Only Moderate + Group
+            
+            // Force participation to group
+            if (participationType !== 'group') {
+                participationTypeSelect.value = 'group';
+                participationTypeSelect.dispatchEvent(new Event('change'));
+            }
+            
+            // Force complexity to moderate
+            if (complexity !== 'moderate') {
+                complexitySelect.value = 'moderate';
+                complexitySelect.dispatchEvent(new Event('change'));
+            }
+            
+            // Disable other options
+            Array.from(participationTypeSelect.options).forEach(option => {
+                option.disabled = option.value !== 'group';
+            });
+            
+            Array.from(complexitySelect.options).forEach(option => {
+                option.disabled = option.value !== 'moderate';
+            });
+            
+            // Show info message
+            showConstraintMessage('peer_quiz');
+            
+        } else if (activityType === 'concept_mapping') {
+            // Concept Mapping: Only Moderate + Individual
+            
+            // Force participation to individual
+            if (participationType !== 'individual') {
+                participationTypeSelect.value = 'individual';
+                participationTypeSelect.dispatchEvent(new Event('change'));
+            }
+            
+            // Force complexity to moderate
+            if (complexity !== 'moderate') {
+                complexitySelect.value = 'moderate';
+                complexitySelect.dispatchEvent(new Event('change'));
+            }
+            
+            // Disable other options
+            Array.from(participationTypeSelect.options).forEach(option => {
+                option.disabled = option.value !== 'individual';
+            });
+            
+            Array.from(complexitySelect.options).forEach(option => {
+                option.disabled = option.value !== 'moderate';
+            });
+            
+            // Show info message
+            showConstraintMessage('concept_mapping');
+            
+        } else {
+            // For other activity types, enable all options
+            Array.from(participationTypeSelect.options).forEach(option => {
+                option.disabled = false;
+            });
+            
+            Array.from(complexitySelect.options).forEach(option => {
+                option.disabled = false;
+            });
+        }
+    }
+    
+    function showConstraintMessage(activityType) {
+        const form = activityTypeSelect.closest('form');
+        let message = '';
+        
+        if (activityType === 'peer_quiz') {
+            message = `
+                <div class="activity-constraint-error bg-blue-50 border border-blue-200 rounded p-3 mt-4">
+                    <div class="flex items-center">
+                        <svg class="w-5 h-5 text-blue-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span class="text-blue-800 text-sm">
+                            <strong>Peer Quiz Builder</strong> requires <strong>Group participation</strong> and <strong>Moderate complexity</strong>
+                        </span>
+                    </div>
+                </div>
+            `;
+        } else if (activityType === 'concept_mapping') {
+            message = `
+                <div class="activity-constraint-error bg-purple-50 border border-purple-200 rounded p-3 mt-4">
+                    <div class="flex items-center">
+                        <svg class="w-5 h-5 text-purple-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span class="text-purple-800 text-sm">
+                            <strong>Concept Mapping</strong> requires <strong>Individual participation</strong> and <strong>Moderate complexity</strong>
+                        </span>
+                    </div>
+                </div>
+            `;
+        }
+        
+        if (message) {
+            const submitButton = form.querySelector('button[type="submit"]');
+            submitButton.insertAdjacentHTML('beforebegin', message);
+        }
+    }
+    
+    // Add event listeners
+    activityTypeSelect.addEventListener('change', updateActivityOptions);
+    participationTypeSelect.addEventListener('change', updateActivityOptions);
+    complexitySelect.addEventListener('change', updateActivityOptions);
+    
+    // Run initial check
+    updateActivityOptions();
+    
+    // Form validation before submission
+    const createForm = activityTypeSelect.closest('form');
+    createForm.addEventListener('submit', function(e) {
+        const activityType = activityTypeSelect.value;
+        const participationType = participationTypeSelect.value;
+        const complexity = complexitySelect.value;
+        
+        let isValid = true;
+        let errorMessage = '';
+        
+        if (activityType === 'peer_quiz') {
+            if (participationType !== 'group' || complexity !== 'moderate') {
+                isValid = false;
+                errorMessage = 'Peer Quiz Builder requires Group participation and Moderate complexity.';
+            }
+        } else if (activityType === 'concept_mapping') {
+            if (participationType !== 'individual' || complexity !== 'moderate') {
+                isValid = false;
+                errorMessage = 'Concept Mapping requires Individual participation and Moderate complexity.';
+            }
+        }
+        
+        if (!isValid) {
+            e.preventDefault();
+            alert(errorMessage);
+            return false;
+        }
+    });
+});
+function selectActivityTemplate(activityType, participationType, complexity) {
+  // Set the form values
+  document.querySelector('select[name="activity_type"]').value = activityType;
+  if (participationType) {
+    document.querySelector('select[name="participation_type"]').value = participationType;
+  }
+  if (complexity) {
+    document.querySelector('select[name="complexity"]').value = complexity;
+  }
+  
+  // Trigger change events to update constraints
+  document.querySelector('select[name="activity_type"]').dispatchEvent(new Event('change'));
+  document.querySelector('select[name="participation_type"]').dispatchEvent(new Event('change'));
+  document.querySelector('select[name="complexity"]').dispatchEvent(new Event('change'));
+  
+  // Scroll to the form
+  document.querySelector('form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  
+  // Highlight the activity name field
+  const activityNameField = document.querySelector('input[name="activity_name"]');
+  activityNameField.focus();
+  activityNameField.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.5)';
+  setTimeout(() => {
+    activityNameField.style.boxShadow = '';
+  }, 2000);
+}
+function updateActivityInfo(activityType) {
+  const infoDiv = document.getElementById('activity-info');
+  const participationInput = document.getElementById('participation_type');
+  const complexityInput = document.getElementById('complexity');
+  const icon = document.getElementById('activity-icon');
+  const title = document.getElementById('activity-title');
+  const description = document.getElementById('activity-description');
+  const participationBadge = document.getElementById('participation-badge');
+  const complexityBadge = document.getElementById('complexity-badge');
+  
+  if (!activityType) {
+    infoDiv.classList.add('hidden');
+    return;
+  }
+  
+  // Activity configurations
+  const activityConfigs = {
+    peer_quiz: {
+      participation: 'group',
+      complexity: 'moderate',
+      icon: '🤝',
+      title: 'Peer Quiz Builder',
+      description: 'Groups create 5-question quizzes and exchange with peers for mutual testing.',
+      participationColor: 'bg-green-100 text-green-800',
+      complexityColor: 'bg-yellow-100 text-yellow-800',
+      borderColor: 'border-blue-400',
+      bgColor: 'bg-blue-50'
+    },
+    concept_mapping: {
+      participation: 'individual',
+      complexity: 'moderate',
+      icon: '🗺️',
+      title: 'Concept Mapping',
+      description: 'Students create visual maps showing relationships between key concepts.',
+      participationColor: 'bg-blue-100 text-blue-800',
+      complexityColor: 'bg-yellow-100 text-yellow-800',
+      borderColor: 'border-purple-400',
+      bgColor: 'bg-purple-50'
+    },
+    case_study: {
+      participation: 'group',
+      complexity: 'high',
+      icon: '📋',
+      title: 'Case Study Analysis',
+      description: 'Analyze real-world scenarios and apply course concepts to solve problems.',
+      participationColor: 'bg-green-100 text-green-800',
+      complexityColor: 'bg-red-100 text-red-800',
+      borderColor: 'border-green-400',
+      bgColor: 'bg-green-50'
+    },
+    debate: {
+      participation: 'group',
+      complexity: 'high',
+      icon: '⚖️',
+      title: 'Structured Debate',
+      description: 'Students engage in evidence-based arguments on assigned topics.',
+      participationColor: 'bg-green-100 text-green-800',
+      complexityColor: 'bg-red-100 text-red-800',
+      borderColor: 'border-orange-400',
+      bgColor: 'bg-orange-50'
+    },
+    problem_solving: {
+      participation: 'group',
+      complexity: 'moderate',
+      icon: '🧩',
+      title: 'Problem Solving',
+      description: 'Collaborative problem solving using systematic approaches.',
+      participationColor: 'bg-green-100 text-green-800',
+      complexityColor: 'bg-yellow-100 text-yellow-800',
+      borderColor: 'border-indigo-400',
+      bgColor: 'bg-indigo-50'
+    }
+  };
+  
+  const config = activityConfigs[activityType];
+  if (config) {
+    // Set hidden form values
+    participationInput.value = config.participation;
+    complexityInput.value = config.complexity;
+    
+    // Update display
+    icon.textContent = config.icon;
+    title.textContent = config.title;
+    description.textContent = config.description;
+    
+    participationBadge.textContent = config.participation.charAt(0).toUpperCase() + config.participation.slice(1);
+    participationBadge.className = `px-2 py-1 rounded text-xs font-medium ${config.participationColor}`;
+    
+    complexityBadge.textContent = config.complexity.charAt(0).toUpperCase() + config.complexity.slice(1);
+    complexityBadge.className = `px-2 py-1 rounded text-xs font-medium ${config.complexityColor}`;
+    
+    // Update info div styling
+    infoDiv.className = `p-4 rounded-lg border-l-4 mb-4 ${config.borderColor} ${config.bgColor}`;
+    infoDiv.classList.remove('hidden');
+  }
+}
   </script>
 </body>
 </html>

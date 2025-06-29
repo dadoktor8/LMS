@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Concept Map Details | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div class="max-w-6xl mx-auto px-4 py-8">
+    <!-- Breadcrumb Navigation -->
+    <nav class="flex mb-6" aria-label="Breadcrumb">
+      <ol class="inline-flex items-center space-x-1 md:space-x-2">
+        <li class="inline-flex items-center">
+          <a href="/ai/student/courses/{{ activity.course_id }}/active-activities" class="text-gray-700 hover:text-blue-600">
+            Activities
+          </a>
+        </li>
+        <li>
+          <div class="flex items-center">
+            <svg class="w-3 h-3 text-gray-400 mx-1" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+            </svg>
+            <a href="/ai/student/activities/{{ activity.id }}/work" class="text-gray-700 hover:text-blue-600 ml-1 md:ml-2">
+              {{ activity.activity_name }}
+            </a>
+          </div>
+        </li>
+        <li>
+          <div class="flex items-center">
+            <svg class="w-3 h-3 text-gray-400 mx-1" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+            </svg>
+            <span class="text-gray-400 ml-1 md:ml-2">Concept Map Details</span>
+          </div>
+        </li>
+      </ol>
+    </nav>
+
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+      <div class="flex justify-between items-start">
+        <div>
+          <h1 class="text-3xl font-bold text-blue-700 mb-2">🗺️ Concept Map Details</h1>
+          <p class="text-gray-600">{{ activity.activity_name }}</p>
+          {% if participation.group_id %}
+          <p class="text-sm text-purple-600 mt-1">Group: {{ participation.group.group_name }}</p>
+          {% endif %}
+        </div>
+        <div class="text-right text-sm text-gray-500">
+          <p>Submitted: {{ participation.submitted_at.strftime('%Y-%m-%d %H:%M') }}</p>
+          <p>{{ map_data.concepts|length }} concepts mapped</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid lg:grid-cols-3 gap-6">
+      <!-- Concept Map Visualization -->
+      <div class="lg:col-span-2 space-y-6">
+        <!-- Visual Concept Map -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-2xl font-semibold mb-6">🎯 Visual Concept Map</h2>
+          
+          <!-- Simple visual representation -->
+          <div class="concept-map-container bg-gray-50 rounded-lg p-6 min-h-96">
+            <div class="flex flex-wrap gap-3 justify-center items-start">
+              {% for concept in map_data.concepts %}
+              <div class="concept-node relative">
+                <div class="bg-blue-500 text-white px-4 py-2 rounded-lg shadow-md hover:bg-blue-600 transition-colors cursor-pointer text-center max-w-xs">
+                  <span class="text-sm font-medium">{{ concept }}</span>
+                </div>
+                <!-- Connection lines would be drawn with JavaScript/SVG in a real implementation -->
+              </div>
+              {% endfor %}
+            </div>
+            
+            <!-- Note about connections -->
+            <div class="mt-6 text-center text-gray-500 text-sm">
+              <p>💡 See the "Connections" section below for detailed relationships between concepts</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Detailed Connections -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-2xl font-semibold mb-6">🔗 Concept Relationships</h2>
+          
+          <div class="bg-gray-50 rounded-lg p-4">
+            <div class="prose max-w-none">
+              {{ map_data.connections|replace('\n', '<br>')|safe }}
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Analysis -->
+        {% if participation.ai_feedback %}
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-2xl font-semibold mb-6">🤖 AI Analysis & Feedback</h2>
+          
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div class="prose max-w-none text-blue-800">
+              {{ participation.ai_feedback['feedback']|replace('\n', '<br>')|safe }}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Sidebar -->
+      <div class="space-y-6">
+        <!-- Concept List -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h3 class="text-lg font-semibold mb-4">📝 Key Concepts ({{ map_data.concepts|length }})</h3>
+          
+          <div class="space-y-2 max-h-64 overflow-y-auto">
+            {% for concept in map_data.concepts %}
+            <div class="flex items-center p-2 bg-gray-50 rounded">
+              <span class="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-bold mr-3">
+                {{ loop.index }}
+              </span>
+              <span class="text-sm">{{ concept }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Map Statistics -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h3 class="text-lg font-semibold mb-4">📊 Map Statistics</h3>
+          
+          <div class="space-y-3">
+            <div class="flex justify-between items-center">
+              <span class="text-sm">Total Concepts:</span>
+              <span class="font-bold text-blue-600">{{ map_data.concepts|length }}</span>
+            </div>
+            
+            <div class="flex justify-between items-center">
+              <span class="text-sm">Connection Text Length:</span>
+              <span class="font-bold text-green-600">{{ map_data.connections|length }} chars</span>
+            </div>
+            
+            <div class="flex justify-between items-center">
+              <span class="text-sm">Map Complexity:</span>
+              <span class="font-bold {% if map_data.concepts|length >= 12 %}text-red-600{% elif map_data.concepts|length >= 8 %}text-yellow-600{% else %}text-green-600{% endif %}">
+                {% if map_data.concepts|length >= 12 %}High{% elif map_data.concepts|length >= 8 %}Medium{% else %}Basic{% endif %}
+              </span>
+            </div>
+            
+            <div class="flex justify-between items-center">
+              <span class="text-sm">Avg. Concept Length:</span>
+              <span class="font-bold text-purple-600">
+                {{ "%.1f"|format(map_data.concepts|map('length')|sum / map_data.concepts|length) }} chars
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Learning Insights -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h3 class="text-lg font-semibold mb-4">💡 Learning Insights</h3>
+          
+          <div class="space-y-3 text-sm">
+            {% if map_data.concepts|length >= 10 %}
+            <div class="p-3 bg-green-50 border border-green-200 rounded">
+              <p class="text-green-800">
+                <span class="font-medium">Comprehensive Coverage:</span>
+                Great job including {{ map_data.concepts|length }} concepts! This shows thorough understanding.
+              </p>
+            </div>
+            {% endif %}
+            
+            {% if map_data.connections|length >= 200 %}
+            <div class="p-3 bg-blue-50 border border-blue-200 rounded">
+              <p class="text-blue-800">
+                <span class="font-medium">Detailed Connections:</span>
+                Your relationship descriptions are comprehensive and thoughtful.
+              </p>
+            </div>
+            {% endif %}
+            
+            <div class="p-3 bg-purple-50 border border-purple-200 rounded">
+              <p class="text-purple-800">
+                <span class="font-medium">Concept Mapping Skills:</span>
+                You've demonstrated the ability to identify key concepts and explain their relationships.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h3 class="text-lg font-semibold mb-4">🎯 Actions</h3>
+          
+          <div class="space-y-3">
+            <button onclick="window.print()" class="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700">
+              🖨️ Print Concept Map
+            </button>
+            
+            <button onclick="exportConceptMap()" class="w-full bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700">
+              📄 Export as Text
+            </button>
+            
+            <a href="/ai/student/activities/{{ activity.id }}/work" 
+               class="w-full bg-gray-600 text-white py-2 px-4 rounded hover:bg-gray-700 text-center block">
+              ← Back to Activity
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function exportConceptMap() {
+      const concepts = {{ map_data.concepts|tojson }};
+      const connections = {{ map_data.connections|tojson }};
+      
+      const content = `CONCEPT MAP: {{ activity.activity_name }}
+Generated on: ${new Date().toLocaleDateString()}
+
+KEY CONCEPTS (${concepts.length}):
+${concepts.map((concept, index) => `${index + 1}. ${concept}`).join('\n')}
+
+CONNECTIONS & RELATIONSHIPS:
+${connections}
+
+---
+Created with Learning Platform Concept Mapping Tool`;
+
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'concept_map_{{ activity.id }}.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    }
+
+    // Add some interactivity to concept nodes
+    document.addEventListener('DOMContentLoaded', function() {
+      const conceptNodes = document.querySelectorAll('.concept-node');
+      conceptNodes.forEach((node, index) => {
+        node.addEventListener('click', function() {
+          // Highlight clicked concept
+          conceptNodes.forEach(n => n.querySelector('div').classList.remove('ring-4', 'ring-yellow-400'));
+          this.querySelector('div').classList.add('ring-4', 'ring-yellow-400');
+          
+          // Scroll to concept in sidebar
+          const sidebarConcept = document.querySelector(`[data-concept-index="${index}"]`);
+          if (sidebarConcept) {
+            sidebarConcept.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>

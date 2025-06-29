@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Concept Mapping - {{ activity.activity_name }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+    .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+    .header { margin-bottom: 30px; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+    .form-section { background: #f9f9f9; padding: 20px; border-radius: 8px; }
+    .form-section h3 { margin: 0 0 15px 0; color: #333; }
+    textarea { 
+      width: 100%; 
+      height: 300px; 
+      padding: 12px; 
+      border: 2px solid #ccc; 
+      font-family: Arial; 
+      font-size: 14px; 
+      resize: vertical;
+      box-sizing: border-box;
+    }
+    .submit-btn { 
+      background: #059669; 
+      color: white; 
+      padding: 12px 24px; 
+      border: none; 
+      border-radius: 6px; 
+      font-size: 16px; 
+      cursor: pointer; 
+      width: 100%;
+    }
+    .submit-btn:hover { background: #047857; }
+    .instructions { background: #dbeafe; padding: 15px; margin-bottom: 20px; border-radius: 8px; }
+    .status { padding: 10px; margin-bottom: 20px; border-radius: 6px; }
+    .status.submitted { background: #d1fae5; color: #065f46; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🗺️ {{ activity.activity_name }}</h1>
+      <p><strong>Concept Mapping Activity</strong> - Individual Work</p>
+      <p>Duration: {{ activity.duration_minutes }} minutes</p>
+      
+      {% if participation.status == 'submitted' %}
+      <div class="status submitted">
+        ✅ Your concept map has been submitted successfully!
+      </div>
+      {% endif %}
+    </div>
+
+    {% if participation.status == 'submitted' %}
+    <!-- Show submitted work -->
+    <div class="submitted-work">
+      <h2>Your Submitted Concept Map</h2>
+      {% if participation.submission_data %}
+      <div style="margin-bottom: 20px;">
+        <h3>📝 Key Concepts ({{ participation.submission_data.concepts|length }})</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+          {% for concept in participation.submission_data.concepts %}
+          <div style="background: #dbeafe; padding: 8px; border-radius: 4px; font-size: 14px;">{{ concept }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      
+      <div>
+        <h3>🔗 Connections & Relationships</h3>
+        <div style="background: #f3f4f6; padding: 15px; border-radius: 6px; white-space: pre-line;">{{ participation.submission_data.connections }}</div>
+      </div>
+      {% endif %}
+
+      {% if participation.ai_feedback %}
+      <div style="background: #dbeafe; padding: 15px; margin-top: 20px; border-radius: 6px;">
+        <h3>🤖 AI Feedback</h3>
+        <div>{{ participation.ai_feedback['feedback']|replace('\n', '<br>')|safe }}</div>
+      </div>
+      {% endif %}
+    </div>
+    {% else %}
+    <!-- Form for creating concept map -->
+    <div class="instructions">
+      <h3>📖 Instructions</h3>
+      <ul>
+        <li><strong>Key Concepts:</strong> List the main ideas, terms, or topics (one per line)</li>
+        <li><strong>Connections:</strong> Describe how concepts relate to each other</li>
+        <li><strong>Think visually:</strong> Imagine drawing lines between related concepts</li>
+        <li><strong>Be specific:</strong> Explain WHY concepts are connected</li>
+      </ul>
+    </div>
+
+    <form method="post" action="/ai/student/activities/{{ activity.id }}/concept-map/submit">
+      <div class="form-grid">
+        <div class="form-section">
+          <h3>📝 Key Concepts</h3>
+          <textarea name="concepts" required placeholder="List your key concepts here (one per line):
+
+Photosynthesis
+Cellular respiration
+Glucose
+Oxygen
+Carbon dioxide
+Chloroplasts
+Mitochondria
+Energy transfer
+..."></textarea>
+          <p style="font-size: 12px; color: #666; margin-top: 8px;">💡 Tip: Include 8-15 concepts for a comprehensive map</p>
+        </div>
+        
+        <div class="form-section">
+          <h3>🔗 Connections & Relationships</h3>
+          <textarea name="connections" required placeholder="Describe how concepts connect to each other:
+
+Photosynthesis produces glucose and oxygen from carbon dioxide and water. This process occurs in chloroplasts and captures light energy.
+
+Cellular respiration breaks down glucose using oxygen to release energy. This happens in mitochondria and produces carbon dioxide as waste.
+
+These two processes are opposite - photosynthesis stores energy while cellular respiration releases it. They form a cycle in nature..."></textarea>
+          <p style="font-size: 12px; color: #666; margin-top: 8px;">💡 Tip: Use phrases like 'leads to', 'causes', 'requires', 'produces'</p>
+        </div>
+      </div>
+      
+      <div style="background: #fefce8; padding: 15px; margin-bottom: 20px; border-radius: 6px;">
+        <h4>✨ Example Connection Statements:</h4>
+        <ul style="font-size: 14px;">
+          <li>"Concept A <strong>causes</strong> Concept B because..."</li>
+          <li>"Concept C is a <strong>type of</strong> Concept D..."</li>
+          <li>"Concept E <strong>requires</strong> Concept F in order to..."</li>
+          <li>"Concept G and Concept H are <strong>similar because</strong>..."</li>
+        </ul>
+      </div>
+      
+      <button type="submit" class="submit-btn">🚀 Submit Concept Map for AI Review</button>
+    </form>
+    {% endif %}
+
+    <div style="text-align: center; margin-top: 30px;">
+      <a href="/ai/student/courses/{{ activity.course_id }}/active-activities" style="color: #2563eb;">← Back to Activities</a>
+    </div>
+  </div>
+</body>
+</html>

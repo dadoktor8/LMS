@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Concept Map Overview | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-7xl mx-auto p-6">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div class="flex justify-between items-start">
+        <div>
+          <h1 class="text-3xl font-bold text-purple-700 mb-2">🗺️ Concept Map Overview</h1>
+          <p class="text-gray-600">{{ activity.activity_name }}</p>
+          <p class="text-sm text-gray-500">Monitor all submitted concept maps and student understanding</p>
+        </div>
+        <div class="flex gap-2">
+          <a href="/ai/teacher/activities/{{ activity.id }}/concept-analytics" 
+             class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+            📈 Analytics
+          </a>
+          <a href="/ai/teacher/activities/{{ activity.id }}/monitor" 
+             class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
+            ← Back to Monitor
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="grid md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-purple-600">{{ submitted_maps|length }}</div>
+        <div class="text-sm text-gray-600">Submitted Maps</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-blue-600">
+          {% if submitted_maps %}
+          {% set total_concepts = 0 %}
+          {% for participation, user, group in submitted_maps %}
+            {% if participation.submission_data and participation.submission_data.concepts %}
+              {% set total_concepts = total_concepts + participation.submission_data.concepts|length %}
+            {% endif %}
+          {% endfor %}
+          {{ "%.1f"|format(total_concepts / submitted_maps|length) if submitted_maps|length > 0 else 0 }}
+          {% else %}
+          0
+          {% endif %}
+        </div>
+        <div class="text-sm text-gray-600">Avg Concepts</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-green-600">
+          {% if submitted_maps %}
+          {% set max_concepts = 0 %}
+          {% for participation, user, group in submitted_maps %}
+            {% if participation.submission_data and participation.submission_data.concepts %}
+              {% set concept_count = participation.submission_data.concepts|length %}
+              {% if concept_count > max_concepts %}
+                {% set max_concepts = concept_count %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {{ max_concepts }}
+          {% else %}
+          0
+          {% endif %}
+        </div>
+        <div class="text-sm text-gray-600">Most Concepts</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-orange-600">
+          {% if submitted_maps %}
+          {% set total_connection_length = 0 %}
+          {% for participation, user, group in submitted_maps %}
+            {% if participation.submission_data and participation.submission_data.connections %}
+              {% set total_connection_length = total_connection_length + participation.submission_data.connections|length %}
+            {% endif %}
+          {% endfor %}
+          {{ "%.0f"|format(total_connection_length / submitted_maps|length) if submitted_maps|length > 0 else 0 }}
+          {% else %}
+          0
+          {% endif %}
+        </div>
+        <div class="text-sm text-gray-600">Avg Connection Length</div>
+      </div>
+    </div>
+
+    <div class="grid lg:grid-cols-3 gap-6">
+      <!-- Submitted Concept Maps -->
+      <div class="lg:col-span-2 bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-2xl font-semibold mb-6">📝 Submitted Concept Maps</h2>
+        
+        {% if submitted_maps %}
+        <div class="space-y-4">
+          {% for participation, user, group in submitted_maps %}
+          <div class="border rounded-lg p-4 hover:shadow-md transition-shadow">
+            <div class="flex justify-between items-start mb-3">
+              <div>
+                <h3 class="font-semibold text-lg">
+                  {% if group %}
+                    {{ group.group_name }}
+                  {% else %}
+                    {{ user.f_name }}'s Concept Map
+                  {% endif %}
+                </h3>
+                <p class="text-sm text-gray-600">Created by: {{ user.f_name }}</p>
+                <p class="text-xs text-gray-500">{{ participation.submitted_at.strftime('%m/%d/%Y %H:%M') }}</p>
+              </div>
+              <div class="text-right">
+                {% if participation.submission_data %}
+                <span class="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs">
+                  {{ participation.submission_data.concepts|length }} concepts
+                </span>
+                <div class="text-sm text-gray-600 mt-1">
+                  {{ participation.submission_data.connections|length }} chars
+                </div>
+                {% endif %}
+              </div>
+            </div>
+            
+            <!-- Quick Preview -->
+            {% if participation.submission_data %}
+            <div class="bg-gray-50 rounded p-3 mb-3">
+              <h4 class="font-medium text-sm mb-2">Key Concepts Preview:</h4>
+              <div class="flex flex-wrap gap-1">
+                {% for concept in participation.submission_data.concepts %}
+                  {% if loop.index <= 6 %}
+                  <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">{{ concept }}</span>
+                  {% endif %}
+                {% endfor %}
+                {% if participation.submission_data.concepts|length > 6 %}
+                <span class="text-gray-500 text-xs">+{{ participation.submission_data.concepts|length - 6 }} more</span>
+                {% endif %}
+              </div>
+              
+              {% if participation.submission_data.connections %}
+              <div class="mt-2">
+                <h4 class="font-medium text-sm mb-1">Connections Preview:</h4>
+                <p class="text-xs text-gray-700">
+                  {% if participation.submission_data.connections|length > 100 %}
+                  {{ participation.submission_data.connections[:100] }}...
+                  {% else %}
+                  {{ participation.submission_data.connections }}
+                  {% endif %}
+                </p>
+              </div>
+              {% endif %}
+            </div>
+            {% endif %}
+            
+            <div class="flex gap-2">
+              <a href="/ai/teacher/activities/{{ activity.id }}/concept-map/{{ participation.id }}/view" 
+                 class="bg-purple-600 text-white px-3 py-2 rounded text-sm hover:bg-purple-700">
+                📊 View Details
+              </a>
+              {% if participation.ai_feedback %}
+              <button onclick="showAIFeedback('{{ participation.id }}')" 
+                      class="bg-green-600 text-white px-3 py-2 rounded text-sm hover:bg-green-700">
+                🤖 AI Feedback
+              </button>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-12">
+          <p class="text-gray-500 text-lg">No concept maps submitted yet.</p>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Sidebar -->
+      <div class="space-y-6">
+        <!-- Sample Concepts (Simplified) -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h3 class="text-lg font-semibold mb-4">📋 Sample Concepts</h3>
+          
+          {% if submitted_maps %}
+          <div class="space-y-2 max-h-64 overflow-y-auto">
+            <!-- Show concepts from first few submissions -->
+            {% for participation, user, group in submitted_maps %}
+              {% if loop.index <= 3 and participation.submission_data and participation.submission_data.concepts %}
+                <div class="mb-3">
+                  <h4 class="text-xs font-medium text-gray-600 mb-1">{{ user.f_name }}:</h4>
+                  <div class="flex flex-wrap gap-1">
+                    {% for concept in participation.submission_data.concepts %}
+                      {% if loop.index <= 5 %}
+                      <span class="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs">{{ concept }}</span>
+                      {% endif %}
+                    {% endfor %}
+                    {% if participation.submission_data.concepts|length > 5 %}
+                    <span class="text-gray-400 text-xs">+{{ participation.submission_data.concepts|length - 5 }}</span>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="text-gray-500 text-center py-8">No data yet.</p>
+          {% endif %}
+        </div>
+
+        <!-- Completion Insights -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h3 class="text-lg font-semibold mb-4">📊 Completion Insights</h3>
+          
+          <div class="space-y-3 text-sm">
+            <div class="flex justify-between">
+              <span>Concept Range:</span>
+              <span class="font-medium">
+                {% if submitted_maps %}
+                {% set min_concepts = 999 %}
+                {% set max_concepts = 0 %}
+                {% for participation, user, group in submitted_maps %}
+                  {% if participation.submission_data and participation.submission_data.concepts %}
+                    {% set concept_count = participation.submission_data.concepts|length %}
+                    {% if concept_count < min_concepts %}
+                      {% set min_concepts = concept_count %}
+                    {% endif %}
+                    {% if concept_count > max_concepts %}
+                      {% set max_concepts = concept_count %}
+                    {% endif %}
+                  {% endif %}
+                {% endfor %}
+                {% if min_concepts == 999 %}
+                0-0
+                {% else %}
+                {{ min_concepts }}-{{ max_concepts }}
+                {% endif %}
+                {% else %}
+                0-0
+                {% endif %}
+              </span>
+            </div>
+            
+            <div class="flex justify-between">
+              <span>Detail Level:</span>
+              <span class="font-medium {% if submitted_maps and total_connection_length and (total_connection_length / submitted_maps|length) >= 200 %}text-green-600{% else %}text-yellow-600{% endif %}">
+                {% if submitted_maps and total_connection_length and (total_connection_length / submitted_maps|length) >= 200 %}High{% else %}Moderate{% endif %}
+              </span>
+            </div>
+            
+            <div class="flex justify-between">
+              <span>Understanding Depth:</span>
+              <span class="font-medium text-blue-600">Developing</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Feedback Modal -->
+  <div id="ai-feedback-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-96 overflow-y-auto">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-semibold">🤖 AI Feedback</h3>
+        <button onclick="closeModal()" class="text-gray-500 hover:text-gray-700">✕</button>
+      </div>
+      <div id="feedback-content"></div>
+    </div>
+  </div>
+
+<script>
+function showAIFeedback(participationId) {
+  const modal = document.getElementById('ai-feedback-modal');
+  const content = document.getElementById('feedback-content');
+  
+  content.innerHTML = '<p class="text-gray-500">Loading AI feedback...</p>';
+  modal.classList.remove('hidden');
+  
+  fetch(`/ai/teacher/activities/{{ activity.id }}/participation/${participationId}/ai-feedback-json`)
+    .then(response => response.json())
+    .then(data => {
+      content.innerHTML = `<div class="prose max-w-none">${data.feedback.replace(/\n/g, '<br>')}</div>`;
+    })
+    .catch(error => {
+      content.innerHTML = '<p class="text-red-500">Error loading feedback.</p>';
+    });
+}
+
+function closeModal() {
+  document.getElementById('ai-feedback-modal').classList.add('hidden');
+}
+
+function exportAllMaps() {
+  alert('Export functionality would be implemented here');
+}
+
+function generateSummary() {
+  alert('Summary generation would be implemented here');
+}
+
+function identifyGaps() {
+  alert('Gap identification would be implemented here');
+}
+
+document.getElementById('ai-feedback-modal').addEventListener('click', function(e) {
+  if (e.target === this) {
+    closeModal();
+  }
+});
+</script>
+</body>
+</html>

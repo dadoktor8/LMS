@@ -3586,6 +3586,19 @@ async def create_inclass_activity(
     course = db.query(Course).filter_by(id=course_id, teacher_id=user["user_id"]).first()
     if not course:
         return JSONResponse(content={"error": "Course not found"}, status_code=404)
+
+    activity_configs = {
+        "peer_quiz": {"participation_type": "group", "complexity": "moderate"},
+        "concept_mapping": {"participation_type": "individual", "complexity": "moderate"},
+        "case_study": {"participation_type": "group", "complexity": "high"},
+        "debate": {"participation_type": "group", "complexity": "high"},
+        "problem_solving": {"participation_type": "group", "complexity": "moderate"}
+    }
+    
+    # Override with automatic values (ignore what frontend sent, use our config)
+    if activity_type in activity_configs:
+        participation_type = activity_configs[activity_type]["participation_type"]
+        complexity = activity_configs[activity_type]["complexity"]
     
     # Create activity
     activity = InClassActivity(
@@ -3606,6 +3619,8 @@ async def create_inclass_activity(
     db.refresh(activity)
     
     activities = db.query(InClassActivity).filter_by(course_id=course_id).order_by(InClassActivity.created_at.desc()).all()
+    for act in activities:
+        expire_activity_if_due(act, db)
     
     activity_html = ""
     for act in activities:
@@ -3691,6 +3706,39 @@ async def create_inclass_activity(
         activity_html = '<p class="text-gray-500 text-center py-8">No activities created yet.</p>'
     
     return HTMLResponse(content=activity_html)
+def validate_activity_constraints(activity_type: str, participation_type: str, complexity: str) -> str:
+    """
+    Validate activity type constraints.
+    Returns error message if invalid, None if valid.
+    """
+    
+    if activity_type == "peer_quiz":
+        if participation_type != "group":
+            return "Peer Quiz Builder requires Group participation type"
+        if complexity != "moderate":
+            return "Peer Quiz Builder requires Moderate complexity level"
+    
+    elif activity_type == "concept_mapping":
+        if participation_type != "individual":
+            return "Concept Mapping requires Individual participation type"
+        if complexity != "moderate":
+            return "Concept Mapping requires Moderate complexity level"
+    
+    # Validate allowed values
+    allowed_activity_types = ["peer_quiz", "concept_mapping", "case_study", "debate", "problem_solving"]
+    allowed_participation_types = ["individual", "group"]
+    allowed_complexity_levels = ["low", "moderate", "high"]
+    
+    if activity_type not in allowed_activity_types:
+        return f"Invalid activity type: {activity_type}"
+    
+    if participation_type not in allowed_participation_types:
+        return f"Invalid participation type: {participation_type}"
+    
+    if complexity not in allowed_complexity_levels:
+        return f"Invalid complexity level: {complexity}"
+    
+    return None
 
 @ai_router.post("/teacher/activities/{activity_id}/start")
 async def start_activity(
@@ -4126,9 +4174,9 @@ async def teacher_view_ai_feedback(
         {"request": request, "student": participation.student, "feedback_text": feedback_text}
     )
 
-# Concept Mapping Activity  
 @ai_router.post("/student/activities/{activity_id}/concept-map/submit")
 async def submit_concept_map(
+    request: Request,
     activity_id: int,
     concepts: str = Form(...),
     connections: str = Form(...),
@@ -4139,52 +4187,91 @@ async def submit_concept_map(
         activity_id=activity_id, student_id=user["user_id"]
     ).first()
     if not participation:
-        return JSONResponse(content={"error": "Not participating in activity"}, status_code=404)
+        raise HTTPException(status_code=404, detail="Not participating in activity")
     
     try:
+        # Structure the concept map data
         map_data = {
-            "concepts": json.loads(concepts),
-            "connections": json.loads(connections)
+            "concepts": [concept.strip() for concept in concepts.split('\n') if concept.strip()],
+            "connections": connections.strip()
         }
         
         # AI evaluation of concept map
-        retriever = get_course_retriever(participation.activity.course_id)
-        context = get_context_for_query(retriever, f"Concept map: {concepts} {connections}")
+        activity = db.query(InClassActivity).filter_by(id=activity_id).first()
+        if not activity:
+            raise HTTPException(status_code=404, detail="Activity not found")
+        
+        module_id = activity.module_id
+        course_id = activity.course_id
+        
+        # Retrieve context for the module if available, or for the whole course
+        context = retrieve_course_context(course_id, "Concept mapping about course material", module_id=module_id)
+        if isinstance(context, dict) and "error" in context:
+            raise HTTPException(status_code=404, detail=context["error"])
+        
         chat = get_openai_client()
         
+        # Format concept map for AI review
+        concepts_text = "Key Concepts:\n" + "\n".join([f"- {concept}" for concept in map_data["concepts"]])
+        connections_text = f"Connections & Relationships:\n{map_data['connections']}"
+        
         system_prompt = f"""
-You are evaluating a student-created concept map for understanding.
-Analyze for:
-1. Concept accuracy and relevance
-2. Connection quality and logic
-3. Completeness of understanding
-4. Missing key concepts or relationships
-CONTEXT: {context}
+You are evaluating a student-created concept map for educational quality.
+Analyze the concept map for:
+1. Concept accuracy and relevance to course material
+2. Quality and logic of connections between concepts
+3. Completeness of understanding demonstrated
+4. Missing key concepts that should be included
+5. Depth of understanding shown through relationships
+
+Provide specific feedback for improvement and highlight strengths.
+Context from course materials: {context}
         """
         
         response = chat.invoke([
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Evaluate this concept map - Concepts: {concepts}, Connections: {connections}"}
+            {"role": "user", "content": f"Evaluate this concept map:\n\n{concepts_text}\n\n{connections_text}"}
         ])
         
-        ai_feedback = json.loads(response.content if hasattr(response, "content") else response)
+        ai_feedback_text = response.content if hasattr(response, "content") else str(response)
         
         # Update participation
         participation.submission_data = map_data
-        participation.ai_feedback = ai_feedback
+        participation.ai_feedback = {"feedback": ai_feedback_text, "score": "pending"}
         participation.status = "submitted"
         participation.submitted_at = datetime.utcnow()
         
         db.commit()
         
-        return templates.TemplateResponse("concept_map_feedback.html", {
-            "request": request,
-            "ai_feedback": ai_feedback,
-            "map_data": map_data
-        })
+        # Redirect back to work page to show results
+        return RedirectResponse(
+            url=f"/ai/student/activities/{activity_id}/work", 
+            status_code=303
+        )
         
     except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        print(f"Error submitting concept map: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing concept map submission")
+
+@ai_router.get("/student/activities/{activity_id}/concept-map/view", response_class=HTMLResponse)
+async def view_concept_map(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation or not participation.submission_data:
+        raise HTTPException(status_code=404, detail="Concept map not found")
+    
+    return templates.TemplateResponse("concept_map_detail.html", {
+        "request": request,
+        "activity": participation.activity,
+        "participation": participation,
+        "map_data": participation.submission_data
+    })
     
 @ai_router.get("/student/activities/{activity_id}/join-page", response_class=HTMLResponse)
 async def activity_join_page(
@@ -4309,7 +4396,80 @@ async def activity_work_page(
     
     activity = participation.activity
     
-    return templates.TemplateResponse("activity_work.html", {
+    # Redirect to specific activity page
+    if activity.activity_type == 'peer_quiz':
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/peer-quiz/work")
+    elif activity.activity_type == 'concept_mapping':
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/concept-mapping/work")
+    else:
+        # For other activity types, use the generic page
+        return templates.TemplateResponse("activity_work.html", {
+            "request": request,
+            "activity": activity,
+            "participation": participation
+        })
+
+@ai_router.get("/student/activities/{activity_id}/concept-mapping/minimal", response_class=HTMLResponse)
+async def concept_mapping_minimal_page(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check participation
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/join-page")
+    
+    activity = participation.activity
+    
+    return templates.TemplateResponse("concept_mapping_minimal.html", {
+        "request": request,
+        "activity": activity,
+        "participation": participation
+    })
+
+@ai_router.get("/student/activities/{activity_id}/peer-quiz/work", response_class=HTMLResponse)
+async def peer_quiz_work_page(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check participation
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/join-page")
+    
+    activity = participation.activity
+    
+    return templates.TemplateResponse("peer_quiz_work.html", {
+        "request": request,
+        "activity": activity,
+        "participation": participation
+    })
+
+@ai_router.get("/student/activities/{activity_id}/concept-mapping/work", response_class=HTMLResponse)
+async def concept_mapping_work_page(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check participation
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/join-page")
+    
+    activity = participation.activity
+    
+    return templates.TemplateResponse("concept_mapping_minimal.html", {
         "request": request,
         "activity": activity,
         "participation": participation
@@ -4869,4 +5029,121 @@ async def get_ai_feedback_json(
         "feedback": feedback_text,
         "student_name": participation.student.f_name if participation.student else "Unknown",
         "group_name": participation.group.group_name if participation.group else None
+    })
+
+# Add these routes for teacher concept map monitoring
+
+@ai_router.get("/teacher/activities/{activity_id}/concept-map-overview", response_class=HTMLResponse)
+async def teacher_concept_map_overview(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="concept_mapping"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Concept mapping activity not found")
+    
+    # Get all submitted concept maps
+    submitted_maps = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted",
+        ActivityParticipation.submission_data.isnot(None)
+    ).all()
+    
+    return templates.TemplateResponse("teacher_concept_map_overview.html", {
+        "request": request,
+        "activity": activity,
+        "submitted_maps": submitted_maps
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/concept-map/{participation_id}/view", response_class=HTMLResponse)
+async def teacher_view_concept_map(
+    request: Request,
+    activity_id: int,
+    participation_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"]
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    
+    # Get the concept map participation
+    map_participation = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.id == participation_id,
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted"
+    ).first()
+    
+    if not map_participation:
+        raise HTTPException(status_code=404, detail="Concept map not found")
+    
+    return templates.TemplateResponse("teacher_concept_map_detail.html", {
+        "request": request,
+        "activity": activity,
+        "map_participation": map_participation,
+        "map_data": map_participation[0].submission_data
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/concept-analytics", response_class=HTMLResponse)
+async def teacher_concept_analytics(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="concept_mapping"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Concept mapping activity not found")
+    
+    # Get analytics data
+    submitted_maps = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id,
+        status="submitted"
+    ).all()
+    
+    # Calculate analytics
+    total_submissions = len(submitted_maps)
+    total_participants = db.query(ActivityParticipation).filter_by(activity_id=activity_id).count()
+    completion_rate = (total_submissions / total_participants * 100) if total_participants > 0 else 0
+    
+    concept_counts = []
+    connection_lengths = []
+    
+    for submission in submitted_maps:
+        if submission.submission_data:
+            concepts = submission.submission_data.get('concepts', [])
+            connections = submission.submission_data.get('connections', '')
+            concept_counts.append(len(concepts))
+            connection_lengths.append(len(connections))
+    
+    avg_concepts = sum(concept_counts) / len(concept_counts) if concept_counts else 0
+    avg_connection_length = sum(connection_lengths) / len(connection_lengths) if connection_lengths else 0
+    
+    return templates.TemplateResponse("teacher_concept_analytics.html", {
+        "request": request,
+        "activity": activity,
+        "total_submissions": total_submissions,
+        "total_participants": total_participants,
+        "completion_rate": completion_rate,
+        "avg_concepts": avg_concepts,
+        "avg_connection_length": avg_connection_length,
+        "concept_counts": concept_counts,
+        "connection_lengths": connection_lengths
     })

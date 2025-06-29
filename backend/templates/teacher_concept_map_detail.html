@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Concept Map Details | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-7xl mx-auto p-6">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div class="flex justify-between items-start">
+        <div>
+          <h1 class="text-3xl font-bold text-purple-700 mb-2">🗺️ Concept Map Analysis</h1>
+          <p class="text-gray-600">
+            Created by: 
+            {% if map_participation.ActivityGroup %}
+              {{ map_participation.ActivityGroup.group_name }} ({{ map_participation.User.f_name }})
+            {% else %}
+              {{ map_participation.User.f_name }}
+            {% endif %}
+          </p>
+          <p class="text-sm text-gray-500">
+            Submitted: {{ map_participation.ActivityParticipation.submitted_at.strftime('%m/%d/%Y %H:%M') }}
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <a href="/ai/teacher/activities/{{ activity.id }}/concept-map-overview" 
+             class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
+            ← Back to Overview
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quality Metrics -->
+    <div class="grid md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-purple-600">{{ map_data.concepts|length }}</div>
+        <div class="text-sm text-gray-600">Total Concepts</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-blue-600">{{ map_data.connections|length }}</div>
+        <div class="text-sm text-gray-600">Connection Chars</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-green-600">
+          {{ "%.1f"|format(map_data.concepts|map('length')|sum / map_data.concepts|length) }}
+        </div>
+        <div class="text-sm text-gray-600">Avg Concept Length</div>
+      </div>
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-orange-600">
+          {% if map_data.concepts|length >= 12 %}High{% elif map_data.concepts|length >= 8 %}Medium{% else %}Basic{% endif %}
+        </div>
+        <div class="text-sm text-gray-600">Complexity Level</div>
+      </div>
+    </div>
+
+    <div class="grid lg:grid-cols-3 gap-6">
+      <!-- Concept Map Content -->
+      <div class="lg:col-span-2 space-y-6">
+        <!-- Concept List -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h2 class="text-2xl font-semibold mb-6">📝 Student's Concepts</h2>
+          
+          <div class="grid md:grid-cols-2 gap-3">
+            {% for concept in map_data.concepts %}
+            <div class="flex items-center p-3 bg-purple-50 rounded-lg border">
+              <span class="w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center text-sm font-bold mr-3">
+                {{ loop.index }}
+              </span>
+              <span class="flex-1 text-sm">{{ concept }}</span>
+              <div class="text-xs text-gray-500">
+                {{ concept|length }} chars
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Connections Analysis -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h2 class="text-2xl font-semibold mb-6">🔗 Connection Analysis</h2>
+          
+          <div class="bg-gray-50 rounded-lg p-4 mb-4">
+            <h3 class="font-semibold mb-2">Student's Relationship Descriptions:</h3>
+            <div class="prose max-w-none text-gray-800">
+              {{ map_data.connections|replace('\n', '<br>')|safe }}
+            </div>
+          </div>
+          
+          <!-- Connection Quality Analysis -->
+          <div class="grid md:grid-cols-3 gap-4">
+            <div class="bg-blue-50 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-blue-600">
+                {{ map_data.connections.split('.')|length - 1 }}
+              </div>
+              <div class="text-sm text-blue-800">Sentences</div>
+            </div>
+            <div class="bg-green-50 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-green-600">
+                {{ (map_data.connections.lower().count('because') + map_data.connections.lower().count('therefore') + map_data.connections.lower().count('leads to') + map_data.connections.lower().count('causes')) }}
+              </div>
+              <div class="text-sm text-green-800">Causal Links</div>
+            </div>
+            <div class="bg-yellow-50 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-yellow-600">
+                {% set word_count = map_data.connections.split()|length %}
+                {{ word_count }}
+              </div>
+              <div class="text-sm text-yellow-800">Total Words</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Feedback Analysis -->
+        {% if map_participation.ActivityParticipation.ai_feedback %}
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h2 class="text-2xl font-semibold mb-6">🤖 AI Assessment</h2>
+          
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div class="prose max-w-none text-blue-800">
+              {{ map_participation.ActivityParticipation.ai_feedback['feedback']|replace('\n', '<br>')|safe }}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Teacher Analysis Sidebar -->
+      <div class="space-y-6">
+        <!-- Quality Assessment -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h3 class="text-lg font-semibold mb-4">📊 Quality Assessment</h3>
+          
+          <div class="space-y-4">
+            <!-- Concept Coverage -->
+            <div>
+              <div class="flex justify-between text-sm mb-1">
+                <span>Concept Coverage</span>
+                <span class="font-medium">
+                  {% if map_data.concepts|length >= 12 %}Excellent{% elif map_data.concepts|length >= 8 %}Good{% else %}Needs Improvement{% endif %}
+                </span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="bg-purple-600 h-2 rounded-full" style="width: {% set width = (map_data.concepts|length / 15 * 100) %}{{ width if width <= 100 else 100 }}%"></div>
+              </div>
+            </div>
+            
+            <!-- Detail Level -->
+            <div>
+              <div class="flex justify-between text-sm mb-1">
+                <span>Detail Level</span>
+                <span class="font-medium">
+                  {% if map_data.connections|length >= 300 %}High{% elif map_data.connections|length >= 150 %}Medium{% else %}Low{% endif %}
+                </span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="bg-blue-600 h-2 rounded-full" style="width: {% set width = (map_data.connections|length / 400 * 100) %}{{ width if width <= 100 else 100 }}%"></div>
+              </div>
+            </div>
+            
+            <!-- Relationship Quality -->
+            <div>
+              <div class="flex justify-between text-sm mb-1">
+                <span>Relationship Quality</span>
+                <span class="font-medium">
+                  {% set causal_words = map_data.connections.lower().count('because') + map_data.connections.lower().count('therefore') + map_data.connections.lower().count('leads to') + map_data.connections.lower().count('causes') %}
+                  {% if causal_words >= 5 %}Strong{% elif causal_words >= 2 %}Developing{% else %}Basic{% endif %}
+                </span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-2">
+                <div class="bg-green-600 h-2 rounded-full" style="width: {% set width = (causal_words / 8 * 100) %}{{ width if width <= 100 else 100 }}%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Learning Indicators -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+          <h3 class="text-lg font-semibold mb-4">🎯 Learning Indicators</h3>
+          
+          <div class="space-y-3 text-sm">
+            {% if map_data.concepts|length >= 10 %}
+            <div class="flex items-center p-2 bg-green-50 rounded">
+              <span class="text-green-600 mr-2">✅</span>
+              <span class="text-green-800">Comprehensive concept identification</span>
+            </div>
+            {% endif %}
+            
+            {% if map_data.connections|length >= 200 %}
+            <div class="flex items-center p-2 bg-green-50 rounded">
+              <span class="text-green-600 mr-2">✅</span>
+              <span class="text-green-800">Detailed relationship descriptions</span>
+            </div>
+            {% endif %}
+            
+            {% set causal_indicators = map_data.connections.lower().count('because') + map_data.connections.lower().count('therefore') + map_data.connections.lower().count('leads to') %}
+            {% if causal_indicators >= 3 %}
+            <div class="flex items-center p-2 bg-green-50 rounded">
+              <span class="text-green-600 mr-2">✅</span>
+              <span class="text-green-800">Strong causal reasoning</span>
+            </div>
+            {% endif %}
+            
+            <!-- Areas for improvement -->
+            {% if map_data.concepts|length < 8 %}
+            <div class="flex items-center p-2 bg-yellow-50 rounded">
+              <span class="text-yellow-600 mr-2">⚠️</span>
+              <span class="text-yellow-800">Could identify more concepts</span>
+            </div>
+            {% endif %}
+            
+            {% if map_data.connections|length < 150 %}
+            <div class="flex items-center p-2 bg-yellow-50 rounded">
+              <span class="text-yellow-600 mr-2">⚠️</span>
+              <span class="text-yellow-800">Could elaborate on relationships</span>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function addTeacherNote() {
+      const note = prompt("Add a teacher note for this concept map:");
+      if (note) {
+        // Implementation would save teacher note
+        alert("Note added: " + note);
+      }
+    }
+
+    function flagForDiscussion() {
+      if (confirm("Flag this concept map for class discussion?")) {
+        // Implementation would flag for discussion
+        alert("Concept map flagged for discussion");
+      }
+    }
+
+    function exportAnalysis() {
+      const content = `CONCEPT MAP ANALYSIS
+Student: {{ map_participation.User.f_name }}
+{% if map_participation.ActivityGroup %}Group: {{ map_participation.ActivityGroup.group_name }}{% endif %}
+Activity: {{ activity.activity_name }}
+Submitted: {{ map_participation.ActivityParticipation.submitted_at.strftime('%m/%d/%Y %H:%M') }}
+
+CONCEPTS ({{ map_data.concepts|length }}):
+{{ map_data.concepts|join('\n') }}
+
+CONNECTIONS:
+{{ map_data.connections }}
+
+QUALITY METRICS:
+- Total Concepts: {{ map_data.concepts|length }}
+- Connection Length: {{ map_data.connections|length }} characters
+- Complexity: {% if map_data.concepts|length >= 12 %}High{% elif map_data.concepts|length >= 8 %}Medium{% else %}Basic{% endif %}
+
+AI FEEDBACK:
+{% if map_participation.ActivityParticipation.ai_feedback %}{{ map_participation.ActivityParticipation.ai_feedback['feedback'] }}{% endif %}`;
+
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'concept_map_analysis_{{ map_participation.ActivityParticipation.id }}.txt';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    }
+
+    function shareAsExample() {
+      if (confirm("Share this concept map as a class example?")) {
+        // Implementation would share as example
+        alert("Concept map shared as example");
+      }
+    }
+  </script>
+</body>
+</html>

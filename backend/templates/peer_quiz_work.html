@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ activity.activity_name }} | Peer Quiz</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-6xl mx-auto p-6">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div class="flex justify-between items-start">
+        <div>
+          <h1 class="text-3xl font-bold text-blue-700 mb-2">{{ activity.activity_name }}</h1>
+          <div class="flex gap-2 mb-3">
+            <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded text-sm">Peer Quiz</span>
+            <span class="bg-green-100 text-green-800 px-3 py-1 rounded text-sm">{{ activity.participation_type|title }}</span>
+          </div>
+          {% if activity.instructions %}
+          <div class="bg-gray-50 rounded-md p-3">
+            <p class="text-gray-700">{{ activity.instructions }}</p>
+          </div>
+          {% endif %}
+        </div>
+        <div class="text-right">
+          <p class="text-sm text-gray-600">Duration: {{ activity.duration_minutes }} minutes</p>
+          {% if participation.status %}
+          <div class="mt-2">
+            {% if participation.status == 'submitted' %}
+            <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">✅ Submitted</span>
+            {% elif participation.status == 'in_progress' %}
+            <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-sm">⏳ In Progress</span>
+            {% else %}
+            <span class="bg-gray-100 text-gray-800 px-2 py-1 rounded text-sm">📝 Not Started</span>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Peer Quiz Interface -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+      <h2 class="text-2xl font-semibold mb-4">🤝 Create Your Quiz</h2>
+      <p class="text-gray-600 mb-6">
+        Work with your group to create a comprehensive 5-question quiz based on today's material.
+      </p>
+
+      {% if participation.status == 'submitted' %}
+      <!-- Show submitted quiz -->
+      <div class="bg-green-50 border border-green-200 rounded-lg p-6 mb-6">
+        <h3 class="text-lg font-semibold text-green-800 mb-4">✅ Quiz Submitted Successfully!</h3>
+        
+        {% if participation.submission_data %}
+        <div class="space-y-4">
+          {% for question in participation.submission_data %}
+          <div class="bg-white rounded-md p-4 border">
+            <h4 class="font-medium mb-2">Question {{ loop.index }}: {{ question.question }}</h4>
+            <div class="grid grid-cols-2 gap-2 text-sm">
+              <div class="{% if question.correct == 'a' %}bg-green-100 text-green-800{% endif %} p-2 rounded">A) {{ question.options.a }}</div>
+              <div class="{% if question.correct == 'b' %}bg-green-100 text-green-800{% endif %} p-2 rounded">B) {{ question.options.b }}</div>
+              <div class="{% if question.correct == 'c' %}bg-green-100 text-green-800{% endif %} p-2 rounded">C) {{ question.options.c }}</div>
+              <div class="{% if question.correct == 'd' %}bg-green-100 text-green-800{% endif %} p-2 rounded">D) {{ question.options.d }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
+          <h3 class="text-xl font-semibold text-blue-800 mb-4">🤝 Solve Other Groups' Quizzes</h3>
+          <p class="text-blue-700 mb-4">
+            Now that you've submitted your quiz, you can solve quizzes created by other groups and provide feedback!
+          </p>
+          
+          <div class="flex gap-4 flex-wrap">
+            <a href="/ai/student/activities/{{ activity.id }}/peer-quiz/solve" 
+               class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+              🧩 Solve Peer Quizzes
+            </a>
+            
+            <a href="/ai/student/activities/{{ activity.id }}/my-quiz/attempts" 
+               class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">
+              📊 View My Quiz Attempts
+            </a>
+          </div>
+        </div>
+
+        {% if participation.ai_feedback %}
+        <div class="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h4 class="font-semibold text-blue-800 mb-2">🤖 AI Feedback</h4>
+          <div class="text-blue-700">
+            {{ participation.ai_feedback['feedback']|replace('\n', '<br>')|safe }}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% else %}
+      <!-- Quiz creation form -->
+      <form id="quiz-form" method="post" action="/ai/student/activities/{{ activity.id }}/peer-quiz/submit" class="space-y-8">
+        {% for i in range(1, 6) %}
+        <div class="quiz-question bg-gray-50 rounded-lg p-6">
+          <h3 class="text-lg font-semibold mb-4">Question {{ i }}</h3>
+          
+          <div class="mb-4">
+            <label class="block text-sm font-medium mb-2">Question Text</label>
+            <textarea name="question_{{ i }}" rows="3" required
+                      class="w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter your question here..."></textarea>
+          </div>
+          
+          <div class="grid md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block text-sm font-medium mb-2">Option A</label>
+              <input type="text" name="option_{{ i }}_a" required
+                     class="w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500"
+                     placeholder="Option A">
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-2">Option B</label>
+              <input type="text" name="option_{{ i }}_b" required
+                     class="w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500"
+                     placeholder="Option B">
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-2">Option C</label>
+              <input type="text" name="option_{{ i }}_c" required
+                     class="w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500"
+                     placeholder="Option C">
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-2">Option D</label>
+              <input type="text" name="option_{{ i }}_d" required
+                     class="w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500"
+                     placeholder="Option D">
+            </div>
+          </div>
+          
+          <div>
+            <label class="block text-sm font-medium mb-2">Correct Answer</label>
+            <select name="correct_{{ i }}" required
+                    class="w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500">
+              <option value="">Select correct answer</option>
+              <option value="a">A</option>
+              <option value="b">B</option>
+              <option value="c">C</option>
+              <option value="d">D</option>
+            </select>
+          </div>
+        </div>
+        {% endfor %}
+        
+        <input type="hidden" name="questions" id="questions-data">
+        
+        <div class="flex gap-4">
+          <button type="button" onclick="saveProgress()" 
+                  class="bg-yellow-600 text-white px-6 py-3 rounded-md hover:bg-yellow-700">
+            💾 Save Progress
+          </button>
+          <button type="submit" onclick="prepareQuizData()" 
+                  class="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 font-medium">
+            🚀 Submit Quiz for AI Review
+          </button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+
+    <!-- Navigation -->
+    <div class="mt-8 text-center">
+      <a href="/ai/student/courses/{{ activity.course_id }}/active-activities" 
+         class="text-blue-600 hover:underline">← Back to Activities</a>
+    </div>
+  </div>
+
+<script>
+// Quiz-specific JavaScript
+function prepareQuizData() {
+  const questions = [];
+  
+  for (let i = 1; i <= 5; i++) {
+    const question = document.querySelector(`textarea[name="question_${i}"]`).value;
+    const optionA = document.querySelector(`input[name="option_${i}_a"]`).value;
+    const optionB = document.querySelector(`input[name="option_${i}_b"]`).value;
+    const optionC = document.querySelector(`input[name="option_${i}_c"]`).value;
+    const optionD = document.querySelector(`input[name="option_${i}_d"]`).value;
+    const correct = document.querySelector(`select[name="correct_${i}"]`).value;
+    
+    questions.push({
+      question: question,
+      options: {
+        a: optionA,
+        b: optionB,
+        c: optionC,
+        d: optionD
+      },
+      correct: correct
+    });
+  }
+  
+  document.getElementById('questions-data').value = JSON.stringify(questions);
+}
+
+function saveProgress() {
+  const formData = new FormData(document.getElementById('quiz-form'));
+  const progressData = {};
+  
+  for (let [key, value] of formData.entries()) {
+    if (key !== 'questions') {
+      progressData[key] = value;
+    }
+  }
+  
+  window.quizProgress = progressData;
+  
+  const saveBtn = document.querySelector('button[onclick="saveProgress()"]');
+  const originalText = saveBtn.textContent;
+  saveBtn.textContent = '✅ Saved!';
+  saveBtn.classList.add('bg-green-600');
+  saveBtn.classList.remove('bg-yellow-600');
+  
+  setTimeout(() => {
+    saveBtn.textContent = originalText;
+    saveBtn.classList.remove('bg-green-600');
+    saveBtn.classList.add('bg-yellow-600');
+  }, 2000);
+}
+
+// Load saved progress on page load
+window.addEventListener('load', function() {
+  if (window.quizProgress) {
+    for (let [key, value] of Object.entries(window.quizProgress)) {
+      const element = document.querySelector(`[name="${key}"]`);
+      if (element) {
+        element.value = value;
+      }
+    }
+  }
+});
+
+document.addEventListener('submit', function(e) {
+  const form = e.target;
+  if (form.id === 'quiz-form') {
+    let isValid = true;
+    
+    for (let i = 1; i <= 5; i++) {
+      const question = document.querySelector(`textarea[name="question_${i}"]`).value.trim();
+      const optionA = document.querySelector(`input[name="option_${i}_a"]`).value.trim();
+      const optionB = document.querySelector(`input[name="option_${i}_b"]`).value.trim();
+      const optionC = document.querySelector(`input[name="option_${i}_c"]`).value.trim();
+      const optionD = document.querySelector(`input[name="option_${i}_d"]`).value.trim();
+      const correct = document.querySelector(`select[name="correct_${i}"]`).value;
+      
+      if (!question || !optionA || !optionB || !optionC || !optionD || !correct) {
+        alert(`Please complete all fields for Question ${i}`);
+        isValid = false;
+        break;
+      }
+    }
+    
+    if (!isValid) {
+      e.preventDefault();
+      return false;
+    }
+    
+    prepareQuizData();
+  }
+});
+</script>
+</body>
+</html>
