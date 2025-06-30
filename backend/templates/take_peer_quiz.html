@@ -46,9 +46,9 @@
         <div class="space-y-3">
           {% for option_key, option_text in question.options.items() %}
           <label class="flex items-start space-x-3 p-3 border rounded-lg hover:bg-gray-50 cursor-pointer">
-            <input type="radio" name="question_{{ loop.index }}" value="{{ option_key }}" 
+            <input type="radio" name="question_{{ loop.outer.loop.index }}" value="{{ option_key }}" 
                    class="mt-1 text-blue-600 focus:ring-blue-500"
-                   {% if existing_attempt and existing_attempt.answers.get('question_' + loop.index|string) == option_key %}checked{% endif %}>
+                   {% if existing_attempt and existing_attempt.answers.get('question_' + loop.outer.loop.index|string) == option_key %}checked{% endif %}>
             <div class="flex-1">
               <span class="font-medium">{{ option_key.upper() }})</span>
               <span class="ml-2">{{ option_text }}</span>
