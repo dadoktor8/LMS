@@ -14,9 +14,9 @@
           <h1 class="text-3xl font-bold text-blue-700 mb-2">📝 Take Quiz</h1>
           <p class="text-gray-600">Created by: 
             {% if quiz_creator.group %}
-              {{ quiz_creator.group.group_name }} ({{ quiz_creator.user.f_name }})
+              {{ quiz_creator.group.group_name }} ({{ quiz_creator.student.f_name }})
             {% else %}
-              {{ quiz_creator.user.f_name }}
+              {{ quiz_creator.student.f_name }}
             {% endif %}
           </p>
           {% if participation.group_id %}
@@ -154,3 +154,6 @@ document.getElementById('quiz-form').addEventListener('submit', function(e) {
   
   prepareAnswerData();
 });
+</script>
+</body>
+</html>
