@@ -1,0 +1,217 @@
+<!-- teacher_knowledge_map_detail.html - Teacher detailed view of individual knowledge map -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Knowledge Map Detail | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-6xl mx-auto p-6">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div class="flex justify-between items-start">
+        <div>
+          <h1 class="text-3xl font-bold text-purple-700 mb-2">Knowledge Map Detail</h1>
+          <p class="text-lg text-gray-600">{{ activity.activity_name }}</p>
+          <div class="flex gap-2 mt-3">
+            <span class="bg-purple-100 text-purple-800 px-3 py-1 rounded text-sm">
+              👤 {{ map_participation[1].f_name }} {{ map_participation[1].l_name if map_participation[1].l_name else '' }}
+            </span>
+            {% if map_participation[2] %}
+            <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded text-sm">
+              Group: {{ map_participation[2].group_name }}
+            </span>
+            {% endif %}
+            <span class="bg-green-100 text-green-800 px-3 py-1 rounded text-sm">
+              📅 {{ map_participation[0].submitted_at.strftime('%Y-%m-%d %H:%M') if map_participation[0].submitted_at else 'Not submitted' }}
+            </span>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <a href="/ai/teacher/activities/{{ activity.id }}/knowledge-map-overview" 
+             class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+            ← Back to Overview
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Knowledge Map Analysis -->
+    {% if map_data %}
+    <div class="space-y-6">
+      <!-- Summary Stats -->
+      <div class="grid md:grid-cols-4 gap-4">
+        <div class="bg-purple-50 rounded-lg p-4 text-center">
+          <div class="text-2xl font-bold text-purple-600">{{ map_data.key_topics|length }}</div>
+          <div class="text-sm text-purple-800">Key Topics</div>
+        </div>
+        <div class="bg-blue-50 rounded-lg p-4 text-center">
+          <div class="text-2xl font-bold text-blue-600">{{ map_data.connections|length }}</div>
+          <div class="text-sm text-blue-800">Connection Chars</div>
+        </div>
+        <div class="bg-orange-50 rounded-lg p-4 text-center">
+          <div class="text-2xl font-bold text-orange-600">{{ map_data.knowledge_gaps|length }}</div>
+          <div class="text-sm text-orange-800">Gap Analysis Chars</div>
+        </div>
+        <div class="bg-green-50 rounded-lg p-4 text-center">
+          <div class="text-2xl font-bold text-green-600">
+            {% if map_data.knowledge_gaps|length > 50 %}High{% elif map_data.knowledge_gaps|length > 20 %}Medium{% else %}Low{% endif %}
+          </div>
+          <div class="text-sm text-green-800">Self-Awareness</div>
+        </div>
+      </div>
+
+      <!-- Key Topics Section -->
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-2xl font-semibold text-purple-700 mb-4">🎯 Key Topics & Concepts</h2>
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+          {% for topic in map_data.key_topics %}
+          <div class="bg-purple-50 border border-purple-200 rounded-lg p-3">
+            <span class="text-purple-800 font-medium">{{ topic }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        
+        <!-- Topic Analysis -->
+        <div class="bg-gray-50 rounded-lg p-4">
+          <h3 class="font-medium text-gray-800 mb-2">📊 Topic Analysis</h3>
+          <div class="grid md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <span class="font-medium">Total Topics:</span> {{ map_data.key_topics|length }}
+            </div>
+            <div>
+              <span class="font-medium">Avg Topic Length:</span> 
+              {% if map_data.key_topics %}
+                {{ "%.1f"|format((map_data.key_topics|join('')|length) / map_data.key_topics|length) }} chars
+              {% else %}
+                0 chars
+              {% endif %}
+            </div>
+            <div>
+              <span class="font-medium">Coverage:</span> 
+              {% if map_data.key_topics|length >= 8 %}Comprehensive{% elif map_data.key_topics|length >= 5 %}Good{% else %}Basic{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Connections Section -->
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-2xl font-semibold text-blue-700 mb-4">🔗 Topic Connections & Relationships</h2>
+        <div class="bg-blue-50 rounded-lg p-4 mb-4">
+          <div class="text-gray-800 whitespace-pre-wrap leading-relaxed">{{ map_data.connections }}</div>
+        </div>
+        
+        <!-- Connection Analysis -->
+        <div class="bg-gray-50 rounded-lg p-4">
+          <h3 class="font-medium text-gray-800 mb-2">📊 Connection Analysis</h3>
+          <div class="grid md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <span class="font-medium">Total Characters:</span> {{ map_data.connections|length }}
+            </div>
+            <div>
+              <span class="font-medium">Word Count:</span> {{ map_data.connections.split()|length }}
+            </div>
+            <div>
+              <span class="font-medium">Depth:</span> 
+              {% if map_data.connections|length >= 500 %}Deep{% elif map_data.connections|length >= 200 %}Moderate{% else %}Surface{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Knowledge Gaps Section -->
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-2xl font-semibold text-orange-700 mb-4">🤔 Knowledge Gaps & Self-Reflection</h2>
+        <div class="bg-orange-50 rounded-lg p-4 mb-4">
+          <div class="text-gray-800 whitespace-pre-wrap leading-relaxed">{{ map_data.knowledge_gaps }}</div>
+        </div>
+        
+        <!-- Gap Analysis -->
+        <div class="bg-gray-50 rounded-lg p-4">
+          <h3 class="font-medium text-gray-800 mb-2">📊 Self-Awareness Analysis</h3>
+          <div class="grid md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <span class="font-medium">Characters:</span> {{ map_data.knowledge_gaps|length }}
+            </div>
+            <div>
+              <span class="font-medium">Self-Awareness Level:</span> 
+              {% if map_data.knowledge_gaps|length >= 200 %}High{% elif map_data.knowledge_gaps|length >= 50 %}Medium{% else %}Low{% endif %}
+            </div>
+            <div>
+              <span class="font-medium">Learning Maturity:</span> 
+              {% if map_data.knowledge_gaps|length >= 100 %}Advanced{% elif map_data.knowledge_gaps|length >= 30 %}Developing{% else %}Beginning{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Feedback Section -->
+      {% if map_participation[0].ai_feedback %}
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-2xl font-semibold text-green-700 mb-4">🤖 AI Feedback & Assessment</h2>
+        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div class="text-green-800 whitespace-pre-wrap leading-relaxed">
+            {{ map_participation[0].ai_feedback['feedback'] }}
+          </div>
+        </div>
+        
+        <!-- Feedback Metadata -->
+        <div class="mt-4 text-sm text-gray-600">
+          <span class="font-medium">Generated:</span> {{ map_participation[0].submitted_at.strftime('%Y-%m-%d %H:%M') if map_participation[0].submitted_at else 'Unknown' }}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Teacher Actions -->
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold mb-4">👨‍🏫 Teacher Actions</h3>
+        <div class="flex gap-3">
+          <button hx-get="/ai/teacher/activities/{{ activity.id }}/participation/{{ map_participation[0].id }}/ai-feedback"
+                  hx-target="#teacher-feedback-modal"
+                  hx-trigger="click"
+                  class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+            📖 View AI Feedback Modal
+          </button>
+          <button onclick="window.print()" 
+                  class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
+            🖨️ Print Knowledge Map
+          </button>
+          <a href="mailto:{{ map_participation[1].email if map_participation[1].email else '' }}?subject=Knowledge Map Feedback - {{ activity.activity_name }}"
+             class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">
+            ✉️ Email Student
+          </a>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-lg shadow-md p-6 text-center">
+      <div class="text-gray-500">
+        <h2 class="text-xl font-semibold mb-2">No Knowledge Map Data</h2>
+        <p>This knowledge map appears to be empty or corrupted.</p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Modal Target for Feedback -->
+  <div id="teacher-feedback-modal"></div>
+
+  <script>
+  // Modal dismiss functionality
+  document.addEventListener('click', function(e) {
+    const modal = document.getElementById('teacher-feedback-modal');
+    if (modal && modal.innerHTML.trim() !== '' && !modal.contains(e.target)) {
+      modal.innerHTML = '';
+    }
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === "Escape") {
+      document.getElementById('teacher-feedback-modal').innerHTML = '';
+    }
+  });
+  </script>
+</body>
+</html>

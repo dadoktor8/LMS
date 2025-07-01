@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Dep
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 import pandas as pd
 from pydantic import BaseModel
-from sqlalchemy import create_engine, func, text
+from sqlalchemy import String, create_engine, func, text
 from sqlalchemy.orm import Session
 import shutil
 import os
@@ -3590,6 +3590,7 @@ async def create_inclass_activity(
     activity_configs = {
         "peer_quiz": {"participation_type": "group", "complexity": "moderate"},
         "concept_mapping": {"participation_type": "individual", "complexity": "moderate"},
+        "knowledge_mapping": {"participation_type": "individual", "complexity": "moderate"},  
         "case_study": {"participation_type": "group", "complexity": "high"},
         "debate": {"participation_type": "group", "complexity": "high"},
         "problem_solving": {"participation_type": "group", "complexity": "moderate"}
@@ -3706,6 +3707,7 @@ async def create_inclass_activity(
         activity_html = '<p class="text-gray-500 text-center py-8">No activities created yet.</p>'
     
     return HTMLResponse(content=activity_html)
+
 def validate_activity_constraints(activity_type: str, participation_type: str, complexity: str) -> str:
     """
     Validate activity type constraints.
@@ -3724,8 +3726,23 @@ def validate_activity_constraints(activity_type: str, participation_type: str, c
         if complexity != "moderate":
             return "Concept Mapping requires Moderate complexity level"
     
+    elif activity_type == "knowledge_mapping":
+        if participation_type != "individual":
+            return "Knowledge Mapping requires Individual participation type"
+        if complexity != "moderate":
+            return "Knowledge Mapping requires Moderate complexity level"
+    
+    elif activity_type == "think_pair_create":  # NEW
+        if participation_type != "group":
+            return "Think-Pair-Create requires Group participation type"
+        if complexity != "moderate":
+            return "Think-Pair-Create requires Moderate complexity level"
+    
     # Validate allowed values
-    allowed_activity_types = ["peer_quiz", "concept_mapping", "case_study", "debate", "problem_solving"]
+    allowed_activity_types = [
+        "peer_quiz", "concept_mapping", "knowledge_mapping", 
+        "case_study", "debate", "problem_solving", "think_pair_create"  # Added think_pair_create
+    ]
     allowed_participation_types = ["individual", "group"]
     allowed_complexity_levels = ["low", "moderate", "high"]
     
@@ -4401,6 +4418,10 @@ async def activity_work_page(
         return RedirectResponse(url=f"/ai/student/activities/{activity_id}/peer-quiz/work")
     elif activity.activity_type == 'concept_mapping':
         return RedirectResponse(url=f"/ai/student/activities/{activity_id}/concept-mapping/work")
+    elif activity.activity_type == 'knowledge_mapping':
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/knowledge-mapping/work")
+    elif activity.activity_type == 'think_pair_create':  # NEW
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/think-pair-create/work")
     else:
         # For other activity types, use the generic page
         return templates.TemplateResponse("activity_work.html", {
@@ -5146,4 +5167,529 @@ async def teacher_concept_analytics(
         "avg_connection_length": avg_connection_length,
         "concept_counts": concept_counts,
         "connection_lengths": connection_lengths
+    })
+@ai_router.post("/student/activities/{activity_id}/knowledge-map/submit")
+async def submit_knowledge_map(
+    request: Request,
+    activity_id: int,
+    key_topics: str = Form(...),
+    connections: str = Form(...),
+    knowledge_gaps: str = Form(...),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=404, detail="Not participating in activity")
+    
+    try:
+        # Structure the knowledge map data
+        map_data = {
+            "key_topics": [topic.strip() for topic in key_topics.split('\n') if topic.strip()],
+            "connections": connections.strip(),
+            "knowledge_gaps": knowledge_gaps.strip()
+        }
+        
+        # AI evaluation of knowledge map
+        activity = db.query(InClassActivity).filter_by(id=activity_id).first()
+        if not activity:
+            raise HTTPException(status_code=404, detail="Activity not found")
+        
+        module_id = activity.module_id
+        course_id = activity.course_id
+        
+        # Retrieve context for the module if available, or for the whole course
+        context = retrieve_course_context(course_id, "Knowledge mapping about course material", module_id=module_id)
+        if isinstance(context, dict) and "error" in context:
+            raise HTTPException(status_code=404, detail=context["error"])
+        
+        chat = get_openai_client()
+        
+        # Format knowledge map for AI review
+        topics_text = "Key Topics:\n" + "\n".join([f"- {topic}" for topic in map_data["key_topics"]])
+        connections_text = f"Topic Connections & Relationships:\n{map_data['connections']}"
+        gaps_text = f"Identified Knowledge Gaps:\n{map_data['knowledge_gaps']}"
+        
+        system_prompt = f"""
+You are evaluating a student-created knowledge map for educational assessment.
+Analyze the knowledge map for:
+1. Accuracy and relevance of key topics to course material
+2. Quality and depth of connections between topics
+3. Understanding demonstrated through relationship explanations
+4. Self-awareness shown in identifying knowledge gaps
+5. Completeness of understanding across the subject area
+6. Critical thinking in recognizing what they don't yet know
+
+Provide specific feedback for improvement, highlight strengths, and suggest additional connections or gaps they might consider.
+Context from course materials: {context}
+        """
+        
+        response = chat.invoke([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Evaluate this knowledge map:\n\n{topics_text}\n\n{connections_text}\n\n{gaps_text}"}
+        ])
+        
+        ai_feedback_text = response.content if hasattr(response, "content") else str(response)
+        
+        # Update participation
+        participation.submission_data = map_data
+        participation.ai_feedback = {"feedback": ai_feedback_text, "score": "pending"}
+        participation.status = "submitted"
+        participation.submitted_at = datetime.utcnow()
+        
+        db.commit()
+        
+        # Redirect back to work page to show results
+        return RedirectResponse(
+            url=f"/ai/student/activities/{activity_id}/work", 
+            status_code=303
+        )
+        
+    except Exception as e:
+        print(f"Error submitting knowledge map: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing knowledge map submission")
+
+@ai_router.get("/student/activities/{activity_id}/knowledge-map/view", response_class=HTMLResponse)
+async def view_knowledge_map(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation or not participation.submission_data:
+        raise HTTPException(status_code=404, detail="Knowledge map not found")
+    
+    return templates.TemplateResponse("knowledge_map_detail.html", {
+        "request": request,
+        "activity": participation.activity,
+        "participation": participation,
+        "map_data": participation.submission_data
+    })
+
+@ai_router.get("/student/activities/{activity_id}/knowledge-mapping/work", response_class=HTMLResponse)
+async def knowledge_mapping_work_page(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check participation
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/join-page")
+   
+    activity = participation.activity
+   
+    return templates.TemplateResponse("knowledge_mapping_work.html", {
+        "request": request,
+        "activity": activity,
+        "participation": participation
+    })
+
+# 3. Add teacher monitoring routes for knowledge mapping
+
+@ai_router.get("/teacher/activities/{activity_id}/knowledge-map-overview", response_class=HTMLResponse)
+async def teacher_knowledge_map_overview(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="knowledge_mapping"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Knowledge mapping activity not found")
+    
+    # Get all submitted knowledge maps
+    submitted_maps = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted",
+        ActivityParticipation.submission_data.isnot(None)
+    ).all()
+    
+    return templates.TemplateResponse("teacher_knowledge_map_overview.html", {
+        "request": request,
+        "activity": activity,
+        "submitted_maps": submitted_maps
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/knowledge-map/{participation_id}/view", response_class=HTMLResponse)
+async def teacher_view_knowledge_map(
+    request: Request,
+    activity_id: int,
+    participation_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"]
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    
+    # Get the knowledge map participation
+    map_participation = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.id == participation_id,
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted"
+    ).first()
+    
+    if not map_participation:
+        raise HTTPException(status_code=404, detail="Knowledge map not found")
+    
+    return templates.TemplateResponse("teacher_knowledge_map_detail.html", {
+        "request": request,
+        "activity": activity,
+        "map_participation": map_participation,
+        "map_data": map_participation[0].submission_data
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/knowledge-analytics", response_class=HTMLResponse)
+async def teacher_knowledge_analytics(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="knowledge_mapping"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Knowledge mapping activity not found")
+    
+    # Get analytics data
+    submitted_maps = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id,
+        status="submitted"
+    ).all()
+    
+    # Calculate analytics
+    total_submissions = len(submitted_maps)
+    total_participants = db.query(ActivityParticipation).filter_by(activity_id=activity_id).count()
+    completion_rate = (total_submissions / total_participants * 100) if total_participants > 0 else 0
+    
+    topic_counts = []
+    connection_lengths = []
+    gap_lengths = []
+    
+    for submission in submitted_maps:
+        if submission.submission_data:
+            topics = submission.submission_data.get('key_topics', [])
+            connections = submission.submission_data.get('connections', '')
+            gaps = submission.submission_data.get('knowledge_gaps', '')
+            topic_counts.append(len(topics))
+            connection_lengths.append(len(connections))
+            gap_lengths.append(len(gaps))
+    
+    avg_topics = sum(topic_counts) / len(topic_counts) if topic_counts else 0
+    avg_connection_length = sum(connection_lengths) / len(connection_lengths) if connection_lengths else 0
+    avg_gap_awareness = sum(gap_lengths) / len(gap_lengths) if gap_lengths else 0
+    
+    return templates.TemplateResponse("teacher_knowledge_analytics.html", {
+        "request": request,
+        "activity": activity,
+        "total_submissions": total_submissions,
+        "total_participants": total_participants,
+        "completion_rate": completion_rate,
+        "avg_topics": avg_topics,
+        "avg_connection_length": avg_connection_length,
+        "avg_gap_awareness": avg_gap_awareness,
+        "topic_counts": topic_counts,
+        "connection_lengths": connection_lengths,
+        "gap_lengths": gap_lengths
+    })
+@ai_router.post("/student/activities/{activity_id}/think-pair-create/submit")
+async def submit_think_pair_create(
+    request: Request,
+    activity_id: int,
+    think_response: str = Form(...),
+    pair_discussion: str = Form(...),
+    create_paragraph: str = Form(...),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=404, detail="Not participating in activity")
+    
+    # Validate inputs
+    if not all([think_response.strip(), pair_discussion.strip(), create_paragraph.strip()]):
+        raise HTTPException(status_code=400, detail="All fields are required")
+    
+    submission_data = {
+        "think_response": think_response.strip(),
+        "pair_discussion": pair_discussion.strip(),
+        "create_paragraph": create_paragraph.strip()
+    }
+    
+    try:
+        # AI evaluation of the Think-Pair-Create response
+        activity = db.query(InClassActivity).filter_by(id=activity_id).first()
+        if not activity:
+            raise HTTPException(status_code=404, detail="Activity not found")
+        
+        module_id = activity.module_id
+        course_id = activity.course_id
+        
+        # Retrieve context for the module if available, or for the whole course
+        context = retrieve_course_context(course_id, "Think-Pair-Create activity responses", module_id=module_id)
+        if isinstance(context, dict) and "error" in context:
+            raise HTTPException(status_code=404, detail=context["error"])
+        
+        chat = get_openai_client()
+        
+        system_prompt = f"""
+You are evaluating a student's Think-Pair-Create activity submission for educational quality.
+
+Think-Pair-Create is a collaborative learning strategy where:
+1. THINK: Students individually reflect on a topic
+2. PAIR: Students discuss their thoughts with a partner/group
+3. CREATE: Students synthesize their learning into a cohesive paragraph
+
+Analyze the submission for:
+1. Depth of individual thinking and reflection
+2. Evidence of meaningful pair/group discussion and idea exchange
+3. Quality of synthesis in the final paragraph
+4. Integration of concepts and collaborative insights
+5. Clarity and coherence of the final created content
+
+Provide constructive feedback on:
+- Strengths in their thinking process
+- Quality of collaboration evidence
+- Effectiveness of their synthesis
+- Suggestions for deeper engagement
+- Areas for improvement in future activities
+
+Context from course materials: {context}
+        """
+        
+        content_for_review = f"""
+THINK (Individual Reflection):
+{think_response}
+
+PAIR (Group Discussion Summary):
+{pair_discussion}
+
+CREATE (Final Synthesized Paragraph):
+{create_paragraph}
+        """
+        
+        response = chat.invoke([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Evaluate this Think-Pair-Create submission:\n\n{content_for_review}"}
+        ])
+        
+        ai_feedback_text = response.content if hasattr(response, "content") else str(response)
+        
+        # Update participation
+        participation.submission_data = submission_data
+        participation.ai_feedback = {"feedback": ai_feedback_text, "score": "pending"}
+        participation.status = "submitted"
+        participation.submitted_at = datetime.utcnow()
+        
+        db.commit()
+        
+        # Redirect back to work page to show results
+        return RedirectResponse(
+            url=f"/ai/student/activities/{activity_id}/work", 
+            status_code=303
+        )
+        
+    except Exception as e:
+        print(f"Error submitting Think-Pair-Create: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing submission")
+
+# 3. Add Think-Pair-Create work page route
+
+@ai_router.get("/student/activities/{activity_id}/think-pair-create/work", response_class=HTMLResponse)
+async def think_pair_create_work_page(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check participation
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/join-page")
+    
+    activity = participation.activity
+    
+    return templates.TemplateResponse("think_pair_create_work.html", {
+        "request": request,
+        "activity": activity,
+        "participation": participation
+    })
+
+# Add these routes to your backend
+
+@ai_router.get("/teacher/activities/{activity_id}/think-pair-create-overview", response_class=HTMLResponse)
+async def teacher_think_pair_create_overview(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="think_pair_create"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Think-Pair-Create activity not found")
+    
+    # Get all submitted Think-Pair-Create with group info
+    submitted_tpc = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted",
+        ActivityParticipation.submission_data.isnot(None)
+    ).all()
+    
+    return templates.TemplateResponse("teacher_think_pair_create_overview.html", {
+        "request": request,
+        "activity": activity,
+        "submitted_tpc": submitted_tpc
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/collaboration-analytics", response_class=HTMLResponse)
+async def teacher_collaboration_analytics(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="think_pair_create"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Think-Pair-Create activity not found")
+    
+    # Get comprehensive analytics data
+    submitted_count = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id,
+        status="submitted"
+    ).count()
+    
+    # Get all submissions for analysis
+    submissions = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id,
+        status="submitted"
+    ).all()
+    
+    # Analyze word counts and collaboration quality
+    analytics_data = {
+        'total_submissions': submitted_count,
+        'think_word_counts': [],
+        'pair_word_counts': [],
+        'create_word_counts': [],
+        'collaboration_scores': [],
+        'groups_data': []
+    }
+    
+    for submission in submissions:
+        if submission.submission_data:
+            data = submission.submission_data
+            
+            # Word counts for each phase
+            think_words = len(data.get('think_response', '').split()) if data.get('think_response') else 0
+            pair_words = len(data.get('pair_discussion', '').split()) if data.get('pair_discussion') else 0
+            create_words = len(data.get('create_paragraph', '').split()) if data.get('create_paragraph') else 0
+            
+            analytics_data['think_word_counts'].append(think_words)
+            analytics_data['pair_word_counts'].append(pair_words)
+            analytics_data['create_word_counts'].append(create_words)
+            
+            # Simple collaboration quality score (0-100)
+            # Based on discussion length and synthesis quality
+            collab_score = min(100, (pair_words * 0.5 + create_words * 1.5) / 2)
+            analytics_data['collaboration_scores'].append(collab_score)
+    
+    # Group performance analysis
+    group_performance = db.query(
+        ActivityGroup.group_name,
+        func.count(ActivityParticipation.id).label('submission_count'),
+        func.avg(func.length(func.cast(ActivityParticipation.submission_data['create_paragraph'], String))).label('avg_paragraph_length')
+    ).join(
+        ActivityParticipation, ActivityGroup.id == ActivityParticipation.group_id
+    ).filter(
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted"
+    ).group_by(ActivityGroup.id, ActivityGroup.group_name).all()
+    
+    # Calculate averages
+    if analytics_data['think_word_counts']:
+        analytics_data['avg_think_words'] = sum(analytics_data['think_word_counts']) / len(analytics_data['think_word_counts'])
+        analytics_data['avg_pair_words'] = sum(analytics_data['pair_word_counts']) / len(analytics_data['pair_word_counts'])
+        analytics_data['avg_create_words'] = sum(analytics_data['create_word_counts']) / len(analytics_data['create_word_counts'])
+        analytics_data['avg_collaboration_score'] = sum(analytics_data['collaboration_scores']) / len(analytics_data['collaboration_scores'])
+    else:
+        analytics_data['avg_think_words'] = 0
+        analytics_data['avg_pair_words'] = 0
+        analytics_data['avg_create_words'] = 0
+        analytics_data['avg_collaboration_score'] = 0
+    
+    return templates.TemplateResponse("teacher_collaboration_analytics.html", {
+        "request": request,
+        "activity": activity,
+        "analytics_data": analytics_data,
+        "group_performance": group_performance
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/think-pair-create/{participation_id}/view", response_class=HTMLResponse)
+async def teacher_view_think_pair_create(
+    request: Request,
+    activity_id: int,
+    participation_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"]
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    
+    # Get the Think-Pair-Create participation
+    tpc_participation = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.id == participation_id,
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted"
+    ).first()
+    
+    if not tpc_participation:
+        raise HTTPException(status_code=404, detail="Think-Pair-Create submission not found")
+    
+    return templates.TemplateResponse("teacher_think_pair_create_detail.html", {
+        "request": request,
+        "activity": activity,
+        "tpc_participation": tpc_participation,
+        "submission_data": tpc_participation[0].submission_data
     })

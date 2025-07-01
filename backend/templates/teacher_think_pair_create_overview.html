@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Think-Pair-Create Overview | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-6xl mx-auto p-6">
+    <!-- Header -->
+    <div class="mb-8">
+      <h1 class="text-3xl font-bold text-purple-700 mb-2">Think-Pair-Create Overview</h1>
+      <h2 class="text-xl text-gray-600 mb-4">{{ activity.activity_name }}</h2>
+      <div class="flex gap-3">
+        <a href="/ai/teacher/activities/{{ activity.id }}/monitor"
+           class="text-blue-600 hover:underline px-3 py-2 rounded">← Back to Monitor</a>
+        <a href="/ai/teacher/activities/{{ activity.id }}/collaboration-analytics"
+           class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">📈 View Analytics</a>
+      </div>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="grid md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-purple-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-purple-600">{{ submitted_tpc|length }}</div>
+        <div class="text-sm text-purple-800">Total Submissions</div>
+      </div>
+      <div class="bg-blue-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-blue-600">
+          {% set total_groups = submitted_tpc|map(attribute='2')|map(attribute='group_name')|unique|list|length %}
+          {{ total_groups }}
+        </div>
+        <div class="text-sm text-blue-800">Active Groups</div>
+      </div>
+      <div class="bg-green-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-green-600">
+          {% if submitted_tpc %}
+            {% set total_words = 0 %}
+            {% for participation, user, group in submitted_tpc %}
+              {% if participation.submission_data and participation.submission_data.create_paragraph %}
+                {% set total_words = total_words + participation.submission_data.create_paragraph.split()|length %}
+              {% endif %}
+            {% endfor %}
+            {{ "%.0f"|format(total_words / submitted_tpc|length) if submitted_tpc|length > 0 else 0 }}
+          {% else %}
+            0
+          {% endif %}
+        </div>
+        <div class="text-sm text-green-800">Avg Final Words</div>
+      </div>
+      <div class="bg-orange-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-orange-600">
+          {% if submitted_tpc %}
+            {% set quality_submissions = 0 %}
+            {% for participation, user, group in submitted_tpc %}
+              {% if participation.submission_data %}
+                {% set discussion_words = participation.submission_data.pair_discussion.split()|length if participation.submission_data.pair_discussion else 0 %}
+                {% set final_words = participation.submission_data.create_paragraph.split()|length if participation.submission_data.create_paragraph else 0 %}
+                {% if discussion_words > 50 and final_words > 75 %}
+                  {% set quality_submissions = quality_submissions + 1 %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ "%.0f"|format((quality_submissions / submitted_tpc|length) * 100) if submitted_tpc|length > 0 else 0 }}%
+          {% else %}
+            0%
+          {% endif %}
+        </div>
+        <div class="text-sm text-orange-800">High Quality</div>
+      </div>
+    </div>
+
+    <!-- Submissions by Group -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+      <h3 class="text-xl font-semibold mb-6">📋 Submissions by Group</h3>
+      
+      {% if submitted_tpc %}
+        {% set groups = submitted_tpc|groupby('2.group_name') %}
+        {% for group_name, group_submissions in groups %}
+        <div class="mb-8 border-l-4 border-purple-400 bg-purple-50 rounded-lg p-4">
+          <h4 class="font-bold text-purple-800 text-lg mb-4">
+            🤝 Group: {{ group_name or 'Individual' }}
+            <span class="text-sm font-normal text-purple-600">({{ group_submissions|list|length }} submissions)</span>
+          </h4>
+          
+          <div class="space-y-4">
+            {% for participation, user, group in group_submissions %}
+            <div class="bg-white rounded-lg p-4 border">
+              <div class="flex justify-between items-start mb-3">
+                <div>
+                  <h5 class="font-semibold text-gray-800">{{ user.f_name }}</h5>
+                  <p class="text-sm text-gray-600">
+                    Submitted: {{ participation.submitted_at.strftime('%Y-%m-%d %H:%M') }}
+                  </p>
+                </div>
+                <div class="flex gap-2">
+                  <a href="/ai/teacher/activities/{{ activity.id }}/think-pair-create/{{ participation.id }}/view"
+                     class="bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700">
+                    View Details
+                  </a>
+                  {% if participation.ai_feedback %}
+                  <button hx-get="/ai/teacher/activities/{{ activity.id }}/participation/{{ participation.id }}/ai-feedback"
+                          hx-target="#ai-feedback-modal"
+                          hx-trigger="click"
+                          class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">
+                    AI Feedback
+                  </button>
+                  {% endif %}
+                </div>
+              </div>
+              
+              {% if participation.submission_data %}
+              <div class="grid md:grid-cols-3 gap-4 text-sm">
+                <!-- Think Preview -->
+                <div class="bg-blue-50 rounded p-3">
+                  <div class="flex items-center mb-2">
+                    <span class="text-blue-600 mr-1">🤔</span>
+                    <span class="font-medium text-blue-800">THINK</span>
+                    <span class="text-xs text-blue-600 ml-2">
+                      ({{ participation.submission_data.think_response.split()|length if participation.submission_data.think_response else 0 }} words)
+                    </span>
+                  </div>
+                  <p class="text-gray-700 text-xs">
+                    {{ participation.submission_data.think_response[:100] if participation.submission_data.think_response else 'No response' }}
+                    {% if participation.submission_data.think_response and participation.submission_data.think_response|length > 100 %}...{% endif %}
+                  </p>
+                </div>
+                
+                <!-- Pair Preview -->
+                <div class="bg-green-50 rounded p-3">
+                  <div class="flex items-center mb-2">
+                    <span class="text-green-600 mr-1">🗣️</span>
+                    <span class="font-medium text-green-800">PAIR</span>
+                    <span class="text-xs text-green-600 ml-2">
+                      ({{ participation.submission_data.pair_discussion.split()|length if participation.submission_data.pair_discussion else 0 }} words)
+                    </span>
+                  </div>
+                  <p class="text-gray-700 text-xs">
+                    {{ participation.submission_data.pair_discussion[:100] if participation.submission_data.pair_discussion else 'No response' }}
+                    {% if participation.submission_data.pair_discussion and participation.submission_data.pair_discussion|length > 100 %}...{% endif %}
+                  </p>
+                </div>
+                
+                <!-- Create Preview -->
+                <div class="bg-purple-50 rounded p-3">
+                  <div class="flex items-center mb-2">
+                    <span class="text-purple-600 mr-1">✍️</span>
+                    <span class="font-medium text-purple-800">CREATE</span>
+                    <span class="text-xs text-purple-600 ml-2">
+                      ({{ participation.submission_data.create_paragraph.split()|length if participation.submission_data.create_paragraph else 0 }} words)
+                    </span>
+                  </div>
+                  <p class="text-gray-700 text-xs italic">
+                    "{{ participation.submission_data.create_paragraph[:100] if participation.submission_data.create_paragraph else 'No response' }}
+                    {% if participation.submission_data.create_paragraph and participation.submission_data.create_paragraph|length > 100 %}..."{% endif %}
+                  </p>
+                </div>
+              </div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="text-center py-12">
+          <div class="text-6xl text-gray-300 mb-4">🤝</div>
+          <h3 class="text-xl font-semibold text-gray-600 mb-2">No Submissions Yet</h3>
+          <p class="text-gray-500">Students haven't submitted their Think-Pair-Create responses yet.</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Modal Target for Feedback -->
+  <div id="ai-feedback-modal"></div>
+
+  <script>
+  // Modal handling
+  document.addEventListener('click', function(e) {
+    const modal = document.getElementById('ai-feedback-modal');
+    if (modal && modal.innerHTML.trim() !== '' && !modal.contains(e.target)) {
+      modal.innerHTML = '';
+    }
+  });
+  
+  document.addEventListener('keydown', function(e) {
+    if (e.key === "Escape") {
+      document.getElementById('ai-feedback-modal').innerHTML = '';
+    }
+  });
+  </script>
+</body>
+</html>

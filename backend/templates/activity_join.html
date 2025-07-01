@@ -7,7 +7,60 @@
 </head>
 <body class="bg-gray-50">
   <div class="max-w-4xl mx-auto p-6">
-    <h1 class="text-3xl font-bold text-blue-700 mb-6">{{ activity.activity_name }}</h1>
+    <!-- Activity Header with Type-Specific Styling -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div class="flex items-center mb-4">
+        {% if activity.activity_type == 'think_pair_create' %}
+        <span class="text-4xl mr-3">🤝</span>
+        <div>
+          <h1 class="text-3xl font-bold text-purple-700">{{ activity.activity_name }}</h1>
+          <p class="text-purple-600">Think-Pair-Create Activity</p>
+        </div>
+        {% elif activity.activity_type == 'peer_quiz' %}
+        <span class="text-4xl mr-3">🧩</span>
+        <div>
+          <h1 class="text-3xl font-bold text-blue-700">{{ activity.activity_name }}</h1>
+          <p class="text-blue-600">Peer Quiz Builder</p>
+        </div>
+        {% elif activity.activity_type == 'concept_mapping' %}
+        <span class="text-4xl mr-3">🗺️</span>
+        <div>
+          <h1 class="text-3xl font-bold text-purple-700">{{ activity.activity_name }}</h1>
+          <p class="text-purple-600">Concept Mapping</p>
+        </div>
+        {% elif activity.activity_type == 'knowledge_mapping' %}
+        <span class="text-4xl mr-3">🧠</span>
+        <div>
+          <h1 class="text-3xl font-bold text-indigo-700">{{ activity.activity_name }}</h1>
+          <p class="text-indigo-600">Knowledge Mapping</p>
+        </div>
+        {% else %}
+        <span class="text-4xl mr-3">📝</span>
+        <div>
+          <h1 class="text-3xl font-bold text-blue-700">{{ activity.activity_name }}</h1>
+          <p class="text-blue-600">{{ activity.activity_type|title }}</p>
+        </div>
+        {% endif %}
+      </div>
+      
+      <!-- Activity-Specific Instructions -->
+      {% if activity.activity_type == 'think_pair_create' %}
+      <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+        <h3 class="font-semibold text-purple-800 mb-2">📋 Activity Process</h3>
+        <div class="text-purple-700 text-sm space-y-1">
+          <p><strong>🤔 THINK:</strong> Individual reflection on the topic</p>
+          <p><strong>🗣️ PAIR:</strong> Group discussion and idea sharing</p>
+          <p><strong>✍️ CREATE:</strong> Collaborative paragraph synthesis</p>
+        </div>
+      </div>
+      {% endif %}
+      
+      {% if activity.instructions %}
+      <div class="bg-gray-50 rounded-md p-3 mt-4">
+        <p class="text-gray-700">{{ activity.instructions }}</p>
+      </div>
+      {% endif %}
+    </div>
     
     {% if existing_participation %}
     <!-- Already participating -->
@@ -26,28 +79,36 @@
     <div class="grid md:grid-cols-2 gap-6">
       <!-- Existing Groups -->
       <div class="bg-white rounded-lg shadow p-6">
-        <h2 class="text-xl font-semibold mb-4">📝 Existing Groups</h2>
+        <h2 class="text-xl font-semibold mb-4">👥 Existing Groups</h2>
         
         {% if groups %}
         <div class="space-y-3">
           {% for group_info in groups %}
-          <div class="border rounded-lg p-4">
+          <div class="border rounded-lg p-4 hover:bg-gray-50 transition">
             <div class="flex justify-between items-start mb-2">
-              <h3 class="font-medium">{{ group_info.group.group_name }}</h3>
-              <span class="text-sm text-gray-600">{{ group_info.member_count }} members</span>
+              <h3 class="font-medium text-gray-800">{{ group_info.group.group_name }}</h3>
+              <span class="text-sm text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                {{ group_info.member_count }} member{{ 's' if group_info.member_count != 1 else '' }}
+              </span>
             </div>
             
             <div class="text-sm text-gray-600 mb-3">
-              Members: {{ group_info.members|join(', ') }}
+              <strong>Members:</strong> {{ group_info.members|join(', ') }}
             </div>
             
             <div class="flex gap-2 flex-wrap">
               {% if not existing_participation %}
               <form method="post" action="/ai/student/activities/{{ activity.id }}/join" class="inline">
                 <input type="hidden" name="group_name" value="{{ group_info.group.group_name }}">
-                <button type="submit" class="bg-blue-600 text-white px-3 py-1 rounded text-sm">
+                {% if activity.activity_type == 'think_pair_create' %}
+                <button type="submit" class="bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700">
                   Join Group
                 </button>
+                {% else %}
+                <button type="submit" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">
+                  Join Group
+                </button>
+                {% endif %}
               </form>
               {% endif %}
               
@@ -55,14 +116,14 @@
               <form method="post" action="/ai/student/groups/{{ group_info.group.id }}/rename" class="inline">
                 <input type="text" name="new_name" value="{{ group_info.group.group_name }}" 
                        class="px-2 py-1 border rounded text-sm w-24">
-                <button type="submit" class="bg-yellow-600 text-white px-2 py-1 rounded text-sm">
+                <button type="submit" class="bg-yellow-600 text-white px-2 py-1 rounded text-sm hover:bg-yellow-700">
                   Rename
                 </button>
               </form>
               
               <form method="post" action="/ai/student/groups/{{ group_info.group.id }}/delete" 
                     onsubmit="return confirm('Delete this group? All members will be removed.')" class="inline">
-                <button type="submit" class="bg-red-600 text-white px-2 py-1 rounded text-sm">
+                <button type="submit" class="bg-red-600 text-white px-2 py-1 rounded text-sm hover:bg-red-700">
                   Delete
                 </button>
               </form>
@@ -70,7 +131,7 @@
               
               {% if existing_participation and existing_participation.group_id == group_info.group.id %}
               <form method="post" action="/ai/student/groups/{{ group_info.group.id }}/leave" class="inline">
-                <button type="submit" class="bg-gray-600 text-white px-2 py-1 rounded text-sm">
+                <button type="submit" class="bg-gray-600 text-white px-2 py-1 rounded text-sm hover:bg-gray-700">
                   Leave Group
                 </button>
               </form>
@@ -80,7 +141,11 @@
           {% endfor %}
         </div>
         {% else %}
-        <p class="text-gray-500">No groups created yet.</p>
+        <div class="text-center py-8">
+          <div class="text-4xl text-gray-300 mb-2">👥</div>
+          <p class="text-gray-500">No groups created yet.</p>
+          <p class="text-gray-400 text-sm">Be the first to create a group!</p>
+        </div>
         {% endif %}
       </div>
 
@@ -96,15 +161,41 @@
                    class="w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500"
                    placeholder="Enter group name...">
           </div>
+          
+          <!-- Activity-specific tips -->
+          {% if activity.activity_type == 'think_pair_create' %}
+          <div class="bg-purple-50 border border-purple-200 rounded p-3">
+            <p class="text-purple-700 text-sm">
+              💡 <strong>Tip:</strong> Choose 2-4 members for effective Think-Pair-Create collaboration. 
+              Diverse perspectives make for richer discussions!
+            </p>
+          </div>
+          <button type="submit" class="w-full bg-purple-600 text-white py-3 rounded-md hover:bg-purple-700">
+            Create & Join Group
+          </button>
+          {% elif activity.activity_type == 'peer_quiz' %}
+          <div class="bg-blue-50 border border-blue-200 rounded p-3">
+            <p class="text-blue-700 text-sm">
+              💡 <strong>Tip:</strong> Groups of 3-5 work well for creating and solving peer quizzes together.
+            </p>
+          </div>
+          <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700">
+            Create & Join Group
+          </button>
+          {% else %}
           <button type="submit" class="w-full bg-green-600 text-white py-3 rounded-md hover:bg-green-700">
             Create & Join Group
           </button>
+          {% endif %}
         </form>
         {% else %}
-        <p class="text-gray-500">You're already participating in this activity.</p>
+        <div class="text-center py-8">
+          <div class="text-4xl text-gray-300 mb-2">✅</div>
+          <p class="text-gray-500">You're already participating in this activity.</p>
+        </div>
         {% endif %}
 
-        <!-- Individual Participation -->
+        <!-- Individual Participation (for activities that support it) -->
         {% if activity.participation_type == 'individual' and not existing_participation %}
         <div class="mt-6 pt-6 border-t">
           <form method="post" action="/ai/student/activities/{{ activity.id }}/join">
@@ -117,10 +208,52 @@
       </div>
     </div>
 
+    <!-- Activity Guidelines -->
+    {% if activity.activity_type == 'think_pair_create' %}
+    <div class="mt-6 bg-white rounded-lg shadow p-6">
+      <h3 class="text-lg font-semibold mb-4 text-purple-700">🎯 Success Guidelines</h3>
+      <div class="grid md:grid-cols-3 gap-4">
+        <div class="text-center">
+          <div class="text-2xl mb-2">🤔</div>
+          <h4 class="font-medium text-blue-800">Think Deeply</h4>
+          <p class="text-sm text-gray-600">Take time for genuine individual reflection before group discussion</p>
+        </div>
+        <div class="text-center">
+          <div class="text-2xl mb-2">🗣️</div>
+          <h4 class="font-medium text-green-800">Listen Actively</h4>
+          <p class="text-sm text-gray-600">Engage with different perspectives and build on each other's ideas</p>
+        </div>
+        <div class="text-center">
+          <div class="text-2xl mb-2">✍️</div>
+          <h4 class="font-medium text-purple-800">Synthesize Well</h4>
+          <p class="text-sm text-gray-600">Create a coherent paragraph that integrates individual and group insights</p>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     <div class="mt-6 text-center">
       <a href="/ai/student/courses/{{ activity.course_id }}/active-activities" 
          class="text-blue-600 hover:underline">← Back to Activities</a>
     </div>
   </div>
+
+  <script>
+  // Add some interactivity for better UX
+  document.addEventListener('DOMContentLoaded', function() {
+    // Auto-focus group name input
+    const groupNameInput = document.querySelector('input[name="group_name"]');
+    if (groupNameInput) {
+      groupNameInput.focus();
+    }
+    
+    // Highlight group creation form when no groups exist
+    const noGroupsMessage = document.querySelector('.text-gray-500');
+    const createForm = document.querySelector('form[action*="/join"]');
+    if (noGroupsMessage && noGroupsMessage.textContent.includes('No groups created yet') && createForm) {
+      createForm.closest('.bg-white').classList.add('ring-2', 'ring-blue-200');
+    }
+  });
+  </script>
 </body>
 </html>

@@ -1,0 +1,348 @@
+<!-- teacher_knowledge_analytics.html - Teacher analytics dashboard for knowledge mapping -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Knowledge Analytics | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-7xl mx-auto p-6">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div class="flex justify-between items-start">
+        <div>
+          <h1 class="text-3xl font-bold text-purple-700 mb-2">Knowledge Mapping Analytics</h1>
+          <p class="text-lg text-gray-600">{{ activity.activity_name }}</p>
+          <div class="flex gap-2 mt-3">
+            <span class="bg-purple-100 text-purple-800 px-3 py-1 rounded text-sm">🧠 Knowledge Mapping</span>
+            <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded text-sm">{{ total_submissions }} Submissions</span>
+            <span class="bg-green-100 text-green-800 px-3 py-1 rounded text-sm">{{ total_participants }} Participants</span>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <a href="/ai/teacher/activities/{{ activity.id }}/knowledge-map-overview" 
+             class="bg-purple-600 text-white px-4 py-2 rounded text-sm hover:bg-purple-700">
+            📋 View Overview
+          </a>
+          <a href="/ai/teacher/activities/{{ activity.id }}/monitor" 
+             class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+            ← Back to Monitor
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Key Metrics -->
+    <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-purple-600 mb-2">{{ completion_rate|round(1) }}%</div>
+        <div class="text-sm text-gray-600">Completion Rate</div>
+        <div class="text-xs text-gray-500 mt-1">{{ total_submissions }}/{{ total_participants }} students</div>
+      </div>
+      
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-blue-600 mb-2">{{ avg_topics|round(1) }}</div>
+        <div class="text-sm text-gray-600">Avg Topics per Map</div>
+        <div class="text-xs text-gray-500 mt-1">Range: {{ topic_counts|min if topic_counts else 0 }}-{{ topic_counts|max if topic_counts else 0 }}</div>
+      </div>
+      
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-green-600 mb-2">{{ avg_connection_length|round(0) }}</div>
+        <div class="text-sm text-gray-600">Avg Connection Length</div>
+        <div class="text-xs text-gray-500 mt-1">Characters</div>
+      </div>
+      
+      <div class="bg-white rounded-lg shadow-md p-6 text-center">
+        <div class="text-3xl font-bold text-orange-600 mb-2">{{ avg_gap_awareness|round(0) }}</div>
+        <div class="text-sm text-gray-600">Avg Gap Analysis</div>
+        <div class="text-xs text-gray-500 mt-1">Characters</div>
+      </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid lg:grid-cols-2 gap-6 mb-6">
+      <!-- Topic Distribution Chart -->
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold mb-4">📊 Topic Count Distribution</h3>
+        <div class="h-64">
+          <canvas id="topicChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Connection Quality Chart -->
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold mb-4">🔗 Connection Quality Analysis</h3>
+        <div class="h-64">
+          <canvas id="connectionChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Self-Awareness Analysis -->
+    <div class="grid lg:grid-cols-2 gap-6 mb-6">
+      <!-- Gap Analysis Chart -->
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold mb-4">🤔 Self-Awareness Levels</h3>
+        <div class="h-64">
+          <canvas id="gapChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Learning Insights -->
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold mb-4">💡 Learning Insights</h3>
+        <div class="space-y-4">
+          <div class="p-4 bg-purple-50 rounded-lg">
+            <h4 class="font-medium text-purple-800 mb-2">Knowledge Breadth</h4>
+            <p class="text-sm text-purple-700">
+              {% if avg_topics >= 8 %}
+                Students demonstrate comprehensive topic coverage, showing broad understanding of the subject matter.
+              {% elif avg_topics >= 5 %}
+                Students show good topic identification with room for exploring additional concepts.
+              {% else %}
+                Students may benefit from guidance on identifying key topics and concepts.
+              {% endif %}
+            </p>
+          </div>
+          
+          <div class="p-4 bg-blue-50 rounded-lg">
+            <h4 class="font-medium text-blue-800 mb-2">Connection Quality</h4>
+            <p class="text-sm text-blue-700">
+              {% if avg_connection_length >= 400 %}
+                Students are making detailed, thoughtful connections between concepts.
+              {% elif avg_connection_length >= 200 %}
+                Students show moderate understanding of relationships between topics.
+              {% else %}
+                Students may need support in developing deeper conceptual connections.
+              {% endif %}
+            </p>
+          </div>
+          
+          <div class="p-4 bg-orange-50 rounded-lg">
+            <h4 class="font-medium text-orange-800 mb-2">Self-Awareness</h4>
+            <p class="text-sm text-orange-700">
+              {% if avg_gap_awareness >= 150 %}
+                Students show high metacognitive awareness and honest self-reflection.
+              {% elif avg_gap_awareness >= 75 %}
+                Students demonstrate developing self-awareness about their learning.
+              {% else %}
+                Students may need encouragement to reflect more deeply on knowledge gaps.
+              {% endif %}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detailed Statistics -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+      <h3 class="text-lg font-semibold mb-4">📈 Detailed Statistics</h3>
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div>
+          <h4 class="font-medium text-gray-800 mb-3">Topic Analysis</h4>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between">
+              <span>Total Topics:</span>
+              <span class="font-medium">{{ topic_counts|sum if topic_counts else 0 }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Min Topics:</span>
+              <span class="font-medium">{{ topic_counts|min if topic_counts else 0 }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Max Topics:</span>
+              <span class="font-medium">{{ topic_counts|max if topic_counts else 0 }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Comprehensive (8+):</span>
+              <span class="font-medium">
+                {% set comprehensive_count = 0 %}
+                {% for count in topic_counts if count >= 8 %}
+                  {% set comprehensive_count = comprehensive_count + 1 %}
+                {% endfor %}
+                {{ comprehensive_count }}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        <div>
+          <h4 class="font-medium text-gray-800 mb-3">Connection Analysis</h4>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between">
+              <span>Total Characters:</span>
+              <span class="font-medium">{{ connection_lengths|sum if connection_lengths else 0 }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Min Length:</span>
+              <span class="font-medium">{{ connection_lengths|min if connection_lengths else 0 }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Max Length:</span>
+              <span class="font-medium">{{ connection_lengths|max if connection_lengths else 0 }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Deep Analysis (400+):</span>
+              <span class="font-medium">
+                {% set deep_analysis_count = 0 %}
+                {% for length in connection_lengths if length >= 400 %}
+                  {% set deep_analysis_count = deep_analysis_count + 1 %}
+                {% endfor %}
+                {{ deep_analysis_count }}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        <div>
+          <h4 class="font-medium text-gray-800 mb-3">Self-Awareness Analysis</h4>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between">
+              <span>Total Gap Characters:</span>
+              <span class="font-medium">{{ gap_lengths|sum if gap_lengths else 0 }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>High Awareness (150+):</span>
+              <span class="font-medium">
+                {% set high_awareness_count = 0 %}
+                {% for length in gap_lengths if length >= 150 %}
+                  {% set high_awareness_count = high_awareness_count + 1 %}
+                {% endfor %}
+                {{ high_awareness_count }}
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span>Medium Awareness (75+):</span>
+              <span class="font-medium">
+                {% set medium_awareness_count = 0 %}
+                {% for length in gap_lengths if length >= 75 %}
+                  {% set medium_awareness_count = medium_awareness_count + 1 %}
+                {% endfor %}
+                {{ medium_awareness_count }}
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span>Self-Reflection Rate:</span>
+              <span class="font-medium">
+                {% if total_submissions > 0 %}
+                  {% set reflection_count = 0 %}
+                  {% for length in gap_lengths if length > 50 %}
+                    {% set reflection_count = reflection_count + 1 %}
+                  {% endfor %}
+                  {{ "%.1f"|format((reflection_count / total_submissions) * 100) }}%
+                {% else %}
+                  0%
+                {% endif %}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // Topic Distribution Chart
+  const topicCtx = document.getElementById('topicChart').getContext('2d');
+  const topicCounts = {{ topic_counts|tojson if topic_counts else '[]' }};
+  const topicChart = new Chart(topicCtx, {
+    type: 'bar',
+    data: {
+      labels: topicCounts.map((_, i) => `Student ${i + 1}`),
+      datasets: [{
+        label: 'Number of Topics',
+        data: topicCounts,
+        backgroundColor: 'rgba(147, 51, 234, 0.6)',
+        borderColor: 'rgba(147, 51, 234, 1)',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Number of Topics'
+          }
+        }
+      }
+    }
+  });
+
+  // Connection Quality Chart
+  const connectionCtx = document.getElementById('connectionChart').getContext('2d');
+  const connectionLengths = {{ connection_lengths|tojson if connection_lengths else '[]' }};
+  const connectionChart = new Chart(connectionCtx, {
+    type: 'line',
+    data: {
+      labels: connectionLengths.map((_, i) => `Student ${i + 1}`),
+      datasets: [{
+        label: 'Connection Length (chars)',
+        data: connectionLengths,
+        backgroundColor: 'rgba(59, 130, 246, 0.2)',
+        borderColor: 'rgba(59, 130, 246, 1)',
+        borderWidth: 2,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Characters'
+          }
+        }
+      }
+    }
+  });
+
+  // Gap Analysis Chart
+  const gapCtx = document.getElementById('gapChart').getContext('2d');
+  const gapLengths = {{ gap_lengths|tojson if gap_lengths else '[]' }};
+  
+  // Categorize gap awareness levels
+  const highAwareness = gapLengths.filter(g => g >= 150).length;
+  const mediumAwareness = gapLengths.filter(g => g >= 75 && g < 150).length;
+  const lowAwareness = gapLengths.filter(g => g < 75).length;
+  
+  const gapChart = new Chart(gapCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['High Awareness (150+ chars)', 'Medium Awareness (75-149 chars)', 'Low Awareness (<75 chars)'],
+      datasets: [{
+        data: [highAwareness, mediumAwareness, lowAwareness],
+        backgroundColor: [
+          'rgba(34, 197, 94, 0.8)',
+          'rgba(251, 191, 36, 0.8)',
+          'rgba(239, 68, 68, 0.8)'
+        ],
+        borderColor: [
+          'rgba(34, 197, 94, 1)',
+          'rgba(251, 191, 36, 1)',
+          'rgba(239, 68, 68, 1)'
+        ],
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom'
+        }
+      }
+    }
+  });
+  </script>
+</body>
+</html>

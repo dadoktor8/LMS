@@ -105,6 +105,147 @@
           </div>
           <div id="concept-map-feedback-{{ activity.id }}"></div>
         </div>
+        {% elif activity.activity_type == 'knowledge_mapping' %}
+        <div class="knowledge-mapping-interface">
+          <h3 class="font-semibold mb-3">🧠 Knowledge Mapping</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            Create a knowledge map reflecting on what you've learned, how topics connect, and what gaps remain.
+          </p>
+          
+          {% if activity.participation_type == 'group' %}
+          <form hx-post="/ai/student/activities/{{ activity.id }}/join" class="mb-4">
+            <label class="block text-sm font-medium mb-2">Join or Create Group</label>
+            <div class="flex gap-2">
+              <input type="text" name="group_name" placeholder="Enter group name" required
+                    class="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-purple-500">
+              <button type="submit" class="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700">
+                Join Group
+              </button>
+            </div>
+          </form>
+          {% else %}
+          <a href="/ai/student/activities/{{ activity.id }}/knowledge-mapping/work" 
+            target="_top"
+            class="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 mb-4 inline-block">
+            Start Knowledge Mapping
+          </a>
+          {% endif %}
+          
+          <div id="knowledge-map-builder-{{ activity.id }}" class="hidden">
+            <form hx-post="/ai/student/activities/{{ activity.id }}/knowledge-map/submit"
+                  hx-target="#knowledge-map-feedback-{{ activity.id }}" class="space-y-4">
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Key Topics & Concepts (one per line)</label>
+                <textarea name="key_topics" rows="6" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-purple-500"
+                          placeholder="List your key topics here...
+
+        Machine Learning
+        Neural Networks
+        Data Processing
+        Model Evaluation"></textarea>
+              </div>
+              
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Topic Connections & Relationships</label>
+                <textarea name="connections" rows="6" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-purple-500"
+                          placeholder="Describe how concepts connect:
+
+        Neural Networks are a type of Machine Learning algorithm...
+        Data Processing is essential before applying Machine Learning...
+        Model Evaluation helps assess Neural Network performance..."></textarea>
+              </div>
+
+              <div class="border rounded-md p-4">
+                <label class="block font-medium mb-2">Knowledge Gaps & Questions</label>
+                <textarea name="knowledge_gaps" rows="4" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-purple-500"
+                          placeholder="What areas do you want to learn more about?
+
+        I understand the basics but want to learn more about...
+        I'm still unclear about how...
+        I'd like to explore..."></textarea>
+              </div>
+              
+              <button type="submit" class="w-full bg-purple-600 text-white py-3 rounded-md hover:bg-purple-700 font-medium">
+                Submit Knowledge Map for AI Review
+              </button>
+            </form>
+          </div>
+          <div id="knowledge-map-feedback-{{ activity.id }}"></div>
+        </div>
+        {% elif activity.activity_type == 'think_pair_create' %}
+        <div class="think-pair-create-interface">
+          <h3 class="font-semibold mb-3">🤝 Think-Pair-Create</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            Think individually, discuss with your group, then create a synthesized paragraph together.
+          </p>
+          <!--
+          {% if activity.participation_type == 'group' %}
+          <form hx-post="/ai/student/activities/{{ activity.id }}/join" class="mb-4">
+            <label class="block text-sm font-medium mb-2">Join or Create Group</label>
+            <div class="flex gap-2">
+              <input type="text" name="group_name" placeholder="Enter group name" required
+                    class="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-purple-500">
+              <button type="submit" class="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700">
+                Join Group
+              </button>
+            </div>
+          </form>
+          {% else %}
+          <a href="/ai/student/activities/{{ activity.id }}/think-pair-create/work" 
+            target="_top"
+            class="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 mb-4 inline-block">
+            Start Think-Pair-Create
+          </a>
+          {% endif %}
+          -->
+            <a href="/ai/student/activities/{{ activity.id }}/join-page" 
+          class="bg-purple-600 text-white px-6 py-3 rounded-md hover:bg-purple-700 inline-block">
+          {% if activity.participation_type == 'group' %}Join/Create Group{% else %}Start Activity{% endif %}
+          </a>
+          <div id="think-pair-create-builder-{{ activity.id }}" class="hidden">
+            <form hx-post="/ai/student/activities/{{ activity.id }}/think-pair-create/submit"
+                  hx-target="#think-pair-create-feedback-{{ activity.id }}" class="space-y-4">
+              
+              <!-- Think Phase -->
+              <div class="border rounded-md p-4 border-l-4 border-blue-400 bg-blue-50">
+                <label class="block font-medium mb-2 text-blue-800">
+                  🤔 THINK - Individual Reflection
+                </label>
+                <textarea name="think_response" rows="4" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                          placeholder="Write your individual thoughts on the topic..."></textarea>
+              </div>
+              
+              <!-- Pair Phase -->
+              <div class="border rounded-md p-4 border-l-4 border-green-400 bg-green-50">
+                <label class="block font-medium mb-2 text-green-800">
+                  🗣️ PAIR - Group Discussion Summary
+                </label>
+                <textarea name="pair_discussion" rows="5" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-green-500"
+                          placeholder="Summarize your group discussion - different perspectives, new insights, key points..."></textarea>
+              </div>
+              
+              <!-- Create Phase -->
+              <div class="border rounded-md p-4 border-l-4 border-purple-400 bg-purple-50">
+                <label class="block font-medium mb-2 text-purple-800">
+                  ✍️ CREATE - Synthesized Paragraph
+                </label>
+                <textarea name="create_paragraph" rows="6" required
+                          class="w-full p-2 border rounded-md focus:ring-2 focus:ring-purple-500"
+                          placeholder="Work together to write a cohesive paragraph that synthesizes individual thinking and group discussion..."></textarea>
+              </div>
+              
+              <button type="submit" class="w-full bg-purple-600 text-white py-3 rounded-md hover:bg-purple-700 font-medium">
+                Submit Think-Pair-Create for AI Review
+              </button>
+            </form>
+          </div>
+          <div id="think-pair-create-feedback-{{ activity.id }}"></div>
+        </div>
 
         {% elif activity.activity_type == 'case_study' %}
         <div class="case-study-interface">

@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>TPC Detail | {{ tpc_participation[1].f_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-4xl mx-auto p-6">
+    <!-- Header -->
+    <div class="mb-8">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-3xl font-bold text-purple-700 mb-2">Think-Pair-Create Detail</h1>
+          <h2 class="text-xl text-gray-600">{{ tpc_participation[1].f_name }}
+            {% if tpc_participation[2] %}
+            <span class="text-purple-600">({{ tpc_participation[2].group_name }})</span>
+            {% endif %}
+          </h2>
+          <p class="text-sm text-gray-500 mt-1">
+            Submitted: {{ tpc_participation[0].submitted_at.strftime('%Y-%m-%d %H:%M') }}
+          </p>
+        </div>
+        <div class="flex gap-3">
+          <a href="/ai/teacher/activities/{{ activity.id }}/think-pair-create-overview"
+             class="text-blue-600 hover:underline px-3 py-2 rounded">← Back to Overview</a>
+          {% if tpc_participation[0].ai_feedback %}
+          <button hx-get="/ai/teacher/activities/{{ activity.id }}/participation/{{ tpc_participation[0].id }}/ai-feedback"
+                  hx-target="#ai-feedback-modal"
+                  hx-trigger="click"
+                  class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+            View AI Feedback
+          </button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Info -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <h3 class="text-lg font-semibold mb-3">📋 Activity: {{ activity.activity_name }}</h3>
+      <div class="flex gap-2 mb-3">
+        <span class="bg-purple-100 text-purple-800 px-3 py-1 rounded text-sm">Think-Pair-Create</span>
+        <span class="bg-green-100 text-green-800 px-3 py-1 rounded text-sm">Group Activity</span>
+        <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded text-sm">Moderate Complexity</span>
+      </div>
+      {% if activity.instructions %}
+      <div class="bg-gray-50 rounded-md p-3">
+        <p class="text-gray-700 text-sm">{{ activity.instructions }}</p>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if submission_data %}
+    <!-- Think Phase -->
+    <div class="bg-white rounded-lg shadow-md mb-6">
+      <div class="bg-blue-50 border-l-4 border-blue-400 p-6 rounded-t-lg">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center">
+            <span class="text-blue-600 text-2xl mr-3">🤔</span>
+            <h3 class="text-xl font-semibold text-blue-800">THINK - Individual Reflection</h3>
+          </div>
+          <div class="text-sm text-blue-600 bg-blue-100 px-3 py-1 rounded">
+            {{ submission_data.think_response.split()|length if submission_data.think_response else 0 }} words
+          </div>
+        </div>
+        <div class="bg-white rounded-lg p-4 border">
+          <p class="text-gray-800 leading-relaxed">
+            {{ submission_data.think_response if submission_data.think_response else 'No individual reflection provided.' }}
+          </p>
+        </div>
+        
+        <!-- Think Phase Analysis -->
+        <div class="mt-4 grid md:grid-cols-3 gap-4">
+          <div class="bg-blue-100 rounded p-3 text-center">
+            <div class="text-blue-800 font-semibold">Depth</div>
+            <div class="text-sm text-blue-700">
+              {% set think_words = submission_data.think_response.split()|length if submission_data.think_response else 0 %}
+              {% if think_words > 75 %}
+                <span class="text-green-600">✅ Deep</span>
+              {% elif think_words > 40 %}
+                <span class="text-yellow-600">⚠️ Moderate</span>
+              {% else %}
+                <span class="text-red-600">❌ Shallow</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-blue-100 rounded p-3 text-center">
+            <div class="text-blue-800 font-semibold">Questions</div>
+            <div class="text-sm text-blue-700">
+              {% set question_count = submission_data.think_response.count('?') if submission_data.think_response else 0 %}
+              {{ question_count }} found
+            </div>
+          </div>
+          <div class="bg-blue-100 rounded p-3 text-center">
+            <div class="text-blue-800 font-semibold">Personal</div>
+            <div class="text-sm text-blue-700">
+              {% set personal_indicators = ['I think', 'I believe', 'my opinion', 'personally', 'I feel'] %}
+              {% set personal_count = 0 %}
+              {% if submission_data.think_response %}
+                {% for indicator in personal_indicators %}
+                  {% set personal_count = personal_count + submission_data.think_response.lower().count(indicator.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {% if personal_count > 0 %}
+                <span class="text-green-600">✅ Personal</span>
+              {% else %}
+                <span class="text-yellow-600">⚠️ Generic</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pair Phase -->
+    <div class="bg-white rounded-lg shadow-md mb-6">
+      <div class="bg-green-50 border-l-4 border-green-400 p-6 rounded-t-lg">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center">
+            <span class="text-green-600 text-2xl mr-3">🗣️</span>
+            <h3 class="text-xl font-semibold text-green-800">PAIR - Group Discussion Summary</h3>
+          </div>
+          <div class="text-sm text-green-600 bg-green-100 px-3 py-1 rounded">
+            {{ submission_data.pair_discussion.split()|length if submission_data.pair_discussion else 0 }} words
+          </div>
+        </div>
+        <div class="bg-white rounded-lg p-4 border">
+          <p class="text-gray-800 leading-relaxed">
+            {{ submission_data.pair_discussion if submission_data.pair_discussion else 'No group discussion summary provided.' }}
+          </p>
+        </div>
+        
+        <!-- Pair Phase Analysis -->
+        <div class="mt-4 grid md:grid-cols-3 gap-4">
+          <div class="bg-green-100 rounded p-3 text-center">
+            <div class="text-green-800 font-semibold">Collaboration</div>
+            <div class="text-sm text-green-700">
+              {% set pair_words = submission_data.pair_discussion.split()|length if submission_data.pair_discussion else 0 %}
+              {% if pair_words > 100 %}
+                <span class="text-green-600">✅ Rich</span>
+              {% elif pair_words > 50 %}
+                <span class="text-yellow-600">⚠️ Basic</span>
+              {% else %}
+                <span class="text-red-600">❌ Limited</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-green-100 rounded p-3 text-center">
+            <div class="text-green-800 font-semibold">Multiple Views</div>
+            <div class="text-sm text-green-700">
+              {% set perspective_indicators = ['different', 'another', 'other members', 'disagreed', 'agreed', 'perspective'] %}
+              {% set perspective_count = 0 %}
+              {% if submission_data.pair_discussion %}
+                {% for indicator in perspective_indicators %}
+                  {% set perspective_count = perspective_count + submission_data.pair_discussion.lower().count(indicator.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {% if perspective_count > 2 %}
+                <span class="text-green-600">✅ Diverse</span>
+              {% elif perspective_count > 0 %}
+                <span class="text-yellow-600">⚠️ Some</span>
+              {% else %}
+                <span class="text-red-600">❌ None</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-green-100 rounded p-3 text-center">
+            <div class="text-green-800 font-semibold">New Insights</div>
+            <div class="text-sm text-green-700">
+              {% set insight_indicators = ['realized', 'learned', 'discovered', 'new insight', 'changed my mind'] %}
+              {% set insight_count = 0 %}
+              {% if submission_data.pair_discussion %}
+                {% for indicator in insight_indicators %}
+                  {% set insight_count = insight_count + submission_data.pair_discussion.lower().count(indicator.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {% if insight_count > 0 %}
+                <span class="text-green-600">✅ Present</span>
+              {% else %}
+                <span class="text-yellow-600">⚠️ Unclear</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create Phase -->
+    <div class="bg-white rounded-lg shadow-md mb-6">
+      <div class="bg-purple-50 border-l-4 border-purple-400 p-6 rounded-t-lg">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center">
+            <span class="text-purple-600 text-2xl mr-3">✍️</span>
+            <h3 class="text-xl font-semibold text-purple-800">CREATE - Final Synthesized Paragraph</h3>
+          </div>
+          <div class="text-sm text-purple-600 bg-purple-100 px-3 py-1 rounded">
+            {{ submission_data.create_paragraph.split()|length if submission_data.create_paragraph else 0 }} words
+          </div>
+        </div>
+        <div class="bg-white rounded-lg p-4 border">
+          <blockquote class="text-gray-800 leading-relaxed italic text-lg border-l-4 border-purple-300 pl-4">
+            "{{ submission_data.create_paragraph if submission_data.create_paragraph else 'No final paragraph provided.' }}"
+          </blockquote>
+        </div>
+        
+        <!-- Create Phase Analysis -->
+        <div class="mt-4 grid md:grid-cols-4 gap-4">
+          <div class="bg-purple-100 rounded p-3 text-center">
+            <div class="text-purple-800 font-semibold">Length</div>
+            <div class="text-sm text-purple-700">
+              {% set create_words = submission_data.create_paragraph.split()|length if submission_data.create_paragraph else 0 %}
+              {% if create_words > 100 %}
+                <span class="text-green-600">✅ Comprehensive</span>
+              {% elif create_words > 60 %}
+                <span class="text-yellow-600">⚠️ Adequate</span>
+              {% else %}
+                <span class="text-red-600">❌ Brief</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-purple-100 rounded p-3 text-center">
+            <div class="text-purple-800 font-semibold">Structure</div>
+            <div class="text-sm text-purple-700">
+              {% set sentence_count = submission_data.create_paragraph.count('.') + submission_data.create_paragraph.count('!') + submission_data.create_paragraph.count('?') if submission_data.create_paragraph else 0 %}
+              {% if sentence_count > 4 %}
+                <span class="text-green-600">✅ Well-structured</span>
+              {% elif sentence_count > 2 %}
+                <span class="text-yellow-600">⚠️ Basic</span>
+              {% else %}
+                <span class="text-red-600">❌ Simple</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-purple-100 rounded p-3 text-center">
+            <div class="text-purple-800 font-semibold">Synthesis</div>
+            <div class="text-sm text-purple-700">
+              {% set synthesis_indicators = ['combining', 'together', 'synthesis', 'integrate', 'overall', 'conclusion'] %}
+              {% set synthesis_count = 0 %}
+              {% if submission_data.create_paragraph %}
+                {% for indicator in synthesis_indicators %}
+                  {% set synthesis_count = synthesis_count + submission_data.create_paragraph.lower().count(indicator.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {% if synthesis_count > 0 %}
+                <span class="text-green-600">✅ Evident</span>
+              {% else %}
+                <span class="text-yellow-600">⚠️ Unclear</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-purple-100 rounded p-3 text-center">
+            <div class="text-purple-800 font-semibold">Coherence</div>
+            <div class="text-sm text-purple-700">
+              {% set transition_words = ['however', 'therefore', 'furthermore', 'additionally', 'consequently', 'moreover'] %}
+              {% set transition_count = 0 %}
+              {% if submission_data.create_paragraph %}
+                {% for word in transition_words %}
+                  {% set transition_count = transition_count + submission_data.create_paragraph.lower().count(word.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {% if transition_count > 1 %}
+                <span class="text-green-600">✅ Coherent</span>
+              {% elif transition_count > 0 %}
+                <span class="text-yellow-600">⚠️ Some flow</span>
+              {% else %}
+                <span class="text-yellow-600">⚠️ Basic flow</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overall Analysis -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+      <h3 class="text-lg font-semibold mb-4">📊 Overall Analysis</h3>
+      
+      <div class="grid md:grid-cols-2 gap-6">
+        <div>
+          <h4 class="font-medium mb-3 text-gray-800">Progression Analysis</h4>
+          <div class="space-y-2">
+            {% set think_words = submission_data.think_response.split()|length if submission_data.think_response else 0 %}
+            {% set pair_words = submission_data.pair_discussion.split()|length if submission_data.pair_discussion else 0 %}
+            {% set create_words = submission_data.create_paragraph.split()|length if submission_data.create_paragraph else 0 %}
+            
+            <div class="flex items-center">
+              <span class="w-16 text-sm text-blue-600">Think:</span>
+              <div class="flex-1 bg-gray-200 rounded-full h-2 ml-2">
+                {% set think_percentage = ((think_words / 150 * 100) if think_words / 150 * 100 < 100 else 100) %}
+                <div class="bg-blue-500 h-2 rounded-full" style="width: {{ think_percentage }}%"></div>
+              </div>
+              <span class="w-12 text-sm text-gray-600 ml-2">{{ think_words }}w</span>
+            </div>
+            
+            <div class="flex items-center">
+              <span class="w-16 text-sm text-green-600">Pair:</span>
+              <div class="flex-1 bg-gray-200 rounded-full h-2 ml-2">
+                {% set pair_percentage = ((pair_words / 200 * 100) if pair_words / 200 * 100 < 100 else 100) %}
+                <div class="bg-green-500 h-2 rounded-full" style="width: {{ pair_percentage }}%"></div>
+              </div>
+              <span class="w-12 text-sm text-gray-600 ml-2">{{ pair_words }}w</span>
+            </div>
+            
+            <div class="flex items-center">
+              <span class="w-16 text-sm text-purple-600">Create:</span>
+              <div class="flex-1 bg-gray-200 rounded-full h-2 ml-2">
+                {% set create_percentage = ((create_words / 150 * 100) if create_words / 150 * 100 < 100 else 100) %}
+                <div class="bg-purple-500 h-2 rounded-full" style="width: {{ create_percentage }}%"></div>
+              </div>
+              <span class="w-12 text-sm text-gray-600 ml-2">{{ create_words }}w</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4 class="font-medium mb-3 text-gray-800">Quality Indicators</h4>
+          <div class="space-y-2">
+            <div class="flex justify-between">
+              <span class="text-sm">Individual Depth:</span>
+              <span class="text-sm font-medium">
+                {% if think_words > 75 %}High{% elif think_words > 40 %}Medium{% else %}Low{% endif %}
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-sm">Collaboration Quality:</span>
+              <span class="text-sm font-medium">
+                {% if pair_words > 100 %}High{% elif pair_words > 50 %}Medium{% else %}Low{% endif %}
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-sm">Synthesis Effectiveness:</span>
+              <span class="text-sm font-medium">
+                {% if create_words > 100 %}High{% elif create_words > 60 %}Medium{% else %}Low{% endif %}
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-sm">Overall Engagement:</span>
+              <span class="text-sm font-medium">
+                {% set total_engagement = (think_words + pair_words + create_words) / 3 %}
+                {% if total_engagement > 100 %}High{% elif total_engagement > 60 %}Medium{% else %}Low{% endif %}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-lg shadow-md p-6 text-center">
+      <div class="text-6xl text-gray-300 mb-4">📝</div>
+      <h3 class="text-xl font-semibold text-gray-600 mb-2">No Submission Data</h3>
+      <p class="text-gray-500">This submission appears to be incomplete or corrupted.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Modal Target for AI Feedback -->
+  <div id="ai-feedback-modal"></div>
+
+  <script>
+  // Modal handling
+  document.addEventListener('click', function(e) {
+    const modal = document.getElementById('ai-feedback-modal');
+    if (modal && modal.innerHTML.trim() !== '' && !modal.contains(e.target)) {
+      modal.innerHTML = '';
+    }
+  });
+  
+  document.addEventListener('keydown', function(e) {
+    if (e.key === "Escape") {
+      document.getElementById('ai-feedback-modal').innerHTML = '';
+    }
+  });
+  </script>
+</body>
+</html>

@@ -1,0 +1,200 @@
+<!-- teacher_knowledge_map_overview.html - Teacher overview of all knowledge maps -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Knowledge Map Overview | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-7xl mx-auto p-6">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <div class="flex justify-between items-start">
+        <div>
+          <h1 class="text-3xl font-bold text-purple-700 mb-2">Knowledge Map Overview</h1>
+          <p class="text-lg text-gray-600">{{ activity.activity_name }}</p>
+          <div class="flex gap-2 mt-3">
+            <span class="bg-purple-100 text-purple-800 px-3 py-1 rounded text-sm">🧠 Knowledge Mapping</span>
+            <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded text-sm">{{ submitted_maps|length }} Submissions</span>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <a href="/ai/teacher/activities/{{ activity.id }}/knowledge-analytics" 
+             class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">
+            📈 View Analytics
+          </a>
+          <a href="/ai/teacher/activities/{{ activity.id }}/monitor" 
+             class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+            ← Back to Monitor
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="grid md:grid-cols-4 gap-4 mb-6">
+      <div class="bg-purple-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-purple-600">{{ submitted_maps|length }}</div>
+        <div class="text-sm text-purple-800">Total Submissions</div>
+      </div>
+      <div class="bg-blue-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-blue-600">
+          {% if submitted_maps %}
+            {% set total_topics = 0 %}
+            {% for map_data in submitted_maps %}
+              {% if map_data[0].submission_data and map_data[0].submission_data.key_topics %}
+                {% set total_topics = total_topics + map_data[0].submission_data.key_topics|length %}
+              {% endif %}
+            {% endfor %}
+            {{ "%.1f"|format(total_topics / submitted_maps|length) if submitted_maps|length > 0 else 0 }}
+          {% else %}
+            0
+          {% endif %}
+        </div>
+        <div class="text-sm text-blue-800">Avg Topics</div>
+      </div>
+      <div class="bg-green-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-green-600">
+          {% if submitted_maps %}
+            {% set connection_chars = 0 %}
+            {% for map_data in submitted_maps %}
+              {% if map_data[0].submission_data and map_data[0].submission_data.connections %}
+                {% set connection_chars = connection_chars + map_data[0].submission_data.connections|length %}
+              {% endif %}
+            {% endfor %}
+            {{ "%.0f"|format(connection_chars / submitted_maps|length) if submitted_maps|length > 0 else 0 }}
+          {% else %}
+            0
+          {% endif %}
+        </div>
+        <div class="text-sm text-green-800">Avg Connection Length</div>
+      </div>
+      <div class="bg-orange-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-orange-600">
+          {% if submitted_maps %}
+            {% set gap_responses = 0 %}
+            {% for map_data in submitted_maps %}
+              {% if map_data[0].submission_data and map_data[0].submission_data.knowledge_gaps and map_data[0].submission_data.knowledge_gaps|length > 50 %}
+                {% set gap_responses = gap_responses + 1 %}
+              {% endif %}
+            {% endfor %}
+            {{ "%.0f"|format((gap_responses / submitted_maps|length) * 100) if submitted_maps|length > 0 else 0 }}%
+          {% else %}
+            0%
+          {% endif %}
+        </div>
+        <div class="text-sm text-orange-800">Self-Awareness Rate</div>
+      </div>
+    </div>
+
+    <!-- Knowledge Maps List -->
+    <div class="bg-white rounded-lg shadow-md">
+      <div class="p-6 border-b">
+        <h2 class="text-xl font-semibold">📋 Submitted Knowledge Maps</h2>
+      </div>
+      
+      {% if submitted_maps %}
+      <div class="divide-y divide-gray-200">
+        {% for map_data in submitted_maps %}
+        <div class="p-6 hover:bg-gray-50">
+          <div class="flex justify-between items-start">
+            <div class="flex-1">
+              <div class="flex items-center gap-3 mb-2">
+                <h3 class="font-semibold text-lg">
+                  {{ map_data[1].f_name }} {{ map_data[1].l_name if map_data[1].l_name else '' }}
+                </h3>
+                {% if map_data[2] %}
+                <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">
+                  Group: {{ map_data[2].group_name }}
+                </span>
+                {% endif %}
+              </div>
+              
+              <!-- Knowledge Map Preview -->
+              {% if map_data[0].submission_data %}
+              <div class="grid md:grid-cols-3 gap-4 mt-4">
+                <div class="bg-purple-50 rounded-lg p-3">
+                  <h4 class="font-medium text-purple-800 text-sm mb-2">Key Topics ({{ map_data[0].submission_data.key_topics|length }})</h4>
+                  <div class="flex flex-wrap gap-1">
+                    {% for topic in map_data[0].submission_data.key_topics[:3] %}
+                    <span class="bg-purple-200 text-purple-800 px-2 py-1 rounded text-xs">{{ topic }}</span>
+                    {% endfor %}
+                    {% if map_data[0].submission_data.key_topics|length > 3 %}
+                    <span class="text-purple-600 text-xs">+{{ map_data[0].submission_data.key_topics|length - 3 }} more</span>
+                    {% endif %}
+                  </div>
+                </div>
+                
+                <div class="bg-blue-50 rounded-lg p-3">
+                  <h4 class="font-medium text-blue-800 text-sm mb-2">Connections</h4>
+                  <p class="text-xs text-blue-700 line-clamp-3">
+                    {{ map_data[0].submission_data.connections[:100] }}{% if map_data[0].submission_data.connections|length > 100 %}...{% endif %}
+                  </p>
+                </div>
+                
+                <div class="bg-orange-50 rounded-lg p-3">
+                  <h4 class="font-medium text-orange-800 text-sm mb-2">Knowledge Gaps</h4>
+                  <p class="text-xs text-orange-700 line-clamp-3">
+                    {{ map_data[0].submission_data.knowledge_gaps[:100] }}{% if map_data[0].submission_data.knowledge_gaps|length > 100 %}...{% endif %}
+                  </p>
+                </div>
+              </div>
+              {% endif %}
+              
+              <div class="mt-3 flex items-center gap-4 text-sm text-gray-500">
+                <span>📅 {{ map_data[0].submitted_at.strftime('%Y-%m-%d %H:%M') if map_data[0].submitted_at else 'Not submitted' }}</span>
+                {% if map_data[0].ai_feedback %}
+                <span class="text-green-600">🤖 AI Feedback Available</span>
+                {% endif %}
+              </div>
+            </div>
+            
+            <div class="flex gap-2 ml-4">
+              <a href="/ai/teacher/activities/{{ activity.id }}/knowledge-map/{{ map_data[0].id }}/view" 
+                 class="bg-purple-600 text-white px-3 py-2 rounded text-sm hover:bg-purple-700">
+                View Detail
+              </a>
+              {% if map_data[0].ai_feedback %}
+              <button hx-get="/ai/teacher/activities/{{ activity.id }}/participation/{{ map_data[0].id }}/ai-feedback"
+                      hx-target="#ai-feedback-modal"
+                      hx-trigger="click"
+                      class="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700">
+                AI Feedback
+              </button>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="p-12 text-center text-gray-500">
+        <div class="text-6xl mb-4">🧠</div>
+        <h3 class="text-xl font-semibold mb-2">No Knowledge Maps Yet</h3>
+        <p>Students haven't submitted any knowledge maps for this activity.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Modal Target for Feedback -->
+  <div id="ai-feedback-modal"></div>
+
+  <script>
+  // Modal dismiss functionality
+  document.addEventListener('click', function(e) {
+    const modal = document.getElementById('ai-feedback-modal');
+    if (modal && modal.innerHTML.trim() !== '' && !modal.contains(e.target)) {
+      modal.innerHTML = '';
+    }
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === "Escape") {
+      document.getElementById('ai-feedback-modal').innerHTML = '';
+    }
+  });
+  </script>
+</body>
+</html>

@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Collaboration Analytics | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-6xl mx-auto p-6">
+    <!-- Header -->
+    <div class="mb-8">
+      <h1 class="text-3xl font-bold text-blue-700 mb-2">Collaboration Analytics</h1>
+      <h2 class="text-xl text-gray-600 mb-4">{{ activity.activity_name }}</h2>
+      <div class="flex gap-3">
+        <a href="/ai/teacher/activities/{{ activity.id }}/think-pair-create-overview"
+           class="text-blue-600 hover:underline px-3 py-2 rounded">← Back to Overview</a>
+        <a href="/ai/teacher/activities/{{ activity.id }}/monitor"
+           class="text-gray-600 hover:underline px-3 py-2 rounded">Monitor Dashboard</a>
+      </div>
+    </div>
+
+    <!-- Key Metrics -->
+    <div class="grid md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white rounded-lg shadow p-6 text-center">
+        <div class="text-3xl font-bold text-purple-600">{{ analytics_data.total_submissions }}</div>
+        <div class="text-sm text-gray-600">Total Submissions</div>
+      </div>
+      <div class="bg-white rounded-lg shadow p-6 text-center">
+        <div class="text-3xl font-bold text-blue-600">{{ "%.0f"|format(analytics_data.avg_think_words) }}</div>
+        <div class="text-sm text-gray-600">Avg Think Words</div>
+      </div>
+      <div class="bg-white rounded-lg shadow p-6 text-center">
+        <div class="text-3xl font-bold text-green-600">{{ "%.0f"|format(analytics_data.avg_pair_words) }}</div>
+        <div class="text-sm text-gray-600">Avg Discussion Words</div>
+      </div>
+      <div class="bg-white rounded-lg shadow p-6 text-center">
+        <div class="text-3xl font-bold text-orange-600">{{ "%.0f"|format(analytics_data.avg_create_words) }}</div>
+        <div class="text-sm text-gray-600">Avg Final Words</div>
+      </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid md:grid-cols-2 gap-6 mb-8">
+      <!-- Word Count Distribution -->
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold mb-4">📊 Word Count Distribution</h3>
+        <canvas id="wordCountChart" width="400" height="300"></canvas>
+      </div>
+
+      <!-- Collaboration Quality -->
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h3 class="text-lg font-semibold mb-4">🤝 Collaboration Quality Score</h3>
+        <canvas id="collaborationChart" width="400" height="300"></canvas>
+      </div>
+    </div>
+
+    <!-- Group Performance Analysis -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+      <h3 class="text-lg font-semibold mb-4">👥 Group Performance Analysis</h3>
+      
+      {% if group_performance %}
+      <div class="overflow-x-auto">
+        <table class="min-w-full table-auto">
+          <thead>
+            <tr class="bg-gray-50">
+              <th class="px-4 py-2 text-left">Group Name</th>
+              <th class="px-4 py-2 text-center">Submissions</th>
+              <th class="px-4 py-2 text-center">Avg Paragraph Length</th>
+              <th class="px-4 py-2 text-center">Engagement Level</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for group in group_performance %}
+            <tr class="border-b">
+              <td class="px-4 py-2 font-medium">{{ group.group_name }}</td>
+              <td class="px-4 py-2 text-center">{{ group.submission_count }}</td>
+              <td class="px-4 py-2 text-center">
+                {{ "%.0f"|format(group.avg_paragraph_length or 0) }} chars
+              </td>
+              <td class="px-4 py-2 text-center">
+                {% set length = group.avg_paragraph_length or 0 %}
+                {% if length > 500 %}
+                  <span class="bg-green-100 text-green-800 px-2 py-1 rounded text-sm">High</span>
+                {% elif length > 250 %}
+                  <span class="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-sm">Medium</span>
+                {% else %}
+                  <span class="bg-red-100 text-red-800 px-2 py-1 rounded text-sm">Low</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-gray-500 text-center py-8">No group data available yet.</p>
+      {% endif %}
+    </div>
+
+    <!-- Engagement Insights -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+      <h3 class="text-lg font-semibold mb-4">💡 Engagement Insights</h3>
+      
+      <div class="grid md:grid-cols-3 gap-4">
+        <!-- Think Phase Analysis -->
+        <div class="bg-blue-50 rounded-lg p-4">
+          <div class="flex items-center mb-2">
+            <span class="text-blue-600 text-xl mr-2">🤔</span>
+            <h4 class="font-semibold text-blue-800">Think Phase</h4>
+          </div>
+          <div class="space-y-2 text-sm">
+            <p><strong>Average Words:</strong> {{ "%.0f"|format(analytics_data.avg_think_words) }}</p>
+            <p><strong>Range:</strong> 
+              {% if analytics_data.think_word_counts %}
+                {{ analytics_data.think_word_counts|min }} - {{ analytics_data.think_word_counts|max }}
+              {% else %}
+                N/A
+              {% endif %}
+            </p>
+            <p class="text-blue-700">
+              {% if analytics_data.avg_think_words > 75 %}
+                ✅ Strong individual reflection
+              {% elif analytics_data.avg_think_words > 40 %}
+                ⚠️ Moderate reflection depth
+              {% else %}
+                ❌ Limited individual thinking
+              {% endif %}
+            </p>
+          </div>
+        </div>
+
+        <!-- Pair Phase Analysis -->
+        <div class="bg-green-50 rounded-lg p-4">
+          <div class="flex items-center mb-2">
+            <span class="text-green-600 text-xl mr-2">🗣️</span>
+            <h4 class="font-semibold text-green-800">Pair Phase</h4>
+          </div>
+          <div class="space-y-2 text-sm">
+            <p><strong>Average Words:</strong> {{ "%.0f"|format(analytics_data.avg_pair_words) }}</p>
+            <p><strong>Range:</strong> 
+              {% if analytics_data.pair_word_counts %}
+                {{ analytics_data.pair_word_counts|min }} - {{ analytics_data.pair_word_counts|max }}
+              {% else %}
+                N/A
+              {% endif %}
+            </p>
+            <p class="text-green-700">
+              {% if analytics_data.avg_pair_words > 100 %}
+                ✅ Rich group discussions
+              {% elif analytics_data.avg_pair_words > 50 %}
+                ⚠️ Basic collaboration
+              {% else %}
+                ❌ Limited group interaction
+              {% endif %}
+            </p>
+          </div>
+        </div>
+
+        <!-- Create Phase Analysis -->
+        <div class="bg-purple-50 rounded-lg p-4">
+          <div class="flex items-center mb-2">
+            <span class="text-purple-600 text-xl mr-2">✍️</span>
+            <h4 class="font-semibold text-purple-800">Create Phase</h4>
+          </div>
+          <div class="space-y-2 text-sm">
+            <p><strong>Average Words:</strong> {{ "%.0f"|format(analytics_data.avg_create_words) }}</p>
+            <p><strong>Range:</strong> 
+              {% if analytics_data.create_word_counts %}
+                {{ analytics_data.create_word_counts|min }} - {{ analytics_data.create_word_counts|max }}
+              {% else %}
+                N/A
+              {% endif %}
+            </p>
+            <p class="text-purple-700">
+              {% if analytics_data.avg_create_words > 100 %}
+                ✅ Comprehensive synthesis
+              {% elif analytics_data.avg_create_words > 60 %}
+                ⚠️ Adequate final output
+              {% else %}
+                ❌ Minimal synthesis effort
+              {% endif %}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recommendations -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+      <h3 class="text-lg font-semibold mb-4">📈 Recommendations</h3>
+      
+      <div class="space-y-3">
+        {% if analytics_data.avg_think_words < 40 %}
+        <div class="bg-yellow-50 border-l-4 border-yellow-400 p-3">
+          <p class="text-yellow-800">
+            <strong>💭 Encourage deeper individual reflection:</strong> 
+            Students may benefit from more specific prompts or additional time for the Think phase.
+          </p>
+        </div>
+        {% endif %}
+        
+        {% if analytics_data.avg_pair_words < 50 %}
+        <div class="bg-orange-50 border-l-4 border-orange-400 p-3">
+          <p class="text-orange-800">
+            <strong>🗣️ Enhance group discussions:</strong> 
+            Consider providing discussion frameworks or specific questions to guide peer conversations.
+          </p>
+        </div>
+        {% endif %}
+        
+        {% if analytics_data.avg_create_words < 60 %}
+        <div class="bg-red-50 border-l-4 border-red-400 p-3">
+          <p class="text-red-800">
+            <strong>✍️ Improve synthesis quality:</strong> 
+            Students may need clearer guidelines on how to integrate individual and group insights effectively.
+          </p>
+        </div>
+        {% endif %}
+        
+        {% if analytics_data.avg_collaboration_score > 75 %}
+        <div class="bg-green-50 border-l-4 border-green-400 p-3">
+          <p class="text-green-800">
+            <strong>🎉 Excellent collaboration!</strong> 
+            Students are effectively engaging in all three phases of the Think-Pair-Create process.
+          </p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // Word Count Distribution Chart
+  const wordCtx = document.getElementById('wordCountChart').getContext('2d');
+  new Chart(wordCtx, {
+    type: 'bar',
+    data: {
+      labels: ['Think Phase', 'Pair Phase', 'Create Phase'],
+      datasets: [{
+        label: 'Average Word Count',
+        data: [
+          {{ analytics_data.avg_think_words }},
+          {{ analytics_data.avg_pair_words }},
+          {{ analytics_data.avg_create_words }}
+        ],
+        backgroundColor: [
+          'rgba(59, 130, 246, 0.8)',   // Blue for Think
+          'rgba(34, 197, 94, 0.8)',    // Green for Pair
+          'rgba(147, 51, 234, 0.8)'    // Purple for Create
+        ],
+        borderColor: [
+          'rgba(59, 130, 246, 1)',
+          'rgba(34, 197, 94, 1)',
+          'rgba(147, 51, 234, 1)'
+        ],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'Word Count'
+          }
+        }
+      }
+    }
+  });
+
+  // Collaboration Quality Chart
+  const collabCtx = document.getElementById('collaborationChart').getContext('2d');
+  
+  // Create score ranges for histogram
+  const scores = {{ analytics_data.collaboration_scores|tojson }};
+  const scoreRanges = ['0-25', '26-50', '51-75', '76-100'];
+  const scoreCounts = [0, 0, 0, 0];
+  
+  scores.forEach(score => {
+    if (score <= 25) scoreCounts[0]++;
+    else if (score <= 50) scoreCounts[1]++;
+    else if (score <= 75) scoreCounts[2]++;
+    else scoreCounts[3]++;
+  });
+
+  new Chart(collabCtx, {
+    type: 'doughnut',
+    data: {
+      labels: scoreRanges,
+      datasets: [{
+        data: scoreCounts,
+        backgroundColor: [
+          'rgba(239, 68, 68, 0.8)',    // Red for low scores
+          'rgba(245, 158, 11, 0.8)',   // Orange for medium-low
+          'rgba(34, 197, 94, 0.8)',    // Green for medium-high
+          'rgba(16, 185, 129, 0.8)'    // Teal for high scores
+        ],
+        borderColor: [
+          'rgba(239, 68, 68, 1)',
+          'rgba(245, 158, 11, 1)',
+          'rgba(34, 197, 94, 1)',
+          'rgba(16, 185, 129, 1)'
+        ],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'bottom'
+        },
+        title: {
+          display: true,
+          text: 'Quality Score Distribution'
+        }
+      }
+    }
+  });
+
+  // Add interactivity for recommendations
+  document.addEventListener('DOMContentLoaded', function() {
+    // Highlight charts based on performance
+    const avgThink = {{ analytics_data.avg_think_words }};
+    const avgPair = {{ analytics_data.avg_pair_words }};
+    const avgCreate = {{ analytics_data.avg_create_words }};
+    
+    // Add performance indicators
+    if (avgThink < 40) {
+      console.log('Think phase needs improvement');
+    }
+    if (avgPair < 50) {
+      console.log('Pair phase needs improvement');
+    }
+    if (avgCreate < 60) {
+      console.log('Create phase needs improvement');
+    }
+  });
+  </script>
+</body>
+</html>
