@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Global Adaptation Overview | {{ activity.activity_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-6xl mx-auto p-6">
+    <!-- Header -->
+    <div class="mb-8">
+      <h1 class="text-3xl font-bold text-teal-700 mb-2">🌍 Global Adaptation Challenge Overview</h1>
+      <h2 class="text-xl text-gray-600 mb-4">{{ activity.activity_name }}</h2>
+      <div class="flex gap-3">
+        <a href="/ai/teacher/activities/{{ activity.id }}/monitor"
+           class="text-blue-600 hover:underline px-3 py-2 rounded">← Back to Monitor</a>
+        <a href="/ai/teacher/activities/{{ activity.id }}/localization-analytics"
+           class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">📈 View Analytics</a>
+      </div>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="grid md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-teal-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-teal-600">{{ submitted_adaptations|length }}</div>
+        <div class="text-sm text-teal-800">Total Submissions</div>
+      </div>
+      <div class="bg-blue-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-blue-600">
+          {% set total_teams = submitted_adaptations|map(attribute='2')|map(attribute='group_name')|unique|list|length %}
+          {{ total_teams }}
+        </div>
+        <div class="text-sm text-blue-800">Active Teams</div>
+      </div>
+      <div class="bg-purple-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-purple-600">
+          {% if submitted_adaptations %}
+            {% set total_cultural_words = 0 %}
+            {% for participation, user, group in submitted_adaptations %}
+              {% if participation.submission_data and participation.submission_data.cultural_research %}
+                {% set total_cultural_words = total_cultural_words + participation.submission_data.cultural_research.split()|length %}
+              {% endif %}
+            {% endfor %}
+            {{ "%.0f"|format(total_cultural_words / submitted_adaptations|length) if submitted_adaptations|length > 0 else 0 }}
+          {% else %}
+            0
+          {% endif %}
+        </div>
+        <div class="text-sm text-purple-800">Avg Cultural Words</div>
+      </div>
+      <div class="bg-green-50 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-green-600">
+          {% if submitted_adaptations %}
+            {% set comprehensive_adaptations = 0 %}
+            {% for participation, user, group in submitted_adaptations %}
+              {% if participation.submission_data %}
+                {% set phases_complete = 0 %}
+                {% if participation.submission_data.region_analysis and participation.submission_data.region_analysis|length > 100 %}{% set phases_complete = phases_complete + 1 %}{% endif %}
+                {% if participation.submission_data.cultural_research and participation.submission_data.cultural_research|length > 150 %}{% set phases_complete = phases_complete + 1 %}{% endif %}
+                {% if participation.submission_data.adaptation_strategy and participation.submission_data.adaptation_strategy|length > 200 %}{% set phases_complete = phases_complete + 1 %}{% endif %}
+                {% if participation.submission_data.localization_plan and participation.submission_data.localization_plan|length > 150 %}{% set phases_complete = phases_complete + 1 %}{% endif %}
+                {% if phases_complete == 4 %}{% set comprehensive_adaptations = comprehensive_adaptations + 1 %}{% endif %}
+              {% endif %}
+            {% endfor %}
+            {{ "%.0f"|format((comprehensive_adaptations / submitted_adaptations|length) * 100) if submitted_adaptations|length > 0 else 0 }}%
+          {% else %}
+            0%
+          {% endif %}
+        </div>
+        <div class="text-sm text-green-800">Comprehensive Rate</div>
+      </div>
+    </div>
+
+    <!-- Submissions by Team -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+      <h3 class="text-xl font-semibold mb-6">🌍 Global Adaptation Submissions by Team</h3>
+      
+      {% if submitted_adaptations %}
+        {% set teams = submitted_adaptations|groupby('2.group_name') %}
+        {% for team_name, team_submissions in teams %}
+        <div class="mb-8 border-l-4 border-teal-400 bg-teal-50 rounded-lg p-4">
+          <h4 class="font-bold text-teal-800 text-lg mb-4">
+            🌍 Team: {{ team_name or 'Individual' }}
+            <span class="text-sm font-normal text-teal-600">({{ team_submissions|list|length }} submissions)</span>
+          </h4>
+          
+          <div class="space-y-4">
+            {% for participation, user, group in team_submissions %}
+            <div class="bg-white rounded-lg p-4 border">
+              <div class="flex justify-between items-start mb-3">
+                <div>
+                  <h5 class="font-semibold text-gray-800">{{ user.f_name }}</h5>
+                  <p class="text-sm text-gray-600">
+                    Submitted: {{ participation.submitted_at.strftime('%Y-%m-%d %H:%M') }}
+                  </p>
+                </div>
+                <div class="flex gap-2">
+                  <a href="/ai/teacher/activities/{{ activity.id }}/global-adaptation/{{ participation.id }}/view"
+                     class="bg-teal-600 text-white px-3 py-1 rounded text-sm hover:bg-teal-700">
+                    View Details
+                  </a>
+                  {% if participation.ai_feedback %}
+                  <button hx-get="/ai/teacher/activities/{{ activity.id }}/participation/{{ participation.id }}/ai-feedback"
+                          hx-target="#ai-feedback-modal"
+                          hx-trigger="click"
+                          class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">
+                    AI Feedback
+                  </button>
+                  {% endif %}
+                </div>
+              </div>
+              
+              {% if participation.submission_data %}
+              <div class="grid md:grid-cols-4 gap-4 text-sm">
+                <!-- Analyze Preview -->
+                <div class="bg-blue-50 rounded p-3">
+                  <div class="flex items-center mb-2">
+                    <span class="text-blue-600 mr-1">🌏</span>
+                    <span class="font-medium text-blue-800">ANALYZE</span>
+                    <span class="text-xs text-blue-600 ml-2">
+                      ({{ participation.submission_data.region_analysis.split()|length if participation.submission_data.region_analysis else 0 }} words)
+                    </span>
+                  </div>
+                  <p class="text-gray-700 text-xs">
+                    {{ participation.submission_data.region_analysis[:80] if participation.submission_data.region_analysis else 'No response' }}
+                    {% if participation.submission_data.region_analysis and participation.submission_data.region_analysis|length > 80 %}...{% endif %}
+                  </p>
+                </div>
+                
+                <!-- Research Preview -->
+                <div class="bg-purple-50 rounded p-3">
+                  <div class="flex items-center mb-2">
+                    <span class="text-purple-600 mr-1">🏛️</span>
+                    <span class="font-medium text-purple-800">RESEARCH</span>
+                    <span class="text-xs text-purple-600 ml-2">
+                      ({{ participation.submission_data.cultural_research.split()|length if participation.submission_data.cultural_research else 0 }} words)
+                    </span>
+                  </div>
+                  <p class="text-gray-700 text-xs">
+                    {{ participation.submission_data.cultural_research[:80] if participation.submission_data.cultural_research else 'No response' }}
+                    {% if participation.submission_data.cultural_research and participation.submission_data.cultural_research|length > 80 %}...{% endif %}
+                  </p>
+                </div>
+                
+                <!-- Strategy Preview -->
+                <div class="bg-green-50 rounded p-3">
+                  <div class="flex items-center mb-2">
+                    <span class="text-green-600 mr-1">🎯</span>
+                    <span class="font-medium text-green-800">STRATEGIZE</span>
+                    <span class="text-xs text-green-600 ml-2">
+                      ({{ participation.submission_data.adaptation_strategy.split()|length if participation.submission_data.adaptation_strategy else 0 }} words)
+                    </span>
+                  </div>
+                  <p class="text-gray-700 text-xs italic">
+                    "{{ participation.submission_data.adaptation_strategy[:80] if participation.submission_data.adaptation_strategy else 'No response' }}
+                    {% if participation.submission_data.adaptation_strategy and participation.submission_data.adaptation_strategy|length > 80 %}..."{% endif %}
+                  </p>
+                </div>
+                
+                <!-- Localize Preview -->
+                <div class="bg-teal-50 rounded p-3">
+                  <div class="flex items-center mb-2">
+                    <span class="text-teal-600 mr-1">🚀</span>
+                    <span class="font-medium text-teal-800">LOCALIZE</span>
+                    <span class="text-xs text-teal-600 ml-2">
+                      ({{ participation.submission_data.localization_plan.split()|length if participation.submission_data.localization_plan else 0 }} words)
+                    </span>
+                  </div>
+                  <p class="text-gray-700 text-xs">
+                    {{ participation.submission_data.localization_plan[:80] if participation.submission_data.localization_plan else 'No response' }}
+                    {% if participation.submission_data.localization_plan and participation.submission_data.localization_plan|length > 80 %}...{% endif %}
+                  </p>
+                </div>
+              </div>
+              
+              <!-- Quality Indicators -->
+              <div class="mt-3 flex gap-2 text-xs">
+                {% set region_words = participation.submission_data.region_analysis.split()|length if participation.submission_data.region_analysis else 0 %}
+                {% set cultural_words = participation.submission_data.cultural_research.split()|length if participation.submission_data.cultural_research else 0 %}
+                {% set strategy_words = participation.submission_data.adaptation_strategy.split()|length if participation.submission_data.adaptation_strategy else 0 %}
+                {% set localization_words = participation.submission_data.localization_plan.split()|length if participation.submission_data.localization_plan else 0 %}
+                
+                <span class="px-2 py-1 rounded {{ 'bg-green-100 text-green-800' if region_words >= 100 else 'bg-yellow-100 text-yellow-800' }}">
+                  Analysis: {{ 'Good' if region_words >= 100 else 'Basic' }}
+                </span>
+                <span class="px-2 py-1 rounded {{ 'bg-green-100 text-green-800' if cultural_words >= 150 else 'bg-yellow-100 text-yellow-800' }}">
+                  Research: {{ 'Good' if cultural_words >= 150 else 'Basic' }}
+                </span>
+                <span class="px-2 py-1 rounded {{ 'bg-green-100 text-green-800' if strategy_words >= 200 else 'bg-yellow-100 text-yellow-800' }}">
+                  Strategy: {{ 'Good' if strategy_words >= 200 else 'Basic' }}
+                </span>
+                <span class="px-2 py-1 rounded {{ 'bg-green-100 text-green-800' if localization_words >= 150 else 'bg-yellow-100 text-yellow-800' }}">
+                  Localization: {{ 'Good' if localization_words >= 150 else 'Basic' }}
+                </span>
+              </div>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="text-center py-12">
+          <div class="text-6xl text-gray-300 mb-4">🌍</div>
+          <h3 class="text-xl font-semibold text-gray-600 mb-2">No Submissions Yet</h3>
+          <p class="text-gray-500">Teams haven't submitted their Global Adaptation Challenge responses yet.</p>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Phase Completion Analysis -->
+    {% if submitted_adaptations %}
+    <div class="mt-8 bg-white rounded-lg shadow-md p-6">
+      <h3 class="text-lg font-semibold mb-4">🎯 Adaptation Phase Completion Analysis</h3>
+      
+      <div class="grid md:grid-cols-4 gap-4">
+        {% set phase_stats = {
+          'analyze': {'count': 0, 'total_words': 0, 'color': 'blue'},
+          'research': {'count': 0, 'total_words': 0, 'color': 'purple'},
+          'strategize': {'count': 0, 'total_words': 0, 'color': 'green'},
+          'localize': {'count': 0, 'total_words': 0, 'color': 'teal'}
+        } %}
+        
+        {% for participation, user, group in submitted_adaptations %}
+          {% if participation.submission_data %}
+            {% set region_words = participation.submission_data.region_analysis.split()|length if participation.submission_data.region_analysis else 0 %}
+            {% set cultural_words = participation.submission_data.cultural_research.split()|length if participation.submission_data.cultural_research else 0 %}
+            {% set strategy_words = participation.submission_data.adaptation_strategy.split()|length if participation.submission_data.adaptation_strategy else 0 %}
+            {% set localization_words = participation.submission_data.localization_plan.split()|length if participation.submission_data.localization_plan else 0 %}
+            
+            {% if region_words >= 100 %}{% set _ = phase_stats.analyze.update({'count': phase_stats.analyze.count + 1}) %}{% endif %}
+            {% if cultural_words >= 150 %}{% set _ = phase_stats.research.update({'count': phase_stats.research.count + 1}) %}{% endif %}
+            {% if strategy_words >= 200 %}{% set _ = phase_stats.strategize.update({'count': phase_stats.strategize.count + 1}) %}{% endif %}
+            {% if localization_words >= 150 %}{% set _ = phase_stats.localize.update({'count': phase_stats.localize.count + 1}) %}{% endif %}
+            
+            {% set _ = phase_stats.analyze.update({'total_words': phase_stats.analyze.total_words + region_words}) %}
+            {% set _ = phase_stats.research.update({'total_words': phase_stats.research.total_words + cultural_words}) %}
+            {% set _ = phase_stats.strategize.update({'total_words': phase_stats.strategize.total_words + strategy_words}) %}
+            {% set _ = phase_stats.localize.update({'total_words': phase_stats.localize.total_words + localization_words}) %}
+          {% endif %}
+        {% endfor %}
+        
+        <!-- Phase Statistics -->
+        <div class="bg-blue-50 rounded-lg p-4 text-center">
+          <div class="text-blue-600 text-2xl mb-2">🌏</div>
+          <h4 class="font-semibold text-blue-800">ANALYZE Phase</h4>
+          <div class="text-blue-700 text-sm mt-2">
+            <div>{{ "%.0f"|format((phase_stats.analyze.count / submitted_adaptations|length) * 100) }}% Quality Rate</div>
+            <div>{{ "%.0f"|format(phase_stats.analyze.total_words / submitted_adaptations|length) }} Avg Words</div>
+          </div>
+        </div>
+        
+        <div class="bg-purple-50 rounded-lg p-4 text-center">
+          <div class="text-purple-600 text-2xl mb-2">🏛️</div>
+          <h4 class="font-semibold text-purple-800">RESEARCH Phase</h4>
+          <div class="text-purple-700 text-sm mt-2">
+            <div>{{ "%.0f"|format((phase_stats.research.count / submitted_adaptations|length) * 100) }}% Quality Rate</div>
+            <div>{{ "%.0f"|format(phase_stats.research.total_words / submitted_adaptations|length) }} Avg Words</div>
+          </div>
+        </div>
+        
+        <div class="bg-green-50 rounded-lg p-4 text-center">
+          <div class="text-green-600 text-2xl mb-2">🎯</div>
+          <h4 class="font-semibold text-green-800">STRATEGIZE Phase</h4>
+          <div class="text-green-700 text-sm mt-2">
+            <div>{{ "%.0f"|format((phase_stats.strategize.count / submitted_adaptations|length) * 100) }}% Quality Rate</div>
+            <div>{{ "%.0f"|format(phase_stats.strategize.total_words / submitted_adaptations|length) }} Avg Words</div>
+          </div>
+        </div>
+        
+        <div class="bg-teal-50 rounded-lg p-4 text-center">
+          <div class="text-teal-600 text-2xl mb-2">🚀</div>
+          <h4 class="font-semibold text-teal-800">LOCALIZE Phase</h4>
+          <div class="text-teal-700 text-sm mt-2">
+            <div>{{ "%.0f"|format((phase_stats.localize.count / submitted_adaptations|length) * 100) }}% Quality Rate</div>
+            <div>{{ "%.0f"|format(phase_stats.localize.total_words / submitted_adaptations|length) }} Avg Words</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+  <!-- Modal Target for Feedback -->
+  <div id="ai-feedback-modal"></div>
+
+  <script>
+  // Modal handling
+  document.addEventListener('click', function(e) {
+    const modal = document.getElementById('ai-feedback-modal');
+    if (modal && modal.innerHTML.trim() !== '' && !modal.contains(e.target)) {
+      modal.innerHTML = '';
+    }
+  });
+  
+  document.addEventListener('keydown', function(e) {
+    if (e.key === "Escape") {
+      document.getElementById('ai-feedback-modal').innerHTML = '';
+    }
+  });
+  </script>
+</body>
+</html>

@@ -8,9 +8,7 @@
   <script src="https://unpkg.com/htmx.org@1.9.2"></script>
 </head>
 <body class="bg-gray-100 min-h-screen">
-  <!-- Navbar -->
-  <!-- Sidebar toggle -->
-  <input id="sidebar-toggle" type="checkbox" class="hidden peer" />
+<input id="sidebar-toggle" type="checkbox" class="hidden peer" />
 
   <!-- Sidebar (fixed to the left, slides over, X to close) -->
   <aside class="fixed top-0 left-0 h-full w-64 z-40 bg-white border-r border-gray-100 shadow-lg
@@ -80,6 +78,14 @@
       </div>
       <!-- Nav items right -->
       <ul class="flex gap-6 items-center text-base ml-auto">
+        <li>
+      {% if role == "teacher" %}
+        <a href="/auth/teacher/dashboard" class="text-blue-700 hover:underline inline-flex items-center gap-1">⬅ Back to Dashboard</a>
+      {% else %}
+        <a href="/auth/student/courses" class="text-blue-700 hover:underline inline-flex items-center gap-1">⬅ Back to Dashboard</a>
+      {% endif %}
+          </a>
+        </li>
         <li>
           <a href="/auth/logout" class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition flex items-center">
             🚪 Logout

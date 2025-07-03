@@ -513,6 +513,155 @@
         {% endif %}
       </div>
     </div>
+
+    <!-- Add this section to activity_work.html after think_pair_create -->
+
+    {% elif activity.activity_type == 'mystery_box_challenge' %}
+    <div class="mystery-box-work">
+      <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-2xl font-semibold mb-4">📦 Mystery Box Challenge</h2>
+        
+        {% if participation.status == 'submitted' %}
+        <div class="bg-green-50 border border-green-200 rounded-lg p-6">
+          <h3 class="text-lg font-semibold text-green-800 mb-4">✅ Mystery Box Challenge Submitted!</h3>
+          
+          {% if participation.submission_data %}
+          <div class="space-y-6">
+            <!-- Identify Phase -->
+            <div class="bg-white rounded-md p-4 border-l-4 border-blue-400">
+              <div class="flex items-center mb-2">
+                <span class="text-blue-600 text-xl mr-2">🔍</span>
+                <h4 class="font-medium text-blue-800">IDENTIFY - Concept Analysis</h4>
+              </div>
+              <div class="text-gray-700 pl-7">{{ participation.submission_data.concept_identification }}</div>
+            </div>
+            
+            <!-- Connect Phase -->
+            <div class="bg-white rounded-md p-4 border-l-4 border-purple-400">
+              <div class="flex items-center mb-2">
+                <span class="text-purple-600 text-xl mr-2">🔗</span>
+                <h4 class="font-medium text-purple-800">CONNECT - Creative Links</h4>
+              </div>
+              <div class="text-gray-700 pl-7">{{ participation.submission_data.creative_connections }}</div>
+            </div>
+            
+            <!-- Design Phase -->
+            <div class="bg-white rounded-md p-4 border-l-4 border-green-400">
+              <div class="flex items-center mb-2">
+                <span class="text-green-600 text-xl mr-2">🎨</span>
+                <h4 class="font-medium text-green-800">DESIGN - Integrated Story</h4>
+              </div>
+              <div class="text-gray-700 pl-7 bg-green-50 p-3 rounded italic">
+                "{{ participation.submission_data.story_design }}"
+              </div>
+            </div>
+            
+            <!-- Implementation Phase -->
+            <div class="bg-white rounded-md p-4 border-l-4 border-orange-400">
+              <div class="flex items-center mb-2">
+                <span class="text-orange-600 text-xl mr-2">🚀</span>
+                <h4 class="font-medium text-orange-800">IMPLEMENT - Action Plan</h4>
+              </div>
+              <div class="text-gray-700 pl-7">{{ participation.submission_data.integration_plan }}</div>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if participation.ai_feedback %}
+          <div class="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h4 class="font-semibold text-blue-800 mb-2">🤖 AI Feedback</h4>
+            <div class="text-blue-700">
+              {{ participation.ai_feedback['feedback']|replace('\n', '<br>')|safe }}
+            </div>
+          </div>
+          {% endif %}
+        </div>
+        {% else %}
+        <!-- Mystery Box Challenge Instructions -->
+        <div class="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
+          <h3 class="font-semibold text-orange-800 mb-2">🎯 Challenge Instructions</h3>
+          <div class="text-orange-700 text-sm space-y-2">
+            <p><strong>🔍 IDENTIFY:</strong> Analyze the seemingly unrelated concepts given to your team</p>
+            <p><strong>🔗 CONNECT:</strong> Find creative connections between these disparate elements</p>
+            <p><strong>🎨 DESIGN:</strong> Create an integrated story, design, or plan that combines everything</p>
+            <p><strong>🚀 IMPLEMENT:</strong> Develop a realistic plan to make your design work</p>
+            <p class="italic">This challenge tests creativity, logical thinking, and innovative synthesis through collaborative problem-solving.</p>
+          </div>
+        </div>
+
+        <form method="post" action="/ai/student/activities/{{ activity.id }}/mystery-box/submit" class="space-y-6">
+          
+          <!-- Identify Phase -->
+          <div class="border-l-4 border-blue-400 bg-blue-50 rounded-lg p-6">
+            <div class="flex items-center mb-4">
+              <span class="text-blue-600 text-2xl mr-3">🔍</span>
+              <div>
+                <h3 class="text-lg font-semibold text-blue-800">IDENTIFY - Concept Analysis</h3>
+                <p class="text-blue-600 text-sm">Break down and analyze the concepts in your mystery box</p>
+              </div>
+            </div>
+            <label class="block text-blue-800 font-medium mb-2">Concept Identification & Analysis</label>
+            <textarea name="concept_identification" rows="6" required
+                      class="w-full p-3 border rounded-md focus:ring-2 focus:ring-blue-500 bg-white"
+                      placeholder="Analyze each concept in your mystery box - key characteristics, functions, contexts, and underlying principles..."></textarea>
+            <p class="text-xs text-blue-600 mt-2">💡 Look beyond surface features - consider deeper principles and patterns</p>
+          </div>
+          
+          <!-- Connect Phase -->
+          <div class="border-l-4 border-purple-400 bg-purple-50 rounded-lg p-6">
+            <div class="flex items-center mb-4">
+              <span class="text-purple-600 text-2xl mr-3">🔗</span>
+              <div>
+                <h3 class="text-lg font-semibold text-purple-800">CONNECT - Creative Links</h3>
+                <p class="text-purple-600 text-sm">Find unexpected connections between seemingly unrelated concepts</p>
+              </div>
+            </div>
+            <label class="block text-purple-800 font-medium mb-2">Creative Connections & Relationships</label>
+            <textarea name="creative_connections" rows="8" required
+                      class="w-full p-3 border rounded-md focus:ring-2 focus:ring-purple-500 bg-white"
+                      placeholder="Identify creative connections - similarities, complementary functions, new possibilities when combined, metaphorical connections..."></textarea>
+            <p class="text-xs text-purple-600 mt-2">💡 The most innovative solutions often come from unlikely connections</p>
+          </div>
+
+          <!-- Design Phase -->
+          <div class="border-l-4 border-green-400 bg-green-50 rounded-lg p-6">
+            <div class="flex items-center mb-4">
+              <span class="text-green-600 text-2xl mr-3">🎨</span>
+              <div>
+                <h3 class="text-lg font-semibold text-green-800">DESIGN - Integrated Story</h3>
+                <p class="text-green-600 text-sm">Create a cohesive story, design, or plan that integrates all concepts</p>
+              </div>
+            </div>
+            <label class="block text-green-800 font-medium mb-2">Integrated Story, Design, or Plan</label>
+            <textarea name="story_design" rows="10" required
+                      class="w-full p-3 border rounded-md focus:ring-2 focus:ring-green-500 bg-white"
+                      placeholder="Create your integrated design - could be a narrative story, product design, process/system, or creative solution. Make it engaging, logical, and ensure all concepts play meaningful roles..."></textarea>
+            <p class="text-xs text-green-600 mt-2">💡 Focus on coherence and creativity - make every concept essential to your design</p>
+          </div>
+          
+          <!-- Implementation Phase -->
+          <div class="border-l-4 border-orange-400 bg-orange-50 rounded-lg p-6">
+            <div class="flex items-center mb-4">
+              <span class="text-orange-600 text-2xl mr-3">🚀</span>
+              <div>
+                <h3 class="text-lg font-semibold text-orange-800">IMPLEMENT - Action Plan</h3>
+                <p class="text-orange-600 text-sm">Develop a realistic plan to bring your design to life</p>
+              </div>
+            </div>
+            <label class="block text-orange-800 font-medium mb-2">Implementation Strategy & Action Plan</label>
+            <textarea name="integration_plan" rows="8" required
+                      class="w-full p-3 border rounded-md focus:ring-2 focus:ring-orange-500 bg-white"
+                      placeholder="Outline implementation plan - key steps, resources needed, challenges and solutions, success measures, timeline, connection to course concepts..."></textarea>
+            <p class="text-xs text-orange-600 mt-2">💡 Balance ambition with feasibility - great ideas need practical execution</p>
+          </div>
+          
+          <button type="submit" class="w-full bg-orange-600 text-white py-3 rounded-md hover:bg-orange-700 font-medium">
+            Submit Mystery Box Challenge for Review
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
     {% else %}
     <!-- Generic activity interface -->
     <div class="generic-activity-work">

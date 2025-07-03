@@ -246,7 +246,32 @@
           </div>
           <div id="think-pair-create-feedback-{{ activity.id }}"></div>
         </div>
-
+        {% elif activity.activity_type == 'mystery_box_challenge' %}
+        <div class="mystery-box-interface">
+          <h3 class="font-semibold mb-3">📦 Mystery Box Challenge</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            Teams must creatively integrate multiple seemingly unrelated ideas into a cohesive story, design, or plan.
+          </p>
+          
+          <!-- Use the comprehensive join-page approach -->
+          <a href="/ai/student/activities/{{ activity.id }}/join-page" 
+            class="bg-orange-600 text-white px-6 py-3 rounded-md hover:bg-orange-700 inline-block">
+            Join/Create Team
+          </a>
+        </div>
+        {% elif activity.activity_type == 'global_adaptation_challenge' %}
+        <div class="global-adaptation-interface">
+          <h3 class="font-semibold mb-3">🌍 Global Adaptation Challenge</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            Teams receive a global region and must localize a product, solution, or campaign to that cultural setting.
+          </p>
+          
+          <!-- Use the comprehensive join-page approach -->
+          <a href="/ai/student/activities/{{ activity.id }}/join-page" 
+            class="bg-teal-600 text-white px-6 py-3 rounded-md hover:bg-teal-700 inline-block">
+            Join/Create Global Team
+          </a>
+        </div>
         {% elif activity.activity_type == 'case_study' %}
         <div class="case-study-interface">
           <h3 class="font-semibold mb-3">📋 Case Study Analysis</h3>

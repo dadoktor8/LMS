@@ -7,8 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.2"></script>
 </head>
-<body class="bg-gray-100 min-h-screen">
-  <input id="sidebar-toggle" type="checkbox" class="hidden peer" />
+<input id="sidebar-toggle" type="checkbox" class="hidden peer" />
 
   <!-- Sidebar (fixed to the left, slides over, X to close) -->
   <aside class="fixed top-0 left-0 h-full w-64 z-40 bg-white border-r border-gray-100 shadow-lg
@@ -78,6 +77,11 @@
       </div>
       <!-- Nav items right -->
       <ul class="flex gap-6 items-center text-base ml-auto">
+        <li>
+          <a href="/auth/teacher/dashboard" class="text-blue-600 hover:underline inline-flex items-center gap-1">
+            ⬅ Back to Dashboard
+          </a>
+        </li>
         <li>
           <a href="/auth/logout" class="py-2 px-5 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition flex items-center">
             🚪 Logout
@@ -157,9 +161,6 @@
           class="mt-3 w-full bg-blue-600 text-white py-2 rounded-lg text-center font-medium hover:bg-blue-700 transition"
         >Create Assignment</a>
       </div>
-    </div>
-    <div class="text-center mt-10">
-      <a href="/auth/teacher/dashboard" class="text-blue-600 hover:underline inline-flex items-center gap-1">⬅ Back to Dashboard</a>
     </div>
   </main>
   

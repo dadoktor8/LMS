@@ -7,6 +7,20 @@
   <script src="https://unpkg.com/htmx.org@1.9.6"></script>
 </head>
 <body class="bg-gray-50">
+    <nav class="bg-white px-6 py-4 shadow">
+    <div class="max-w-5xl mx-auto flex items-center justify-between">
+      <div class="font-bold text-xl text-blue-700 flex items-center">
+        <a href="/auth/teacher/dashboard" class="hover:text-blue-800 transition">Intellaica</a>
+        <span class="text-gray-400 text-lg mx-2">|</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <a href="/auth/teacher/dashboard" class="text-blue-600 hover:text-blue-800 font-medium">← Back to Dashboard</a>
+        <a href="/auth/logout" class="py-2 px-4 text-sm font-medium bg-red-50 text-red-600 rounded-lg border border-red-100 hover:bg-red-100 transition">
+          🚪 Logout
+        </a>
+      </div>
+    </div>
+  </nav>
   <div class="max-w-6xl mx-auto p-6">
     <h1 class="text-3xl font-bold text-blue-700 mb-6">In-Class Activities - {{ course.title }}</h1>
     
@@ -36,6 +50,8 @@
         <option value="concept_mapping">Concept Mapping</option>
         <option value="knowledge_mapping">Knowledge Mapping</option>
         <option value="think_pair_create">Think-Pair-Create</option>
+        <option value="mystery_box_challenge">Mystery Box Challenge</option>
+        <option value="global_adaptation_challenge">Global Adaptation Challenge</option>
       </select>
     </div>
     
@@ -168,10 +184,7 @@
       </div>
     </div>
   </div>
-  
-  <div class="text-center mt-10">
-    <a href="/auth/teacher/dashboard" class="text-blue-600 hover:underline inline-flex items-center gap-1">⬅ Back to Dashboard</a>
-  </div>
+
 
   <!-- Edit Name Modal -->
   <div id="edit-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
@@ -292,7 +305,20 @@
         const existingError = document.querySelector('.activity-constraint-error');
         if (existingError) {
             existingError.remove();
-        }
+        } else if (activityType === 'mystery_box_challenge') {
+        message = `
+            <div class="activity-constraint-error bg-orange-50 border border-orange-200 rounded p-3 mt-4">
+                <div class="flex items-center">
+                    <svg class="w-5 h-5 text-orange-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                    </svg>
+                    <span class="text-orange-800 text-sm">
+                        <strong>Mystery Box Challenge</strong> requires <strong>Group participation</strong> and <strong>High complexity</strong>
+                    </span>
+                </div>
+            </div>
+        `;
+    }
         
         // Apply constraints based on activity type
         if (activityType === 'peer_quiz') {
@@ -394,6 +420,42 @@
         });
         showConstraintMessage('think_pair_create');
         
+    } else if (activityType === 'mystery_box_challenge') {
+        // Mystery Box Challenge: Only High + Group
+        if (participationType !== 'group') {
+            participationTypeSelect.value = 'group';
+            participationTypeSelect.dispatchEvent(new Event('change'));
+        }
+        if (complexity !== 'high') {
+            complexitySelect.value = 'high';
+            complexitySelect.dispatchEvent(new Event('change'));
+        }
+        Array.from(participationTypeSelect.options).forEach(option => {
+            option.disabled = option.value !== 'group';
+        });
+        Array.from(complexitySelect.options).forEach(option => {
+            option.disabled = option.value !== 'high';
+        });
+        showConstraintMessage('mystery_box_challenge');
+        
+    } else if (activityType === 'global_adaptation_challenge') {
+        // Global Adaptation Challenge: Only High + Group
+        if (participationType !== 'group') {
+            participationTypeSelect.value = 'group';
+            participationTypeSelect.dispatchEvent(new Event('change'));
+        }
+        if (complexity !== 'high') {
+            complexitySelect.value = 'high';
+            complexitySelect.dispatchEvent(new Event('change'));
+        }
+        Array.from(participationTypeSelect.options).forEach(option => {
+            option.disabled = option.value !== 'group';
+        });
+        Array.from(complexitySelect.options).forEach(option => {
+            option.disabled = option.value !== 'high';
+        });
+        showConstraintMessage('global_adaptation_challenge');
+        
     } else {
             // For other activity types, enable all options
             Array.from(participationTypeSelect.options).forEach(option => {
@@ -458,6 +520,19 @@
                     </svg>
                     <span class="text-purple-800 text-sm">
                         <strong>Think-Pair-Create</strong> requires <strong>Group participation</strong> and <strong>Moderate complexity</strong>
+                    </span>
+                </div>
+            </div>
+        `;
+    } else if (activityType === 'global_adaptation_challenge') {
+        message = `
+            <div class="activity-constraint-error bg-teal-50 border border-teal-200 rounded p-3 mt-4">
+                <div class="flex items-center">
+                    <svg class="w-5 h-5 text-teal-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                    </svg>
+                    <span class="text-teal-800 text-sm">
+                        <strong>Global Adaptation Challenge</strong> requires <strong>Group participation</strong> and <strong>High complexity</strong>
                     </span>
                 </div>
             </div>
@@ -600,6 +675,28 @@ function updateActivityInfo(activityType) {
       complexityColor: 'bg-yellow-100 text-yellow-800',
       borderColor: 'border-purple-400',
       bgColor: 'bg-purple-50'
+    },
+    mystery_box_challenge: {  // NEW ACTIVITY TYPE
+      participation: 'group',
+      complexity: 'high',
+      icon: '📦',
+      title: 'Mystery Box Challenge',
+      description: 'Teams creatively integrate multiple seemingly unrelated ideas into a story, design, or plan.',
+      participationColor: 'bg-green-100 text-green-800',
+      complexityColor: 'bg-red-100 text-red-800',
+      borderColor: 'border-orange-400',
+      bgColor: 'bg-orange-50'
+    },
+    global_adaptation_challenge: {  // NEW ACTIVITY TYPE
+      participation: 'group',
+      complexity: 'high',
+      icon: '🌍',
+      title: 'Global Adaptation Challenge',
+      description: 'Teams receive a global region and must localize a product, solution, or campaign to that cultural setting.',
+      participationColor: 'bg-green-100 text-green-800',
+      complexityColor: 'bg-red-100 text-red-800',
+      borderColor: 'border-teal-400',
+      bgColor: 'bg-teal-50'
     },
     case_study: {
       participation: 'group',

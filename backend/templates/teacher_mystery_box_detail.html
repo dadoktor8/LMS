@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mystery Box Detail | {{ mystery_box_participation[1].f_name }}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-5xl mx-auto p-6">
+    <!-- Header -->
+    <div class="mb-8">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-3xl font-bold text-orange-700 mb-2">Mystery Box Challenge Detail</h1>
+          <h2 class="text-xl text-gray-600">{{ mystery_box_participation[1].f_name }}
+            {% if mystery_box_participation[2] %}
+            <span class="text-orange-600">({{ mystery_box_participation[2].group_name }})</span>
+            {% endif %}
+          </h2>
+          <p class="text-sm text-gray-500 mt-1">
+            Submitted: {{ mystery_box_participation[0].submitted_at.strftime('%Y-%m-%d %H:%M') }}
+          </p>
+        </div>
+        <div class="flex gap-3">
+          <a href="/ai/teacher/activities/{{ activity.id }}/mystery-box-overview"
+             class="text-blue-600 hover:underline px-3 py-2 rounded">← Back to Overview</a>
+          {% if mystery_box_participation[0].ai_feedback %}
+          <button hx-get="/ai/teacher/activities/{{ activity.id }}/participation/{{ mystery_box_participation[0].id }}/ai-feedback"
+                  hx-target="#ai-feedback-modal"
+                  hx-trigger="click"
+                  class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+            View AI Feedback
+          </button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Info -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <h3 class="text-lg font-semibold mb-3">📦 Activity: {{ activity.activity_name }}</h3>
+      <div class="flex gap-2 mb-3">
+        <span class="bg-orange-100 text-orange-800 px-3 py-1 rounded text-sm">Mystery Box Challenge</span>
+        <span class="bg-green-100 text-green-800 px-3 py-1 rounded text-sm">Team Activity</span>
+        <span class="bg-red-100 text-red-800 px-3 py-1 rounded text-sm">High Complexity</span>
+      </div>
+      {% if activity.instructions %}
+      <div class="bg-gray-50 rounded-md p-3">
+        <p class="text-gray-700 text-sm">{{ activity.instructions }}</p>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if submission_data %}
+    <!-- Identify Phase -->
+    <div class="bg-white rounded-lg shadow-md mb-6">
+      <div class="bg-blue-50 border-l-4 border-blue-400 p-6 rounded-t-lg">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center">
+            <span class="text-blue-600 text-2xl mr-3">🔍</span>
+            <h3 class="text-xl font-semibold text-blue-800">IDENTIFY - Concept Analysis</h3>
+          </div>
+          <div class="text-sm text-blue-600 bg-blue-100 px-3 py-1 rounded">
+            {{ submission_data.concept_identification.split()|length if submission_data.concept_identification else 0 }} words
+          </div>
+        </div>
+        <div class="bg-white rounded-lg p-4 border">
+          <p class="text-gray-800 leading-relaxed">
+            {{ submission_data.concept_identification if submission_data.concept_identification else 'No concept identification provided.' }}
+          </p>
+        </div>
+        
+        <!-- Identify Phase Analysis -->
+        <div class="mt-4 grid md:grid-cols-3 gap-4">
+          <div class="bg-blue-100 rounded p-3 text-center">
+            <div class="text-blue-800 font-semibold">Analysis Depth</div>
+            <div class="text-sm text-blue-700">
+              {% set identify_words = submission_data.concept_identification.split()|length if submission_data.concept_identification else 0 %}
+              {% if identify_words > 100 %}
+                <span class="text-green-600">✅ Thorough</span>
+              {% elif identify_words > 50 %}
+                <span class="text-yellow-600">⚠️ Adequate</span>
+              {% else %}
+                <span class="text-red-600">❌ Shallow</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-blue-100 rounded p-3 text-center">
+            <div class="text-blue-800 font-semibold">Key Concepts</div>
+            <div class="text-sm text-blue-700">
+              {% set concept_indicators = ['concept', 'principle', 'theory', 'element', 'component'] %}
+              {% set concept_count = 0 %}
+              {% if submission_data.concept_identification %}
+                {% for indicator in concept_indicators %}
+                  {% set concept_count = concept_count + submission_data.concept_identification.lower().count(indicator.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {{ concept_count }} identified
+            </div>
+          </div>
+          <div class="bg-blue-100 rounded p-3 text-center">
+            <div class="text-blue-800 font-semibold">Detail Level</div>
+            <div class="text-sm text-blue-700">
+              {% set detail_indicators = ['characteristics', 'functions', 'purposes', 'principles', 'properties'] %}
+              {% set detail_count = 0 %}
+              {% if submission_data.concept_identification %}
+                {% for indicator in detail_indicators %}
+                  {% set detail_count = detail_count + submission_data.concept_identification.lower().count(indicator.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {% if detail_count > 2 %}
+                <span class="text-green-600">✅ Detailed</span>
+              {% elif detail_count > 0 %}
+                <span class="text-yellow-600">⚠️ Basic</span>
+              {% else %}
+                <span class="text-red-600">❌ Superficial</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connect Phase -->
+    <div class="bg-white rounded-lg shadow-md mb-6">
+      <div class="bg-purple-50 border-l-4 border-purple-400 p-6 rounded-t-lg">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center">
+            <span class="text-purple-600 text-2xl mr-3">🔗</span>
+            <h3 class="text-xl font-semibold text-purple-800">CONNECT - Creative Links</h3>
+          </div>
+          <div class="text-sm text-purple-600 bg-purple-100 px-3 py-1 rounded">
+            {{ submission_data.creative_connections.split()|length if submission_data.creative_connections else 0 }} words
+          </div>
+        </div>
+        <div class="bg-white rounded-lg p-4 border">
+          <p class="text-gray-800 leading-relaxed">
+            {{ submission_data.creative_connections if submission_data.creative_connections else 'No creative connections provided.' }}
+          </p>
+        </div>
+        
+        <!-- Connect Phase Analysis -->
+        <div class="mt-4 grid md:grid-cols-3 gap-4">
+          <div class="bg-purple-100 rounded p-3 text-center">
+            <div class="text-purple-800 font-semibold">Connection Quality</div>
+            <div class="text-sm text-purple-700">
+              {% set connect_words = submission_data.creative_connections.split()|length if submission_data.creative_connections else 0 %}
+              {% if connect_words > 150 %}
+                <span class="text-green-600">✅ Rich</span>
+              {% elif connect_words > 100 %}
+                <span class="text-yellow-600">⚠️ Good</span>
+              {% else %}
+                <span class="text-red-600">❌ Limited</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-purple-100 rounded p-3 text-center">
+            <div class="text-purple-800 font-semibold">Creativity Level</div>
+            <div class="text-sm text-purple-700">
+              {% set creativity_indicators = ['unexpected', 'innovative', 'unique', 'surprising', 'novel'] %}
+              {% set creativity_count = 0 %}
+              {% if submission_data.creative_connections %}
+                {% for indicator in creativity_indicators %}
+                  {% set creativity_count = creativity_count + submission_data.creative_connections.lower().count(indicator.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {% if creativity_count > 1 %}
+                <span class="text-green-600">✅ Creative</span>
+              {% elif creativity_count > 0 %}
+                <span class="text-yellow-600">⚠️ Some creativity</span>
+              {% else %}
+                <span class="text-red-600">❌ Conventional</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-purple-100 rounded p-3 text-center">
+            <div class="text-purple-800 font-semibold">Logic Coherence</div>
+            <div class="text-sm text-purple-700">
+              {% set logic_indicators = ['because', 'therefore', 'since', 'as a result', 'leads to'] %}
+              {% set logic_count = 0 %}
+              {% if submission_data.creative_connections %}
+                {% for indicator in logic_indicators %}
+                  {% set logic_count = logic_count + submission_data.creative_connections.lower().count(indicator.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {% if logic_count > 2 %}
+                <span class="text-green-600">✅ Logical</span>
+              {% elif logic_count > 0 %}
+                <span class="text-yellow-600">⚠️ Some logic</span>
+              {% else %}
+                <span class="text-yellow-600">⚠️ Unclear logic</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Design Phase -->
+    <div class="bg-white rounded-lg shadow-md mb-6">
+      <div class="bg-green-50 border-l-4 border-green-400 p-6 rounded-t-lg">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center">
+            <span class="text-green-600 text-2xl mr-3">🎨</span>
+            <h3 class="text-xl font-semibold text-green-800">DESIGN - Integrated Story</h3>
+          </div>
+          <div class="text-sm text-green-600 bg-green-100 px-3 py-1 rounded">
+            {{ submission_data.story_design.split()|length if submission_data.story_design else 0 }} words
+          </div>
+        </div>
+        <div class="bg-white rounded-lg p-4 border">
+          <blockquote class="text-gray-800 leading-relaxed italic text-lg border-l-4 border-green-300 pl-4">
+            "{{ submission_data.story_design if submission_data.story_design else 'No integrated design provided.' }}"
+          </blockquote>
+        </div>
+        
+        <!-- Design Phase Analysis -->
+        <div class="mt-4 grid md:grid-cols-3 gap-4">
+          <div class="bg-green-100 rounded p-3 text-center">
+            <div class="text-green-800 font-semibold">Narrative Quality</div>
+            <div class="text-sm text-green-700">
+              {% set design_words = submission_data.story_design.split()|length if submission_data.story_design else 0 %}
+              {% if design_words > 200 %}
+                <span class="text-green-600">✅ Comprehensive</span>
+              {% elif design_words > 150 %}
+                <span class="text-yellow-600">⚠️ Adequate</span>
+              {% else %}
+                <span class="text-red-600">❌ Brief</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-green-100 rounded p-3 text-center">
+            <div class="text-green-800 font-semibold">Integration</div>
+            <div class="text-sm text-green-700">
+              {% set integration_indicators = ['combines', 'integrates', 'brings together', 'unifies', 'synthesizes'] %}
+              {% set integration_count = 0 %}
+              {% if submission_data.story_design %}
+                {% for indicator in integration_indicators %}
+                  {% set integration_count = integration_count + submission_data.story_design.lower().count(indicator.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {% if integration_count > 1 %}
+                <span class="text-green-600">✅ Well integrated</span>
+              {% elif integration_count > 0 %}
+                <span class="text-yellow-600">⚠️ Some integration</span>
+              {% else %}
+                <span class="text-red-600">❌ Poor integration</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-green-100 rounded p-3 text-center">
+            <div class="text-green-800 font-semibold">Coherence</div>
+            <div class="text-sm text-green-700">
+              {% set sentence_count = submission_data.story_design.count('.') + submission_data.story_design.count('!') + submission_data.story_design.count('?') if submission_data.story_design else 0 %}
+              {% if sentence_count > 8 %}
+                <span class="text-green-600">✅ Well-structured</span>
+              {% elif sentence_count > 4 %}
+                <span class="text-yellow-600">⚠️ Structured</span>
+              {% else %}
+                <span class="text-red-600">❌ Simple</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Implementation Phase -->
+    <div class="bg-white rounded-lg shadow-md mb-6">
+      <div class="bg-orange-50 border-l-4 border-orange-400 p-6 rounded-t-lg">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center">
+            <span class="text-orange-600 text-2xl mr-3">🚀</span>
+            <h3 class="text-xl font-semibold text-orange-800">IMPLEMENT - Action Plan</h3>
+          </div>
+          <div class="text-sm text-orange-600 bg-orange-100 px-3 py-1 rounded">
+            {{ submission_data.integration_plan.split()|length if submission_data.integration_plan else 0 }} words
+          </div>
+        </div>
+        <div class="bg-white rounded-lg p-4 border">
+          <p class="text-gray-800 leading-relaxed">
+            {{ submission_data.integration_plan if submission_data.integration_plan else 'No implementation plan provided.' }}
+          </p>
+        </div>
+        
+        <!-- Implementation Phase Analysis -->
+        <div class="mt-4 grid md:grid-cols-3 gap-4">
+          <div class="bg-orange-100 rounded p-3 text-center">
+            <div class="text-orange-800 font-semibold">Plan Detail</div>
+            <div class="text-sm text-orange-700">
+              {% set implement_words = submission_data.integration_plan.split()|length if submission_data.integration_plan else 0 %}
+              {% if implement_words > 150 %}
+                <span class="text-green-600">✅ Detailed</span>
+              {% elif implement_words > 100 %}
+                <span class="text-yellow-600">⚠️ Adequate</span>
+              {% else %}
+                <span class="text-red-600">❌ Vague</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-orange-100 rounded p-3 text-center">
+            <div class="text-orange-800 font-semibold">Feasibility</div>
+            <div class="text-sm text-orange-700">
+              {% set feasibility_indicators = ['realistic', 'achievable', 'practical', 'feasible', 'doable'] %}
+              {% set feasibility_count = 0 %}
+              {% if submission_data.integration_plan %}
+                {% for indicator in feasibility_indicators %}
+                  {% set feasibility_count = feasibility_count + submission_data.integration_plan.lower().count(indicator.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {% if feasibility_count > 0 %}
+                <span class="text-green-600">✅ Realistic</span>
+              {% else %}
+                <span class="text-yellow-600">⚠️ Unclear</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="bg-orange-100 rounded p-3 text-center">
+            <div class="text-orange-800 font-semibold">Resource Planning</div>
+            <div class="text-sm text-orange-700">
+              {% set resource_indicators = ['resources', 'budget', 'time', 'materials', 'team'] %}
+              {% set resource_count = 0 %}
+              {% if submission_data.integration_plan %}
+                {% for indicator in resource_indicators %}
+                  {% set resource_count = resource_count + submission_data.integration_plan.lower().count(indicator.lower()) %}
+                {% endfor %}
+              {% endif %}
+              {% if resource_count > 2 %}
+                <span class="text-green-600">✅ Comprehensive</span>
+              {% elif resource_count > 0 %}
+                <span class="text-yellow-600">⚠️ Basic</span>
+              {% else %}
+                <span class="text-red-600">❌ Missing</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overall Challenge Analysis -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+      <h3 class="text-lg font-semibold mb-4">📊 Overall Challenge Analysis</h3>
+      
+      <div class="grid md:grid-cols-2 gap-6">
+        <div>
+          <h4 class="font-medium mb-3 text-gray-800">Phase Progression Analysis</h4>
+          <div class="space-y-2">
+            {% set identify_words = submission_data.concept_identification.split()|length if submission_data.concept_identification else 0 %}
+            {% set connect_words = submission_data.creative_connections.split()|length if submission_data.creative_connections else 0 %}
+            {% set design_words = submission_data.story_design.split()|length if submission_data.story_design else 0 %}
+            {% set implement_words = submission_data.integration_plan.split()|length if submission_data.integration_plan else 0 %}
+            
+            <div class="flex items-center">
+              <span class="w-20 text-sm text-blue-600">Identify:</span>
+              <div class="flex-1 bg-gray-200 rounded-full h-2 ml-2">
+                {% set identify_percentage = ((identify_words / 120 * 100) if identify_words / 120 * 100 < 100 else 100) %}
+                <div class="bg-blue-500 h-2 rounded-full" style="width: {{ identify_percentage }}%"></div>
+              </div>
+              <span class="w-16 text-sm text-gray-600 ml-2">{{ identify_words }}w</span>
+            </div>
+            
+            <div class="flex items-center">
+              <span class="w-20 text-sm text-purple-600">Connect:</span>
+              <div class="flex-1 bg-gray-200 rounded-full h-2 ml-2">
+                {% set connect_percentage = ((connect_words / 200 * 100) if connect_words / 200 * 100 < 100 else 100) %}
+                <div class="bg-purple-500 h-2 rounded-full" style="width: {{ connect_percentage }}%"></div>
+              </div>
+              <span class="w-16 text-sm text-gray-600 ml-2">{{ connect_words }}w</span>
+            </div>
+            
+            <div class="flex items-center">
+              <span class="w-20 text-sm text-green-600">Design:</span>
+              <div class="flex-1 bg-gray-200 rounded-full h-2 ml-2">
+                {% set design_percentage = ((design_words / 250 * 100) if design_words / 250 * 100 < 100 else 100) %}
+                <div class="bg-green-500 h-2 rounded-full" style="width: {{ design_percentage }}%"></div>
+              </div>
+              <span class="w-16 text-sm text-gray-600 ml-2">{{ design_words }}w</span>
+            </div>
+            
+            <div class="flex items-center">
+              <span class="w-20 text-sm text-orange-600">Implement:</span>
+              <div class="flex-1 bg-gray-200 rounded-full h-2 ml-2">
+                {% set implement_percentage = ((implement_words / 180 * 100) if implement_words / 180 * 100 < 100 else 100) %}
+                <div class="bg-orange-500 h-2 rounded-full" style="width: {{ implement_percentage }}%"></div>
+              </div>
+              <span class="w-16 text-sm text-gray-600 ml-2">{{ implement_words }}w</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4 class="font-medium mb-3 text-gray-800">Quality Assessment</h4>
+          <div class="space-y-2">
+            <div class="flex justify-between">
+              <span class="text-sm">Concept Analysis:</span>
+              <span class="text-sm font-medium">
+                {% if identify_words > 100 %}High{% elif identify_words > 50 %}Medium{% else %}Low{% endif %}
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-sm">Creative Connections:</span>
+              <span class="text-sm font-medium">
+                {% if connect_words > 150 %}High{% elif connect_words > 100 %}Medium{% else %}Low{% endif %}
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-sm">Design Integration:</span>
+              <span class="text-sm font-medium">
+                {% if design_words > 200 %}High{% elif design_words > 150 %}Medium{% else %}Low{% endif %}
+              </span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-sm">Implementation Planning:</span>
+              <span class="text-sm font-medium">
+                {% if implement_words > 150 %}High{% elif implement_words > 100 %}Medium{% else %}Low{% endif %}
+              </span>
+            </div>
+            <div class="flex justify-between border-t pt-2">
+              <span class="text-sm font-semibold">Overall Innovation:</span>
+              <span class="text-sm font-medium">
+                {% set total_score = (identify_words + connect_words + design_words + implement_words) / 4 %}
+                {% if total_score > 150 %}Exceptional{% elif total_score > 120 %}High{% elif total_score > 80 %}Medium{% else %}Developing{% endif %}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-lg shadow-md p-6 text-center">
+      <div class="text-6xl text-gray-300 mb-4">📦</div>
+      <h3 class="text-xl font-semibold text-gray-600 mb-2">No Submission Data</h3>
+      <p class="text-gray-500">This submission appears to be incomplete or corrupted.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Modal Target for AI Feedback -->
+  <div id="ai-feedback-modal"></div>
+
+  <script>
+  // Modal handling
+  document.addEventListener('click', function(e) {
+    const modal = document.getElementById('ai-feedback-modal');
+    if (modal && modal.innerHTML.trim() !== '' && !modal.contains(e.target)) {
+      modal.innerHTML = '';
+    }
+  });
+  
+  document.addEventListener('keydown', function(e) {
+    if (e.key === "Escape") {
+      document.getElementById('ai-feedback-modal').innerHTML = '';
+    }
+  });
+  </script>
+</body>
+</html>

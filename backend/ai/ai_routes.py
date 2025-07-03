@@ -3732,16 +3732,29 @@ def validate_activity_constraints(activity_type: str, participation_type: str, c
         if complexity != "moderate":
             return "Knowledge Mapping requires Moderate complexity level"
     
-    elif activity_type == "think_pair_create":  # NEW
+    elif activity_type == "think_pair_create":
         if participation_type != "group":
             return "Think-Pair-Create requires Group participation type"
         if complexity != "moderate":
             return "Think-Pair-Create requires Moderate complexity level"
     
+    elif activity_type == "mystery_box_challenge":
+        if participation_type != "group":
+            return "Mystery Box Challenge requires Group participation type"
+        if complexity != "high":
+            return "Mystery Box Challenge requires High complexity level"
+    
+    elif activity_type == "global_adaptation_challenge":  # NEW
+        if participation_type != "group":
+            return "Global Adaptation Challenge requires Group participation type"
+        if complexity != "high":
+            return "Global Adaptation Challenge requires High complexity level"
+    
     # Validate allowed values
     allowed_activity_types = [
         "peer_quiz", "concept_mapping", "knowledge_mapping", 
-        "case_study", "debate", "problem_solving", "think_pair_create"  # Added think_pair_create
+        "case_study", "debate", "problem_solving", "think_pair_create", 
+        "mystery_box_challenge", "global_adaptation_challenge"  # Added global_adaptation_challenge
     ]
     allowed_participation_types = ["individual", "group"]
     allowed_complexity_levels = ["low", "moderate", "high"]
@@ -4420,8 +4433,12 @@ async def activity_work_page(
         return RedirectResponse(url=f"/ai/student/activities/{activity_id}/concept-mapping/work")
     elif activity.activity_type == 'knowledge_mapping':
         return RedirectResponse(url=f"/ai/student/activities/{activity_id}/knowledge-mapping/work")
-    elif activity.activity_type == 'think_pair_create':  # NEW
+    elif activity.activity_type == 'think_pair_create':
         return RedirectResponse(url=f"/ai/student/activities/{activity_id}/think-pair-create/work")
+    elif activity.activity_type == 'mystery_box_challenge':
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/mystery-box/work")
+    elif activity.activity_type == 'global_adaptation_challenge':  # NEW
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/global-adaptation/work")
     else:
         # For other activity types, use the generic page
         return templates.TemplateResponse("activity_work.html", {
@@ -5692,4 +5709,660 @@ async def teacher_view_think_pair_create(
         "activity": activity,
         "tpc_participation": tpc_participation,
         "submission_data": tpc_participation[0].submission_data
+    })
+
+
+@ai_router.post("/student/activities/{activity_id}/mystery-box/submit")
+async def submit_mystery_box_challenge(
+    request: Request,
+    activity_id: int,
+    concept_identification: str = Form(...),
+    creative_connections: str = Form(...),
+    story_design: str = Form(...),
+    integration_plan: str = Form(...),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=404, detail="Not participating in activity")
+    
+    # Validate inputs
+    if not all([concept_identification.strip(), creative_connections.strip(), 
+               story_design.strip(), integration_plan.strip()]):
+        raise HTTPException(status_code=400, detail="All fields are required")
+    
+    submission_data = {
+        "concept_identification": concept_identification.strip(),
+        "creative_connections": creative_connections.strip(),
+        "story_design": story_design.strip(),
+        "integration_plan": integration_plan.strip()
+    }
+    
+    try:
+        # AI evaluation of the Mystery Box Challenge response
+        activity = db.query(InClassActivity).filter_by(id=activity_id).first()
+        if not activity:
+            raise HTTPException(status_code=404, detail="Activity not found")
+        
+        module_id = activity.module_id
+        course_id = activity.course_id
+        
+        # Retrieve context for the module if available, or for the whole course
+        context = retrieve_course_context(course_id, "Mystery Box Challenge creative integration", module_id=module_id)
+        if isinstance(context, dict) and "error" in context:
+            raise HTTPException(status_code=404, detail=context["error"])
+        
+        chat = get_openai_client()
+        
+        system_prompt = f"""
+You are evaluating a student's Mystery Box Challenge submission for educational quality.
+
+Mystery Box Challenge is a creative learning strategy where teams:
+1. IDENTIFY: Analyze seemingly unrelated concepts/ideas
+2. CONNECT: Find creative connections between disparate elements
+3. DESIGN: Create an integrated story, design, or plan
+4. PRESENT: Develop a coherent implementation strategy
+
+Analyze the submission for:
+1. Depth of concept identification and analysis
+2. Creativity and logic in finding connections
+3. Originality and coherence of the story/design
+4. Feasibility and clarity of the integration plan
+5. Overall innovation and synthesis quality
+
+Evaluate based on:
+- Originality: How unique and creative are the connections?
+- Logic: Do the connections make logical sense?
+- Coherence: How well does everything fit together?
+- Accuracy: Are course concepts correctly understood and applied?
+- Implementation: Is the plan realistic and well-thought-out?
+
+Provide constructive feedback on:
+- Strengths in creative thinking and integration
+- Quality of connections and logical reasoning
+- Effectiveness of the story/design narrative
+- Practicality of the implementation plan
+- Suggestions for enhancing creativity and coherence
+
+Context from course materials: {context}
+        """
+        
+        content_for_review = f"""
+CONCEPT IDENTIFICATION:
+{concept_identification}
+
+CREATIVE CONNECTIONS:
+{creative_connections}
+
+STORY/DESIGN:
+{story_design}
+
+INTEGRATION PLAN:
+{integration_plan}
+        """
+        
+        response = chat.invoke([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Evaluate this Mystery Box Challenge submission:\n\n{content_for_review}"}
+        ])
+        
+        ai_feedback_text = response.content if hasattr(response, "content") else str(response)
+        
+        # Update participation
+        participation.submission_data = submission_data
+        participation.ai_feedback = {"feedback": ai_feedback_text, "score": "pending"}
+        participation.status = "submitted"
+        participation.submitted_at = datetime.utcnow()
+        
+        db.commit()
+        
+        # Redirect back to work page to show results
+        return RedirectResponse(
+            url=f"/ai/student/activities/{activity_id}/work", 
+            status_code=303
+        )
+        
+    except Exception as e:
+        print(f"Error submitting Mystery Box Challenge: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing submission")
+
+# 3. Add Mystery Box Challenge work page route
+
+@ai_router.get("/student/activities/{activity_id}/mystery-box/work", response_class=HTMLResponse)
+async def mystery_box_work_page(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check participation
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/join-page")
+    
+    activity = participation.activity
+    
+    return templates.TemplateResponse("mystery_box_work.html", {
+        "request": request,
+        "activity": activity,
+        "participation": participation
+    })
+
+
+# Add these routes to your backend
+
+@ai_router.get("/teacher/activities/{activity_id}/mystery-box-overview", response_class=HTMLResponse)
+async def teacher_mystery_box_overview(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="mystery_box_challenge"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Mystery Box Challenge activity not found")
+    
+    # Get all submitted Mystery Box Challenges with group info
+    submitted_challenges = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted",
+        ActivityParticipation.submission_data.isnot(None)
+    ).all()
+    
+    return templates.TemplateResponse("teacher_mystery_box_overview.html", {
+        "request": request,
+        "activity": activity,
+        "submitted_challenges": submitted_challenges
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/creativity-analytics", response_class=HTMLResponse)
+async def teacher_creativity_analytics(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="mystery_box_challenge"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Mystery Box Challenge activity not found")
+    
+    # Get comprehensive analytics data
+    submitted_count = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id,
+        status="submitted"
+    ).count()
+    
+    # Get all submissions for analysis
+    submissions = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id,
+        status="submitted"
+    ).all()
+    
+    # Analyze creativity and completion metrics
+    analytics_data = {
+        'total_submissions': submitted_count,
+        'identify_word_counts': [],
+        'connect_word_counts': [],
+        'design_word_counts': [],
+        'implement_word_counts': [],
+        'creativity_scores': [],
+        'phase_completion_rates': {
+            'identify': 0,
+            'connect': 0,
+            'design': 0,
+            'implement': 0
+        }
+    }
+    
+    for submission in submissions:
+        if submission.submission_data:
+            data = submission.submission_data
+            
+            # Word counts for each phase
+            identify_words = len(data.get('concept_identification', '').split()) if data.get('concept_identification') else 0
+            connect_words = len(data.get('creative_connections', '').split()) if data.get('creative_connections') else 0
+            design_words = len(data.get('story_design', '').split()) if data.get('story_design') else 0
+            implement_words = len(data.get('integration_plan', '').split()) if data.get('integration_plan') else 0
+            
+            analytics_data['identify_word_counts'].append(identify_words)
+            analytics_data['connect_word_counts'].append(connect_words)
+            analytics_data['design_word_counts'].append(design_words)
+            analytics_data['implement_word_counts'].append(implement_words)
+            
+            # Calculate creativity score based on word counts and content depth
+            creativity_score = min(100, (
+                (identify_words * 0.8) + 
+                (connect_words * 1.2) + 
+                (design_words * 1.5) + 
+                (implement_words * 1.0)
+            ) / 10)
+            analytics_data['creativity_scores'].append(creativity_score)
+            
+            # Phase completion tracking (quality thresholds)
+            if identify_words >= 50:
+                analytics_data['phase_completion_rates']['identify'] += 1
+            if connect_words >= 100:
+                analytics_data['phase_completion_rates']['connect'] += 1
+            if design_words >= 150:
+                analytics_data['phase_completion_rates']['design'] += 1
+            if implement_words >= 100:
+                analytics_data['phase_completion_rates']['implement'] += 1
+    
+    # Convert completion counts to percentages
+    if submitted_count > 0:
+        for phase in analytics_data['phase_completion_rates']:
+            analytics_data['phase_completion_rates'][phase] = (
+                analytics_data['phase_completion_rates'][phase] / submitted_count
+            ) * 100
+    
+    # Group performance analysis
+    group_performance = db.query(
+        ActivityGroup.group_name,
+        func.count(ActivityParticipation.id).label('submission_count'),
+        func.avg(func.length(func.cast(ActivityParticipation.submission_data['story_design'], String))).label('avg_design_length')
+    ).join(
+        ActivityParticipation, ActivityGroup.id == ActivityParticipation.group_id
+    ).filter(
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted"
+    ).group_by(ActivityGroup.id, ActivityGroup.group_name).all()
+    
+    # Calculate averages
+    if analytics_data['identify_word_counts']:
+        analytics_data['avg_identify_words'] = sum(analytics_data['identify_word_counts']) / len(analytics_data['identify_word_counts'])
+        analytics_data['avg_connect_words'] = sum(analytics_data['connect_word_counts']) / len(analytics_data['connect_word_counts'])
+        analytics_data['avg_design_words'] = sum(analytics_data['design_word_counts']) / len(analytics_data['design_word_counts'])
+        analytics_data['avg_implement_words'] = sum(analytics_data['implement_word_counts']) / len(analytics_data['implement_word_counts'])
+        analytics_data['avg_creativity_score'] = sum(analytics_data['creativity_scores']) / len(analytics_data['creativity_scores'])
+    else:
+        analytics_data['avg_identify_words'] = 0
+        analytics_data['avg_connect_words'] = 0
+        analytics_data['avg_design_words'] = 0
+        analytics_data['avg_implement_words'] = 0
+        analytics_data['avg_creativity_score'] = 0
+    
+    return templates.TemplateResponse("teacher_creativity_analytics.html", {
+        "request": request,
+        "activity": activity,
+        "analytics_data": analytics_data,
+        "group_performance": group_performance
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/mystery-box/{participation_id}/view", response_class=HTMLResponse)
+async def teacher_view_mystery_box(
+    request: Request,
+    activity_id: int,
+    participation_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"]
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    
+    # Get the Mystery Box Challenge participation
+    mystery_box_participation = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.id == participation_id,
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted"
+    ).first()
+    
+    if not mystery_box_participation:
+        raise HTTPException(status_code=404, detail="Mystery Box Challenge submission not found")
+    
+    return templates.TemplateResponse("teacher_mystery_box_detail.html", {
+        "request": request,
+        "activity": activity,
+        "mystery_box_participation": mystery_box_participation,
+        "submission_data": mystery_box_participation[0].submission_data
+    })
+
+@ai_router.post("/student/activities/{activity_id}/global-adaptation/submit")
+async def submit_global_adaptation_challenge(
+    request: Request,
+    activity_id: int,
+    region_analysis: str = Form(...),
+    cultural_research: str = Form(...),
+    adaptation_strategy: str = Form(...),
+    localization_plan: str = Form(...),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        raise HTTPException(status_code=404, detail="Not participating in activity")
+    
+    # Validate inputs
+    if not all([region_analysis.strip(), cultural_research.strip(), 
+               adaptation_strategy.strip(), localization_plan.strip()]):
+        raise HTTPException(status_code=400, detail="All fields are required")
+    
+    submission_data = {
+        "region_analysis": region_analysis.strip(),
+        "cultural_research": cultural_research.strip(),
+        "adaptation_strategy": adaptation_strategy.strip(),
+        "localization_plan": localization_plan.strip()
+    }
+    
+    try:
+        # AI evaluation of the Global Adaptation Challenge response
+        activity = db.query(InClassActivity).filter_by(id=activity_id).first()
+        if not activity:
+            raise HTTPException(status_code=404, detail="Activity not found")
+        
+        module_id = activity.module_id
+        course_id = activity.course_id
+        
+        # Retrieve context for the module if available, or for the whole course
+        context = retrieve_course_context(course_id, "Global Adaptation Challenge localization", module_id=module_id)
+        if isinstance(context, dict) and "error" in context:
+            raise HTTPException(status_code=404, detail=context["error"])
+        
+        chat = get_openai_client()
+        
+        system_prompt = f"""
+You are evaluating a student's Global Adaptation Challenge submission for educational quality.
+
+Global Adaptation Challenge is a localization learning strategy where teams:
+1. ANALYZE: Research and understand a specific global region's characteristics
+2. RESEARCH: Investigate cultural nuances, preferences, and local contexts
+3. STRATEGIZE: Develop adaptation approaches for products/solutions/campaigns
+4. LOCALIZE: Create detailed implementation plans for the target region
+
+Analyze the submission for:
+1. Depth of regional analysis and understanding
+2. Quality of cultural research and insights
+3. Creativity and feasibility of adaptation strategies
+4. Comprehensiveness and practicality of localization plans
+5. Innovation in addressing cultural fit and local preferences
+
+Evaluate based on:
+- Cultural Sensitivity: How well do they understand cultural nuances?
+- Localization Depth: How thoroughly do they adapt to local contexts?
+- Innovation: How creative are their adaptation solutions?
+- Feasibility: Are the plans realistic and implementable?
+- Course Integration: How well do they apply course concepts?
+
+Provide constructive feedback on:
+- Strengths in regional and cultural understanding
+- Quality of adaptation strategies and innovation
+- Effectiveness of localization planning
+- Cultural sensitivity and awareness
+- Suggestions for deeper localization insights
+- Areas for improvement in global thinking
+
+Context from course materials: {context}
+        """
+        
+        content_for_review = f"""
+REGION ANALYSIS:
+{region_analysis}
+
+CULTURAL RESEARCH:
+{cultural_research}
+
+ADAPTATION STRATEGY:
+{adaptation_strategy}
+
+LOCALIZATION PLAN:
+{localization_plan}
+        """
+        
+        response = chat.invoke([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Evaluate this Global Adaptation Challenge submission:\n\n{content_for_review}"}
+        ])
+        
+        ai_feedback_text = response.content if hasattr(response, "content") else str(response)
+        
+        # Update participation
+        participation.submission_data = submission_data
+        participation.ai_feedback = {"feedback": ai_feedback_text, "score": "pending"}
+        participation.status = "submitted"
+        participation.submitted_at = datetime.utcnow()
+        
+        db.commit()
+        
+        # Redirect back to work page to show results
+        return RedirectResponse(
+            url=f"/ai/student/activities/{activity_id}/work", 
+            status_code=303
+        )
+        
+    except Exception as e:
+        print(f"Error submitting Global Adaptation Challenge: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error processing submission")
+
+# 3. Add Global Adaptation Challenge work page route
+
+@ai_router.get("/student/activities/{activity_id}/global-adaptation/work", response_class=HTMLResponse)
+async def global_adaptation_work_page(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("student"))
+):
+    # Check participation
+    participation = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id, student_id=user["user_id"]
+    ).first()
+    if not participation:
+        return RedirectResponse(url=f"/ai/student/activities/{activity_id}/join-page")
+    
+    activity = participation.activity
+    
+    return templates.TemplateResponse("global_adaptation_work.html", {
+        "request": request,
+        "activity": activity,
+        "participation": participation
+    })
+
+###please end already, i can't do this anymore, i m burnt out, i dont wanna make nothing for a while 
+###i m so tired man, please just finish already
+
+# Add these routes to your FastAPI router
+
+@ai_router.get("/teacher/activities/{activity_id}/global-adaptation-overview", response_class=HTMLResponse)
+async def teacher_global_adaptation_overview(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="global_adaptation_challenge"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Global Adaptation Challenge activity not found")
+    
+    # Get all submitted Global Adaptation Challenges with group info
+    submitted_adaptations = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted",
+        ActivityParticipation.submission_data.isnot(None)
+    ).all()
+    
+    return templates.TemplateResponse("teacher_global_adaptation_overview.html", {
+        "request": request,
+        "activity": activity,
+        "submitted_adaptations": submitted_adaptations
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/localization-analytics", response_class=HTMLResponse)
+async def teacher_localization_analytics(
+    request: Request,
+    activity_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"],
+        activity_type="global_adaptation_challenge"
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Global Adaptation Challenge activity not found")
+    
+    # Get comprehensive analytics data
+    submitted_count = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id,
+        status="submitted"
+    ).count()
+    
+    # Get all submissions for analysis
+    submissions = db.query(ActivityParticipation).filter_by(
+        activity_id=activity_id,
+        status="submitted"
+    ).all()
+    
+    # Analyze localization and cultural adaptation metrics
+    analytics_data = {
+        'total_submissions': submitted_count,
+        'region_word_counts': [],
+        'cultural_word_counts': [],
+        'strategy_word_counts': [],
+        'localization_word_counts': [],
+        'cultural_sensitivity_scores': [],
+        'phase_completion_rates': {
+            'analyze': 0,
+            'research': 0,
+            'strategize': 0,
+            'localize': 0
+        }
+    }
+    
+    for submission in submissions:
+        if submission.submission_data:
+            data = submission.submission_data
+            
+            # Word counts for each phase
+            region_words = len(data.get('region_analysis', '').split()) if data.get('region_analysis') else 0
+            cultural_words = len(data.get('cultural_research', '').split()) if data.get('cultural_research') else 0
+            strategy_words = len(data.get('adaptation_strategy', '').split()) if data.get('adaptation_strategy') else 0
+            localization_words = len(data.get('localization_plan', '').split()) if data.get('localization_plan') else 0
+            
+            analytics_data['region_word_counts'].append(region_words)
+            analytics_data['cultural_word_counts'].append(cultural_words)
+            analytics_data['strategy_word_counts'].append(strategy_words)
+            analytics_data['localization_word_counts'].append(localization_words)
+            
+            # Calculate cultural sensitivity score based on cultural indicators
+            cultural_indicators = ['tradition', 'custom', 'belief', 'value', 'norm', 'practice', 'culture', 'local', 'community']
+            cultural_score = 0
+            for indicator in cultural_indicators:
+                cultural_score += data.get('cultural_research', '').lower().count(indicator.lower())
+                cultural_score += data.get('adaptation_strategy', '').lower().count(indicator.lower())
+            
+            # Normalize score (0-100)
+            cultural_sensitivity_score = min(100, cultural_score * 8)
+            analytics_data['cultural_sensitivity_scores'].append(cultural_sensitivity_score)
+            
+            # Phase completion tracking (quality thresholds)
+            if region_words >= 100:
+                analytics_data['phase_completion_rates']['analyze'] += 1
+            if cultural_words >= 150:
+                analytics_data['phase_completion_rates']['research'] += 1
+            if strategy_words >= 200:
+                analytics_data['phase_completion_rates']['strategize'] += 1
+            if localization_words >= 150:
+                analytics_data['phase_completion_rates']['localize'] += 1
+    
+    # Convert completion counts to percentages
+    if submitted_count > 0:
+        for phase in analytics_data['phase_completion_rates']:
+            analytics_data['phase_completion_rates'][phase] = (
+                analytics_data['phase_completion_rates'][phase] / submitted_count
+            ) * 100
+    
+    # Group performance analysis
+    group_performance = db.query(
+        ActivityGroup.group_name,
+        func.count(ActivityParticipation.id).label('submission_count'),
+        func.avg(func.length(func.cast(ActivityParticipation.submission_data['cultural_research'], String))).label('avg_cultural_length')
+    ).join(
+        ActivityParticipation, ActivityGroup.id == ActivityParticipation.group_id
+    ).filter(
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted"
+    ).group_by(ActivityGroup.id, ActivityGroup.group_name).all()
+    
+    # Calculate averages
+    if analytics_data['region_word_counts']:
+        analytics_data['avg_region_words'] = sum(analytics_data['region_word_counts']) / len(analytics_data['region_word_counts'])
+        analytics_data['avg_cultural_words'] = sum(analytics_data['cultural_word_counts']) / len(analytics_data['cultural_word_counts'])
+        analytics_data['avg_strategy_words'] = sum(analytics_data['strategy_word_counts']) / len(analytics_data['strategy_word_counts'])
+        analytics_data['avg_localization_words'] = sum(analytics_data['localization_word_counts']) / len(analytics_data['localization_word_counts'])
+        analytics_data['avg_cultural_sensitivity'] = sum(analytics_data['cultural_sensitivity_scores']) / len(analytics_data['cultural_sensitivity_scores'])
+    else:
+        analytics_data['avg_region_words'] = 0
+        analytics_data['avg_cultural_words'] = 0
+        analytics_data['avg_strategy_words'] = 0
+        analytics_data['avg_localization_words'] = 0
+        analytics_data['avg_cultural_sensitivity'] = 0
+    
+    return templates.TemplateResponse("teacher_localization_analytics.html", {
+        "request": request,
+        "activity": activity,
+        "analytics_data": analytics_data,
+        "group_performance": group_performance
+    })
+
+@ai_router.get("/teacher/activities/{activity_id}/global-adaptation/{participation_id}/view", response_class=HTMLResponse)
+async def teacher_view_global_adaptation(
+    request: Request,
+    activity_id: int,
+    participation_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("teacher"))
+):
+    activity = db.query(InClassActivity).filter_by(
+        id=activity_id, 
+        teacher_id=user["user_id"]
+    ).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    
+    # Get the Global Adaptation Challenge participation
+    adaptation_participation = db.query(ActivityParticipation, User, ActivityGroup).join(
+        User
+    ).join(ActivityGroup, ActivityParticipation.group_id == ActivityGroup.id, isouter=True).filter(
+        ActivityParticipation.id == participation_id,
+        ActivityParticipation.activity_id == activity_id,
+        ActivityParticipation.status == "submitted"
+    ).first()
+    
+    if not adaptation_participation:
+        raise HTTPException(status_code=404, detail="Global Adaptation Challenge submission not found")
+    
+    return templates.TemplateResponse("teacher_global_adaptation_detail.html", {
+        "request": request,
+        "activity": activity,
+        "adaptation_participation": adaptation_participation,
+        "submission_data": adaptation_participation[0].submission_data
     })

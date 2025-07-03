@@ -553,7 +553,463 @@
           </div>
         </div>
       </div>
+      <!-- Add this section to activity_monitor.html after think_pair_create -->
 
+      {% elif activity.activity_type == 'mystery_box_challenge' %}
+      <div class="mt-8 bg-white rounded-lg shadow-md p-6">
+        <div class="flex justify-between items-center mb-6">
+          <h2 class="text-xl font-semibold">📦 Mystery Box Challenge Monitoring</h2>
+          <div class="flex gap-2">
+            <a href="/ai/teacher/activities/{{ activity.id }}/mystery-box-overview" 
+              class="bg-orange-600 text-white px-4 py-2 rounded text-sm hover:bg-orange-700">
+              📊 Challenge Overview
+            </a>
+            <a href="/ai/teacher/activities/{{ activity.id }}/creativity-analytics" 
+              class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">
+              📈 Creativity Analytics
+            </a>
+          </div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="grid md:grid-cols-4 gap-4 mb-6">
+          <div class="bg-orange-50 rounded-lg p-4 text-center">
+            <div class="text-2xl font-bold text-orange-600">
+              {{ participations|selectattr('status', 'equalto', 'submitted')|list|length }}
+            </div>
+            <div class="text-sm text-orange-800">Challenges Submitted</div>
+          </div>
+          <div class="bg-blue-50 rounded-lg p-4 text-center">
+            <div class="text-2xl font-bold text-blue-600" id="avg-creativity-score">
+              {% set submitted_challenges = participations|selectattr('status', 'equalto', 'submitted')|list %}
+              {% if submitted_challenges %}
+                {% set total_sections = 0 %}
+                {% for p in submitted_challenges %}
+                  {% if p.submission_data %}
+                    {% set sections_completed = 0 %}
+                    {% if p.submission_data.concept_identification %}{% set sections_completed = sections_completed + 1 %}{% endif %}
+                    {% if p.submission_data.creative_connections %}{% set sections_completed = sections_completed + 1 %}{% endif %}
+                    {% if p.submission_data.story_design %}{% set sections_completed = sections_completed + 1 %}{% endif %}
+                    {% if p.submission_data.integration_plan %}{% set sections_completed = sections_completed + 1 %}{% endif %}
+                    {% set total_sections = total_sections + sections_completed %}
+                  {% endif %}
+                {% endfor %}
+                {{ "%.1f"|format((total_sections / (submitted_challenges|length * 4)) * 100) if submitted_challenges|length > 0 else 0 }}%
+              {% else %}
+                0%
+              {% endif %}
+            </div>
+            <div class="text-sm text-blue-800">Completeness</div>
+          </div>
+          <div class="bg-green-50 rounded-lg p-4 text-center">
+            <div class="text-2xl font-bold text-green-600" id="completion-rate">
+              {% set total_participants = participations|length %}
+              {% if total_participants > 0 %}
+                {{ "%.0f"|format((submitted_challenges|length / total_participants) * 100) }}%
+              {% else %}
+                0%
+              {% endif %}
+            </div>
+            <div class="text-sm text-green-800">Submission Rate</div>
+          </div>
+          <div class="bg-purple-50 rounded-lg p-4 text-center">
+            <div class="text-2xl font-bold text-purple-600" id="innovation-score">
+              {% if submitted_challenges %}
+                {% set innovative_solutions = 0 %}
+                {% for p in submitted_challenges %}
+                  {% if p.submission_data and p.submission_data.story_design and p.submission_data.story_design|length > 200 %}
+                    {% set innovative_solutions = innovative_solutions + 1 %}
+                  {% endif %}
+                {% endfor %}
+                {{ "%.0f"|format((innovative_solutions / submitted_challenges|length) * 100) if submitted_challenges|length > 0 else 0 }}%
+              {% else %}
+                0%
+              {% endif %}
+            </div>
+            <div class="text-sm text-purple-800">Innovation Rate</div>
+          </div>
+        </div>
+
+        <!-- Recent Submissions -->
+        <div class="bg-gray-50 rounded-lg p-4">
+          <h3 class="font-semibold mb-3">📝 Recent Mystery Box Activity</h3>
+          <div id="recent-mystery-box-activity" class="space-y-2">
+            {% if submitted_challenges %}
+            {% for participation in submitted_challenges|reverse %}
+            <div class="flex items-center justify-between p-2 bg-white rounded border-l-4 border-orange-400">
+              <div class="flex items-start space-x-3">
+                <span class="text-orange-600">📦</span>
+                <div>
+                  <p class="text-sm">
+                    <span class="font-medium">{{ participation.student.f_name }}</span>
+                    {% if participation.group %}
+                    <span class="text-gray-500">({{ participation.group.group_name }})</span>
+                    {% endif %}
+                    completed Mystery Box Challenge
+                  </p>
+                  <div class="flex items-center space-x-4 mt-1 text-xs text-gray-500">
+                    <span>{{ participation.submitted_at.strftime('%m/%d %H:%M') }}</span>
+                    {% if participation.submission_data %}
+                    <span>{{ participation.submission_data.concept_identification.split()|length if participation.submission_data.concept_identification else 0 }} identify words</span>
+                    <span>{{ participation.submission_data.creative_connections.split()|length if participation.submission_data.creative_connections else 0 }} connection words</span>
+                    <span>{{ participation.submission_data.story_design.split()|length if participation.submission_data.story_design else 0 }} design words</span>
+                    {% endif %}
+                  </div>
+                  {% if participation.submission_data and participation.submission_data.story_design %}
+                  <div class="mt-1 text-xs text-gray-600 italic">
+                    "{{ participation.submission_data.story_design[:60] }}..."
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="flex-shrink-0">
+                <a href="/ai/teacher/activities/{{ activity.id }}/mystery-box/{{ participation.id }}/view" 
+                  class="text-orange-600 hover:text-orange-800 text-xs">
+                  View →
+                </a>
+              </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <p class="text-gray-500 text-sm">No Mystery Box Challenge submissions yet.</p>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Challenge Phase Progress -->
+        <div class="mt-6 bg-gray-50 rounded-lg p-4">
+          <h3 class="font-semibold mb-3">🎯 Challenge Phase Completion</h3>
+          {% if submitted_challenges %}
+          <div class="grid grid-cols-4 gap-4">
+            <!-- Identify Phase -->
+            <div class="bg-blue-50 rounded p-3 text-center">
+              <div class="text-blue-600 text-xl mb-1">🔍</div>
+              <div class="text-blue-800 font-medium text-sm">IDENTIFY</div>
+              <div class="text-blue-700 text-xs">
+                {% set identify_completed = 0 %}
+                {% for p in submitted_challenges %}
+                  {% if p.submission_data and p.submission_data.concept_identification and p.submission_data.concept_identification|length > 50 %}
+                    {% set identify_completed = identify_completed + 1 %}
+                  {% endif %}
+                {% endfor %}
+                {{ "%.0f"|format((identify_completed / submitted_challenges|length) * 100) if submitted_challenges|length > 0 else 0 }}% Quality
+              </div>
+            </div>
+            
+            <!-- Connect Phase -->
+            <div class="bg-purple-50 rounded p-3 text-center">
+              <div class="text-purple-600 text-xl mb-1">🔗</div>
+              <div class="text-purple-800 font-medium text-sm">CONNECT</div>
+              <div class="text-purple-700 text-xs">
+                {% set connect_completed = 0 %}
+                {% for p in submitted_challenges %}
+                  {% if p.submission_data and p.submission_data.creative_connections and p.submission_data.creative_connections|length > 100 %}
+                    {% set connect_completed = connect_completed + 1 %}
+                  {% endif %}
+                {% endfor %}
+                {{ "%.0f"|format((connect_completed / submitted_challenges|length) * 100) if submitted_challenges|length > 0 else 0 }}% Quality
+              </div>
+            </div>
+            
+            <!-- Design Phase -->
+            <div class="bg-green-50 rounded p-3 text-center">
+              <div class="text-green-600 text-xl mb-1">🎨</div>
+              <div class="text-green-800 font-medium text-sm">DESIGN</div>
+              <div class="text-green-700 text-xs">
+                {% set design_completed = 0 %}
+                {% for p in submitted_challenges %}
+                  {% if p.submission_data and p.submission_data.story_design and p.submission_data.story_design|length > 150 %}
+                    {% set design_completed = design_completed + 1 %}
+                  {% endif %}
+                {% endfor %}
+                {{ "%.0f"|format((design_completed / submitted_challenges|length) * 100) if submitted_challenges|length > 0 else 0 }}% Quality
+              </div>
+            </div>
+            
+            <!-- Implement Phase -->
+            <div class="bg-orange-50 rounded p-3 text-center">
+              <div class="text-orange-600 text-xl mb-1">🚀</div>
+              <div class="text-orange-800 font-medium text-sm">IMPLEMENT</div>
+              <div class="text-orange-700 text-xs">
+                {% set implement_completed = 0 %}
+                {% for p in submitted_challenges %}
+                  {% if p.submission_data and p.submission_data.integration_plan and p.submission_data.integration_plan|length > 100 %}
+                    {% set implement_completed = implement_completed + 1 %}
+                  {% endif %}
+                {% endfor %}
+                {{ "%.0f"|format((implement_completed / submitted_challenges|length) * 100) if submitted_challenges|length > 0 else 0 }}% Quality
+              </div>
+            </div>
+          </div>
+          {% else %}
+          <p class="text-gray-500 text-center">No submissions to analyze yet.</p>
+          {% endif %}
+        </div>
+      </div>
+      <!-- Add this section to activity_monitor.html after mystery_box_challenge -->
+
+        {% elif activity.activity_type == 'global_adaptation_challenge' %}
+        <div class="mt-8 bg-white rounded-lg shadow-md p-6">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="text-xl font-semibold">🌍 Global Adaptation Challenge Monitoring</h2>
+            <div class="flex gap-2">
+              <a href="/ai/teacher/activities/{{ activity.id }}/global-adaptation-overview" 
+                class="bg-teal-600 text-white px-4 py-2 rounded text-sm hover:bg-teal-700">
+                📊 Adaptation Overview
+              </a>
+              <a href="/ai/teacher/activities/{{ activity.id }}/localization-analytics" 
+                class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">
+                📈 Localization Analytics
+              </a>
+            </div>
+          </div>
+
+          <!-- Quick Stats -->
+          <div class="grid md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-teal-50 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-teal-600">
+                {{ participations|selectattr('status', 'equalto', 'submitted')|list|length }}
+              </div>
+              <div class="text-sm text-teal-800">Adaptations Submitted</div>
+            </div>
+            <div class="bg-blue-50 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-blue-600" id="avg-cultural-depth">
+                {% set submitted_adaptations = participations|selectattr('status', 'equalto', 'submitted')|list %}
+                {% if submitted_adaptations %}
+                  {% set total_cultural_research = 0 %}
+                  {% for p in submitted_adaptations %}
+                    {% if p.submission_data and p.submission_data.cultural_research %}
+                      {% set total_cultural_research = total_cultural_research + p.submission_data.cultural_research.split()|length %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ "%.0f"|format(total_cultural_research / submitted_adaptations|length) if submitted_adaptations|length > 0 else 0 }}
+                {% else %}
+                  0
+                {% endif %}
+              </div>
+              <div class="text-sm text-blue-800">Avg Cultural Words</div>
+            </div>
+            <div class="bg-green-50 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-green-600" id="completion-rate">
+                {% set total_participants = participations|length %}
+                {% if total_participants > 0 %}
+                  {{ "%.0f"|format((submitted_adaptations|length / total_participants) * 100) }}%
+                {% else %}
+                  0%
+                {% endif %}
+              </div>
+              <div class="text-sm text-green-800">Submission Rate</div>
+            </div>
+            <div class="bg-purple-50 rounded-lg p-4 text-center">
+              <div class="text-2xl font-bold text-purple-600" id="localization-score">
+                {% if submitted_adaptations %}
+                  {% set comprehensive_adaptations = 0 %}
+                  {% for p in submitted_adaptations %}
+                    {% if p.submission_data and p.submission_data.localization_plan and p.submission_data.localization_plan|length > 200 %}
+                      {% set comprehensive_adaptations = comprehensive_adaptations + 1 %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ "%.0f"|format((comprehensive_adaptations / submitted_adaptations|length) * 100) if submitted_adaptations|length > 0 else 0 }}%
+                {% else %}
+                  0%
+                {% endif %}
+              </div>
+              <div class="text-sm text-purple-800">Comprehensive Rate</div>
+            </div>
+          </div>
+
+          <!-- Recent Submissions -->
+          <div class="bg-gray-50 rounded-lg p-4">
+            <h3 class="font-semibold mb-3">📝 Recent Global Adaptation Activity</h3>
+            <div id="recent-global-adaptation-activity" class="space-y-2">
+              {% if submitted_adaptations %}
+              {% for participation in submitted_adaptations|reverse %}
+              <div class="flex items-center justify-between p-2 bg-white rounded border-l-4 border-teal-400">
+                <div class="flex items-start space-x-3">
+                  <span class="text-teal-600">🌍</span>
+                  <div>
+                    <p class="text-sm">
+                      <span class="font-medium">{{ participation.student.f_name }}</span>
+                      {% if participation.group %}
+                      <span class="text-gray-500">({{ participation.group.group_name }})</span>
+                      {% endif %}
+                      completed Global Adaptation Challenge
+                    </p>
+                    <div class="flex items-center space-x-4 mt-1 text-xs text-gray-500">
+                      <span>{{ participation.submitted_at.strftime('%m/%d %H:%M') }}</span>
+                      {% if participation.submission_data %}
+                      <span>{{ participation.submission_data.region_analysis.split()|length if participation.submission_data.region_analysis else 0 }} region words</span>
+                      <span>{{ participation.submission_data.cultural_research.split()|length if participation.submission_data.cultural_research else 0 }} culture words</span>
+                      <span>{{ participation.submission_data.adaptation_strategy.split()|length if participation.submission_data.adaptation_strategy else 0 }} strategy words</span>
+                      {% endif %}
+                    </div>
+                    {% if participation.submission_data and participation.submission_data.adaptation_strategy %}
+                    <div class="mt-1 text-xs text-gray-600 italic">
+                      "{{ participation.submission_data.adaptation_strategy[:60] }}..."
+                    </div>
+                    {% endif %}
+                  </div>
+                </div>
+                <div class="flex-shrink-0">
+                  <a href="/ai/teacher/activities/{{ activity.id }}/global-adaptation/{{ participation.id }}/view" 
+                    class="text-teal-600 hover:text-teal-800 text-xs">
+                    View →
+                  </a>
+                </div>
+              </div>
+              {% endfor %}
+              {% else %}
+              <p class="text-gray-500 text-sm">No Global Adaptation Challenge submissions yet.</p>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Adaptation Phase Progress -->
+          <div class="mt-6 bg-gray-50 rounded-lg p-4">
+            <h3 class="font-semibold mb-3">🎯 Adaptation Phase Completion</h3>
+            {% if submitted_adaptations %}
+            <div class="grid grid-cols-4 gap-4">
+              <!-- Analyze Phase -->
+              <div class="bg-blue-50 rounded p-3 text-center">
+                <div class="text-blue-600 text-xl mb-1">🌏</div>
+                <div class="text-blue-800 font-medium text-sm">ANALYZE</div>
+                <div class="text-blue-700 text-xs">
+                  {% set analyze_completed = 0 %}
+                  {% for p in submitted_adaptations %}
+                    {% if p.submission_data and p.submission_data.region_analysis and p.submission_data.region_analysis|length > 100 %}
+                      {% set analyze_completed = analyze_completed + 1 %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ "%.0f"|format((analyze_completed / submitted_adaptations|length) * 100) if submitted_adaptations|length > 0 else 0 }}% Quality
+                </div>
+              </div>
+              
+              <!-- Research Phase -->
+              <div class="bg-purple-50 rounded p-3 text-center">
+                <div class="text-purple-600 text-xl mb-1">🏛️</div>
+                <div class="text-purple-800 font-medium text-sm">RESEARCH</div>
+                <div class="text-purple-700 text-xs">
+                  {% set research_completed = 0 %}
+                  {% for p in submitted_adaptations %}
+                    {% if p.submission_data and p.submission_data.cultural_research and p.submission_data.cultural_research|length > 150 %}
+                      {% set research_completed = research_completed + 1 %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ "%.0f"|format((research_completed / submitted_adaptations|length) * 100) if submitted_adaptations|length > 0 else 0 }}% Quality
+                </div>
+              </div>
+              
+              <!-- Strategy Phase -->
+              <div class="bg-green-50 rounded p-3 text-center">
+                <div class="text-green-600 text-xl mb-1">🎯</div>
+                <div class="text-green-800 font-medium text-sm">STRATEGIZE</div>
+                <div class="text-green-700 text-xs">
+                  {% set strategy_completed = 0 %}
+                  {% for p in submitted_adaptations %}
+                    {% if p.submission_data and p.submission_data.adaptation_strategy and p.submission_data.adaptation_strategy|length > 200 %}
+                      {% set strategy_completed = strategy_completed + 1 %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ "%.0f"|format((strategy_completed / submitted_adaptations|length) * 100) if submitted_adaptations|length > 0 else 0 }}% Quality
+                </div>
+              </div>
+              
+              <!-- Localize Phase -->
+              <div class="bg-teal-50 rounded p-3 text-center">
+                <div class="text-teal-600 text-xl mb-1">🚀</div>
+                <div class="text-teal-800 font-medium text-sm">LOCALIZE</div>
+                <div class="text-teal-700 text-xs">
+                  {% set localize_completed = 0 %}
+                  {% for p in submitted_adaptations %}
+                    {% if p.submission_data and p.submission_data.localization_plan and p.submission_data.localization_plan|length > 150 %}
+                      {% set localize_completed = localize_completed + 1 %}
+                    {% endif %}
+                  {% endfor %}
+                  {{ "%.0f"|format((localize_completed / submitted_adaptations|length) * 100) if submitted_adaptations|length > 0 else 0 }}% Quality
+                </div>
+              </div>
+            </div>
+            {% else %}
+            <p class="text-gray-500 text-center">No submissions to analyze yet.</p>
+            {% endif %}
+          </div>
+
+          <!-- Cultural Sensitivity Insights -->
+          <div class="mt-6 bg-white rounded-lg shadow-md p-4">
+            <h3 class="font-semibold mb-3">🏛️ Cultural Adaptation Insights</h3>
+            {% if submitted_adaptations %}
+            <div class="grid md:grid-cols-2 gap-4">
+              <div class="bg-purple-50 rounded p-3">
+                <h4 class="font-medium text-purple-800 mb-2">Cultural Research Depth</h4>
+                <div class="space-y-1 text-sm">
+                  {% set deep_research = 0 %}
+                  {% set moderate_research = 0 %}
+                  {% set basic_research = 0 %}
+                  {% for p in submitted_adaptations %}
+                    {% if p.submission_data and p.submission_data.cultural_research %}
+                      {% set words = p.submission_data.cultural_research.split()|length %}
+                      {% if words > 200 %}
+                        {% set deep_research = deep_research + 1 %}
+                      {% elif words > 100 %}
+                        {% set moderate_research = moderate_research + 1 %}
+                      {% else %}
+                        {% set basic_research = basic_research + 1 %}
+                      {% endif %}
+                    {% endif %}
+                  {% endfor %}
+                  <div class="flex justify-between">
+                    <span>Deep Research:</span>
+                    <span class="font-medium">{{ deep_research }} teams</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span>Moderate Research:</span>
+                    <span class="font-medium">{{ moderate_research }} teams</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span>Basic Research:</span>
+                    <span class="font-medium">{{ basic_research }} teams</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="bg-teal-50 rounded p-3">
+                <h4 class="font-medium text-teal-800 mb-2">Localization Comprehensiveness</h4>
+                <div class="space-y-1 text-sm">
+                  {% set comprehensive_plans = 0 %}
+                  {% set detailed_plans = 0 %}
+                  {% set basic_plans = 0 %}
+                  {% for p in submitted_adaptations %}
+                    {% if p.submission_data and p.submission_data.localization_plan %}
+                      {% set words = p.submission_data.localization_plan.split()|length %}
+                      {% if words > 250 %}
+                        {% set comprehensive_plans = comprehensive_plans + 1 %}
+                      {% elif words > 150 %}
+                        {% set detailed_plans = detailed_plans + 1 %}
+                      {% else %}
+                        {% set basic_plans = basic_plans + 1 %}
+                      {% endif %}
+                    {% endif %}
+                  {% endfor %}
+                  <div class="flex justify-between">
+                    <span>Comprehensive Plans:</span>
+                    <span class="font-medium">{{ comprehensive_plans }} teams</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span>Detailed Plans:</span>
+                    <span class="font-medium">{{ detailed_plans }} teams</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span>Basic Plans:</span>
+                    <span class="font-medium">{{ basic_plans }} teams</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% else %}
+            <p class="text-gray-500 text-center">No cultural adaptation data available yet.</p>
+            {% endif %}
+          </div>
+        </div>
     {% endif %}
   </div>
 
