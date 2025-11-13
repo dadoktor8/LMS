@@ -5,7 +5,7 @@ import json
 from typing import List, Dict, Any, Optional, Tuple
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-from langchain_openai import PromptTemplate
+from langchain.prompts import PromptTemplate
 
 load_dotenv()
 
