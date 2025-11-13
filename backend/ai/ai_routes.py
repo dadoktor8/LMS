@@ -352,6 +352,7 @@ async def upload_course_material(
     db: Session = Depends(get_db),
     user=Depends(require_teacher_or_ta())
 ):
+    import time
     
     course = db.query(Course).filter_by(id=course_id).first()
     if not course:
@@ -359,7 +360,8 @@ async def upload_course_material(
 
     # Define daily limits
     DAILY_FILE_LIMIT = 100
-    DAILY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024
+    DAILY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024  # 2GB
+    MAX_SINGLE_FILE_SIZE = 50 * 1024 * 1024  # 50MB per file
     
     # Get today's upload quota usage
     today = date.today()
@@ -378,7 +380,7 @@ async def upload_course_material(
         )
         db.add(upload_quota)
         db.commit()
-        db.refresh(upload_quota)  # Important: refresh to get the ID
+        db.refresh(upload_quota)
     
     # Check file count limit
     if upload_quota.files_uploaded >= DAILY_FILE_LIMIT:
@@ -387,15 +389,40 @@ async def upload_course_material(
             status_code=200
         )
     
-    # Read the file content to check size
-    contents = await file.read()
-    file_size = len(contents)  # ✅ DEFINED HERE
+    # ============================================
+    # OPTIMIZED: Stream file to temp location first
+    # ============================================
+    temp_dir = "temp_uploads"
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_filename = f"temp_{int(time.time())}_{file.filename}"
+    temp_file_path = os.path.join(temp_dir, temp_filename)
     
-    # Reset file position after reading
-    await file.seek(0)
+    # Stream file to disk (memory efficient)
+    file_size = 0
+    try:
+        with open(temp_file_path, "wb") as buffer:
+            while chunk := await file.read(1024 * 1024):  # Read 1MB at a time
+                file_size += len(chunk)
+                buffer.write(chunk)
+                
+                # Check size limit while streaming
+                if file_size > MAX_SINGLE_FILE_SIZE:
+                    os.remove(temp_file_path)
+                    return HTMLResponse(
+                        content=f"<div class='toast error'>❌ File too large. Maximum size: 50MB</div>",
+                        status_code=200
+                    )
+    except Exception as e:
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+        return HTMLResponse(
+            content=f"<div class='toast error'>❌ Upload failed: {str(e)}</div>",
+            status_code=500
+        )
     
-    # Check file size limit
+    # Check total daily quota
     if upload_quota.bytes_uploaded + file_size > DAILY_SIZE_LIMIT:
+        os.remove(temp_file_path)
         remaining_bytes = DAILY_SIZE_LIMIT - upload_quota.bytes_uploaded
         readable_remaining = f"{remaining_bytes / (1024 * 1024):.2f} MB"
         return HTMLResponse(
@@ -403,84 +430,77 @@ async def upload_course_material(
             status_code=200
         )
     
-    # For PDF files, check page count against quota
+    # For PDF files, validate page count
     page_count = None
     if file.filename.lower().endswith(".pdf"):
-        # Save to temporary file for validation
-        temp_dir = "temp_pdfs"
-        os.makedirs(temp_dir, exist_ok=True)
-        temp_file_path = f"{temp_dir}/temp_{file.filename}"
-        
-        with open(temp_file_path, "wb") as temp_file:
-            temp_file.write(contents)
-            
-        # Validate PDF page count
         is_valid, message, page_count = validate_pdf_for_upload(temp_file_path)
         
-        # Remove temporary file
-        try:
-            os.remove(temp_file_path)
-        except Exception as e:
-            pass  # Continue even if cleanup fails
-        
         if not is_valid:
+            os.remove(temp_file_path)
             return HTMLResponse(
                 content=f"<div class='toast error'>❌ {message}</div>",
                 status_code=200
             )
     
     # ============================================
-    # STEP 2: Upload to S3 (Keep synchronous)
+    # Upload to S3 from temp file (streaming)
     # ============================================
     
-    filename = f"{datetime.utcnow().timestamp()}_{sanitize_filename(file.filename)}"
+    filename = f"{int(time.time())}_{sanitize_filename(file.filename)}"
     s3_key = f"course_materials/{course_id}/{filename}"
     
-    # Upload file to S3
-    upload_success = await upload_file_to_s3(file, s3_key)
-    if not upload_success:
-        return HTMLResponse("❌ File upload failed", status_code=500)
+    try:
+        s3_client = get_s3_client()
+        # Stream upload to S3
+        s3_client.upload_file(temp_file_path, S3_BUCKET_NAME, s3_key)
+    except Exception as e:
+        os.remove(temp_file_path)
+        return HTMLResponse(
+            content=f"<div class='toast error'>❌ S3 upload failed: {str(e)}</div>",
+            status_code=500
+        )
+    finally:
+        # Clean up temp file
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
     
     # ============================================
-    # STEP 3: Save to Database
+    # Save to Database
     # ============================================
     
-    # Record the material with file size
     material = CourseMaterial(
         course_id=course_id,
         title=file.filename,
         filename=filename,
-        filepath=f"uploads/{filename}",
+        filepath=s3_key,  # Store S3 key directly
         uploaded_by=user["user_id"],
-        file_size=file_size  # ✅ Using file_size from above
+        file_size=file_size,
+        page_count=page_count
     )
     db.add(material)
     
-    # Update upload quota usage
+    # Update upload quota
     upload_quota.files_uploaded += 1
     upload_quota.bytes_uploaded += file_size
     
-    # Commit everything
     db.commit()
-    db.refresh(material)  # Get the material ID
+    db.refresh(material)
     
-    # Calculate remaining quota for display
+    # Calculate remaining quota
     files_remaining = DAILY_FILE_LIMIT - upload_quota.files_uploaded
     bytes_remaining = DAILY_SIZE_LIMIT - upload_quota.bytes_uploaded
     mb_remaining = bytes_remaining / (1024 * 1024)
     
     # ============================================
-    # STEP 4: NEW - Queue Background Task
+    # Queue Background Processing (Fire and Forget)
     # ============================================
     
     try:
-        # Queue the background processing task
         task = process_single_material_task.apply_async(
             args=[course_id, material.id],
             task_id=f"material_{material.id}_{int(time.time())}"
         )
         
-        # Save task info for tracking
         task_status = TaskStatus(
             task_id=task.id,
             course_id=course_id,
@@ -489,63 +509,41 @@ async def upload_course_material(
             metadata={
                 'material_id': material.id, 
                 'filename': file.filename,
-                'page_count': page_count,
-                'file_size': file_size
+                'page_count': page_count
             }
         )
         db.add(task_status)
         db.commit()
         
-        # Success message with background processing info
-        pdf_info = f" ({page_count} pages)" if page_count else ""
-        
-        return HTMLResponse(
-            content=f"""
-            <div class='toast success'>
-                ✅ File uploaded successfully!{pdf_info}
-                <div class="text-xs mt-1 text-gray-600">
-                    Processing in background... You can continue working.
-                </div>
-                <div class="text-xs mt-1 text-gray-500">
-                    Daily quota remaining: {files_remaining} files / {mb_remaining:.2f} MB
-                </div>
-            </div>
-            <script>
-                // Refresh the page after successful upload
-                setTimeout(() => {{
-                    window.location.reload();
-                }}, 2000);
-            </script>
-            """,
-            status_code=200
-        )
+        processing_msg = "Processing in background..."
         
     except Exception as e:
-        # If background task queueing fails, still return success for upload
-        # The file is uploaded and saved, just not processed yet
         print(f"Warning: Failed to queue background task: {e}")
-        
-        pdf_info = f" ({page_count} pages)" if page_count else ""
-        
-        return HTMLResponse(
-            content=f"""
-            <div class='toast success'>
-                ✅ File uploaded successfully!{pdf_info}
-                <div class="text-xs mt-1 text-yellow-600">
-                    ⚠️ Background processing unavailable. Use "Process Materials" button.
-                </div>
-                <div class="text-xs mt-1 text-gray-500">
-                    Daily quota remaining: {files_remaining} files / {mb_remaining:.2f} MB
-                </div>
+        processing_msg = "⚠️ Auto-processing unavailable. Use 'Process Materials' button."
+    
+    # Success response
+    pdf_info = f" ({page_count} pages)" if page_count else ""
+    file_size_mb = file_size / (1024 * 1024)
+    
+    return HTMLResponse(
+        content=f"""
+        <div class='toast success'>
+            ✅ File uploaded successfully!{pdf_info} ({file_size_mb:.1f} MB)
+            <div class="text-xs mt-1 text-gray-600">
+                {processing_msg}
             </div>
-            <script>
-                setTimeout(() => {{
-                    window.location.reload();
-                }}, 2000);
-            </script>
-            """,
-            status_code=200
-        )
+            <div class="text-xs mt-1 text-gray-500">
+                Remaining today: {files_remaining} files / {mb_remaining:.0f} MB
+            </div>
+        </div>
+        <script>
+            setTimeout(() => {{
+                window.location.reload();
+            }}, 2000);
+        </script>
+        """,
+        status_code=200
+    )
 @ai_router.get("/courses/{course_id}/tasks/{task_id}", response_class=JSONResponse)
 async def get_task_status(
     course_id: int,
