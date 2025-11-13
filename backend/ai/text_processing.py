@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from backend.ai.aws_ai import S3_BUCKET_NAME, get_s3_client, load_faiss_vectorstore, upload_faiss_index_to_s3
 from backend.db.models import CourseMaterial, CourseModule, CourseSubmodule, ModuleTextChunk, PDFQuotaUsage, ProcessedMaterial, TextChunk
 from backend.db.database import SessionLocal  # if you're using a unified DB setup
-from langchain.vectorstores import FAISS
+from langchain_community.vectorstores import FAISS
 #from langchain.embeddings import HuggingFaceEmbeddings
 #from langchain_huggingface import HuggingFaceEmbeddings
 #from langchain.llms import HuggingFacePipeline
@@ -30,7 +30,7 @@ from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 from langchain.schema import Document
 #from transformers import pipeline
-from langchain.memory.chat_message_histories import SQLChatMessageHistory
+from langchain_community.chat_message_histories import SQLChatMessageHistory
 #from langchain.memory import ConversationBufferMemory
 #from langchain.chains import ConversationalRetrievalChain
 #from sqlalchemy import create_engine

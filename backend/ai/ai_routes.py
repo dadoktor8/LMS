@@ -32,7 +32,7 @@ from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
 from .text_processing import PDFQuotaConfig, chunk_text, count_pdf_pages, create_modules_from_pdf_analysis, download_file_from_s3, extract_pdf_page_ranges, extract_pdf_pages_to_file, extract_text_from_pdf, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background, process_submodule_with_quota_check,sanitize_filename, save_embeddings_to_faiss_openai, validate_pdf_for_upload
-from langchain.memory.chat_message_histories import SQLChatMessageHistory
+from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain.schema import AIMessage, HumanMessage
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware

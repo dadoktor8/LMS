@@ -5,7 +5,7 @@ import os
 
 from fastapi import UploadFile
 from langchain_openai import OpenAIEmbeddings
-from langchain.vectorstores.faiss import FAISS
+from langchain_community.vectorstores import FAISS
 
 S3_BUCKET_NAME = "intellaica-filestorage-bucket"  
 S3_REGION = "us-east-2" 

@@ -4,8 +4,8 @@ import logging
 import json
 from typing import List, Dict, Any, Optional, Tuple
 from dotenv import load_dotenv
-from langchain.chat_models import ChatOpenAI
-from langchain.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
+from langchain_openai import PromptTemplate
 
 load_dotenv()
 
