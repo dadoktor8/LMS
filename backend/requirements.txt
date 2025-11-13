@@ -3,7 +3,8 @@ uvicorn
 sqlalchemy
 python-dotenv
 jinja2
-passlib[bcrypt]
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 itsdangerous
 PyJWT
 pydantic[email]
@@ -19,7 +20,7 @@ langchain-openai==0.2.14
 langchain-text-splitters
 langchain-core==0.3.28
 reportlab
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.10
 openai
 boto3 
 botocore
