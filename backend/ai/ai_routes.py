@@ -1831,40 +1831,42 @@ async def process_materials(
     db: Session = Depends(get_db),
     user=Depends(require_teacher_or_ta())
 ):
-    """Trigger background processing"""
+    """Trigger background processing - FIRE AND FORGET"""
     import time
     
-    # Start the background task
+    # Start the background task (fire and forget)
     task = process_all_materials_task.apply_async(
         args=[course_id],
         task_id=f"batch_process_{course_id}_{int(time.time())}"
     )
     
-    # Save task to database
+    # Save task to database (optional, for history)
     from backend.db.models import TaskStatus
-    task_status = TaskStatus(
-        task_id=task.id,
-        course_id=course_id,
-        task_type='batch_processing',
-        status='pending'
-    )
-    db.add(task_status)
-    db.commit()
+    try:
+        task_status = TaskStatus(
+            task_id=task.id,
+            course_id=course_id,
+            task_type='batch_processing',
+            status='pending'
+        )
+        db.add(task_status)
+        db.commit()
+    except:
+        pass  # Don't fail if we can't save task status
     
-    # Return initial progress HTML that will start polling
+    # Return simple success message (NO progress tracking)
     return HTMLResponse(
-        content=f"""
-        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4" 
-             hx-get="/ai/courses/{course_id}/tasks/{task.id}/status"
-             hx-trigger="load delay:1s"
-             hx-swap="outerHTML">
-            <h3 class="font-semibold text-blue-700">⚙️ Starting Processing...</h3>
-            <div class="mt-3 flex items-center justify-center text-blue-600">
-                <svg class="animate-spin h-6 w-6 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        content="""
+        <div class="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
+            <div class="flex items-center">
+                <svg class="animate-spin h-5 w-5 mr-3 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <span class="text-sm">Initializing...</span>
+                <div>
+                    <h3 class="font-semibold text-green-700">✅ Processing Started!</h3>
+                    <p class="text-sm text-green-600 mt-1">Your materials are being processed in the background. This may take a few minutes. Refresh the page to see results.</p>
+                </div>
             </div>
         </div>
         """,
