@@ -101,6 +101,9 @@ def extract_text_from_pdf(file_path_or_key: str) -> str:
         # Process the local file
         doc = fitz.open(local_path)
         text = "\n".join(page.get_text() for page in doc)
+        text = text.replace('\x00', '')
+        text = text.replace('\ufffd', '')
+        text = ''.join(char for char in text if ord(char) >= 32 or char in '\n\r\t')
         doc.close()
         del doc
         gc.collect()
@@ -236,6 +239,8 @@ def chunk_text(text: str, max_chunk_size: int = 500) -> list:
 
 """
 def chunk_text(text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> list:
+    text = text.replace('\x00', '')  # Remove NULL bytes
+    text = text.replace('\ufffd', '')  # Remove replacement character
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
@@ -1381,6 +1386,11 @@ def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session
 def save_embeddings_to_faiss_openai(course_id: int, chunks: list, db: Session):
     # 1. Normalize chunks
     normalized_chunks = [chunk.strip().replace("\n", " ") for chunk in chunks]
+    for chunk in chunks:
+        # Remove NULL bytes and problematic characters
+        clean_chunk = chunk.replace('\x00', '').replace('\ufffd', '').strip().replace("\n", " ")
+        if clean_chunk:  # Only add non-empty chunks
+            normalized_chunks.append(clean_chunk)
 
     # 2. Prepare LangChain documents
     documents = [Document(page_content=chunk) for chunk in normalized_chunks]
