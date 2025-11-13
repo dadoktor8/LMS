@@ -15,7 +15,9 @@ from sqlalchemy import String, create_engine, func, text
 from sqlalchemy.orm import Session
 import shutil
 import os
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
+from time import time as get_time
+from backend.ai.celery_config import celery_app
 
 import urllib
 
@@ -24,12 +26,12 @@ from backend.ai.ai_grader import evaluate_assignment_text, prepare_rubric_for_ai
 from backend.ai.aws_ai import S3_BUCKET_NAME, delete_file_from_s3, generate_presigned_url, generate_s3_download_link, get_s3_client, upload_file_to_s3
 from backend.ai.open_notes_system import check_quiz_quota, generate_quiz_export, generate_study_material, generate_study_material_quiz, increment_quiz_quota, render_flashcards_htmx, render_quiz_htmx, render_study_guide_htmx, retrieve_course_context
 from backend.auth.routes import require_role
-from backend.db.database import engine,get_db
-from backend.db.models import ActivityGroup, ActivityParticipation, Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, CourseModule, CourseSubmodule, CourseUploadQuota, Enrollment, FlashcardUsage, InClassActivity, PDFQuotaUsage, ProcessedMaterial,Quiz, QuizAttempt, QuizComment, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity, StudyGuideUsage, TextChunk, User  # Make sure this is correct
+from backend.db.database import SessionLocal, engine,get_db
+from backend.db.models import ActivityGroup, ActivityParticipation, Assignment, AssignmentComment, AssignmentSubmission, ChatHistory, Course,CourseMaterial, CourseModule, CourseSubmodule, CourseUploadQuota, Enrollment, FlashcardUsage, InClassActivity, PDFQuotaUsage, ProcessedMaterial,Quiz, QuizAttempt, QuizComment, RubricCriterion, RubricEvaluation, RubricLevel, StudentActivity, StudyGuideUsage, TaskStatus, TextChunk, User  # Make sure this is correct
 from backend.db.schemas import QueryRequest
 from backend.utils.permissions import require_teacher_or_ta  # Optional if you want TA access too
 from fastapi.templating import Jinja2Templates
-from .text_processing import PDFQuotaConfig, create_modules_from_pdf_analysis, download_file_from_s3, extract_pdf_page_ranges, extract_pdf_pages_to_file, extract_text_from_pdf, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background, process_submodule_with_quota_check,sanitize_filename, validate_pdf_for_upload
+from .text_processing import PDFQuotaConfig, chunk_text, count_pdf_pages, create_modules_from_pdf_analysis, download_file_from_s3, extract_pdf_page_ranges, extract_pdf_pages_to_file, extract_text_from_pdf, get_answer_from_rag_langchain_openai, get_context_for_query, get_course_retriever, get_openai_client, process_materials_in_background, process_submodule_with_quota_check,sanitize_filename, save_embeddings_to_faiss_openai, validate_pdf_for_upload
 from langchain.memory.chat_message_histories import SQLChatMessageHistory
 from langchain.schema import AIMessage, HumanMessage
 from fastapi import FastAPI
@@ -49,7 +51,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 templates = Jinja2Templates(directory="backend/templates")
-
+logger = logging.getLogger(__name__)
 
 class AIResponse(BaseModel):
     summary: str
@@ -67,24 +69,297 @@ class BeliefEvaluation(BaseModel):
 class MisconceptionCheckResponse(AIResponse):
     beliefs: List[BeliefEvaluation]
 
+def _process_material(course_id: int, material_id: int, db):
+    """Internal function to process a single material"""
+    from backend.db.models import CourseMaterial, ProcessedMaterial, PDFQuotaUsage
+    from backend.ai.text_processing import (
+        extract_text_from_pdf,
+        chunk_text,
+        save_embeddings_to_faiss_openai,
+        count_pdf_pages,
+        PDFQuotaConfig
+    )
+    from datetime import date
+    import os
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    material = db.query(CourseMaterial).filter_by(id=material_id, course_id=course_id).first()
+    if not material:
+        return {'success': False, 'error': 'Material not found'}
+    
+    # Check if already processed
+    processed_material = db.query(ProcessedMaterial).filter_by(
+        course_id=course_id, 
+        material_id=material_id
+    ).first()
+    
+    if processed_material:
+        return {'success': False, 'error': 'Material already processed'}
+    
+    # Your processing logic here...
+    file_path = material.filepath
+    
+    if not os.path.exists(file_path):
+        s3_key = f"course_materials/{course_id}/{material.filename}"
+    
+    from backend.ai.text_processing import get_s3_client, S3_BUCKET_NAME
+    
+    try:
+        temp_dir = "temp_pdfs"
+        os.makedirs(temp_dir, exist_ok=True)
+        local_path = f"{temp_dir}/{material.filename}"
+        
+        s3_client = get_s3_client()
+        s3_client.download_file(S3_BUCKET_NAME, s3_key, local_path)
+        file_path = local_path
+    except Exception as e:
+        return {'success': False, 'error': f'Could not download from S3: {str(e)}'}
+    
+    total_pages = count_pdf_pages(file_path)
+    
+    # Check quota
+    today = date.today()
+    quota_usage = db.query(PDFQuotaUsage).filter(
+        PDFQuotaUsage.course_id == course_id,
+        PDFQuotaUsage.usage_date == today
+    ).first()
+    
+    used_pages = quota_usage.pages_processed if quota_usage else 0
+    remaining_quota = PDFQuotaConfig.DAILY_PAGE_QUOTA - used_pages
+    
+    if total_pages > remaining_quota:
+        return {
+            'success': False, 
+            'error': f'Not enough quota. Need {total_pages} pages, have {remaining_quota}'
+        }
+    
+    # Update quota
+    if quota_usage:
+        quota_usage.pages_processed += total_pages
+    else:
+        quota_usage = PDFQuotaUsage(
+            course_id=course_id,
+            usage_date=today,
+            pages_processed=total_pages
+        )
+        db.add(quota_usage)
+    db.commit()
+    
+    # Extract and process
+    text = extract_text_from_pdf(file_path)
+    chunks = chunk_text(text)
+    save_embeddings_to_faiss_openai(course_id, chunks, db)
+    
+    # Mark as processed
+    db.add(ProcessedMaterial(course_id=course_id, material_id=material_id))
+    db.commit()
+    
+    return {
+        'success': True,
+        'pages_processed': total_pages,
+        'chunks_created': len(chunks),
+        'filename': material.filename
+    }
+    
+@celery_app.task(bind=True, name='backend.ai.ai_routes.process_module_all')
+def process_module_all_task(self, course_id: int, module_id: int):
+    """
+    Background task to process all unprocessed submodules in a module
+    """
+    from backend.db.database import SessionLocal
+    from backend.db.models import CourseSubmodule
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    db = SessionLocal()
+    
+    try:
+        # Get all unprocessed submodules
+        unprocessed_submodules = db.query(CourseSubmodule).filter_by(
+            module_id=module_id,
+            is_processed=False
+        ).all()
+        
+        total = len(unprocessed_submodules)
+        processed_count = 0
+        failed_count = 0
+        
+        for idx, submodule in enumerate(unprocessed_submodules):
+            # Update progress
+            progress = int((idx / total) * 100) if total > 0 else 0
+            self.update_state(state='PROCESSING', meta={
+                'status': f'Processing part {idx + 1} of {total}...',
+                'progress': progress,
+                'processed': processed_count,
+                'failed': failed_count,
+                'total': total
+            })
+            
+            # Process the submodule using the shared function
+            result = _process_material(course_id, None, db)  # You'll need to adapt this
+            
+            # Or call your existing processing function
+            from backend.ai.text_processing import process_submodule_with_quota_check
+            success, message, pages_used = process_submodule_with_quota_check(
+                course_id, 
+                submodule.id, 
+                db
+            )
+            
+            if success:
+                processed_count += 1
+            else:
+                failed_count += 1
+                logger.error(f"Failed to process submodule {submodule.id}: {message}")
+                if 'quota' in message.lower():
+                    break  # Stop if quota exceeded
+        
+        return {
+            'success': True,
+            'processed': processed_count,
+            'failed': failed_count,
+            'total': total
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing module {module_id}: {e}")
+        return {'success': False, 'error': str(e)}
+        
+    finally:
+        db.close()
+
+@celery_app.task(bind=True, name='backend.ai.ai_routes.process_single_material')
+def process_single_material_task(self, course_id: int, material_id: int):
+    """Background task to process a single PDF material"""
+    from backend.db.database import SessionLocal
+    
+    db = SessionLocal()
+    try:
+        self.update_state(state='STARTED', meta={'status': 'Initializing...'})
+        result = _process_material(course_id, material_id, db)
+        return result
+    finally:
+        db.close()
 
 
+@celery_app.task(bind=True, name='backend.ai.ai_routes.process_submodule')
+def process_submodule_task(self, course_id: int, submodule_id: int):
+    """
+    Background task to process a specific submodule
+    """
+    from backend.db.database import SessionLocal
+    from backend.db.models import CourseMaterial, ProcessedMaterial
+    db = SessionLocal()
+    
+    try:
+        from backend.ai.text_processing import (
+            process_submodule_with_quota_check,
+            extract_text_from_pdf_pages,
+            save_submodule_embeddings
+        )
+        
+        self.update_state(state='PROCESSING', meta={'status': 'Processing submodule...'})
+        
+        success, message, pages_used = process_submodule_with_quota_check(
+            course_id, 
+            submodule_id, 
+            db
+        )
+        
+        return {
+            'success': success,
+            'message': message,
+            'pages_used': pages_used
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing submodule {submodule_id}: {e}")
+        return {'success': False, 'message': str(e), 'pages_used': 0}
+        
+    finally:
+        db.close()
 
+
+@celery_app.task(bind=True, name='backend.ai.ai_routes.process_all_materials')
+def process_all_materials_task(self, course_id: int):
+    """Process all unprocessed materials"""
+    from backend.db.database import SessionLocal
+    from backend.db.models import CourseMaterial, ProcessedMaterial
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    db = SessionLocal()
+    
+    try:
+        materials = db.query(CourseMaterial).filter_by(course_id=course_id).all()
+        
+        total_materials = len(materials)
+        processed_count = 0
+        skipped_count = 0
+        failed_count = 0
+        
+        for idx, material in enumerate(materials):
+            progress = int((idx / total_materials) * 100) if total_materials > 0 else 0
+            self.update_state(state='PROCESSING', meta={
+                'status': f'Processing material {idx + 1} of {total_materials}',
+                'progress': progress,
+                'processed': processed_count,
+                'skipped': skipped_count,
+                'failed': failed_count
+            })
+            
+            processed_material = db.query(ProcessedMaterial).filter_by(
+                course_id=course_id,
+                material_id=material.id
+            ).first()
+            
+            if processed_material:
+                skipped_count += 1
+                continue
+            
+            # ✅ Call the internal function, not the task
+            result = _process_material(course_id, material.id, db)
+            
+            if result.get('success'):
+                processed_count += 1
+            else:
+                failed_count += 1
+                logger.error(f"Failed to process material {material.id}: {result.get('error')}")
+                if 'quota' in result.get('error', '').lower():
+                    break
+        
+        return {
+            'success': True,
+            'processed': processed_count,
+            'skipped': skipped_count,
+            'failed': failed_count,
+            'total': total_materials
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in batch processing: {e}")
+        return {'success': False, 'error': str(e)}
+        
+    finally:
+        db.close()
 
 @ai_router.post("/courses/{course_id}/upload_materials", response_class=HTMLResponse)
 async def upload_course_material(
     course_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user=Depends(require_teacher_or_ta())  # ✅ Only teachers/TAs
+    user=Depends(require_teacher_or_ta())
 ):
+    
     course = db.query(Course).filter_by(id=course_id).first()
     if not course:
         return HTMLResponse("❌ Course not found", status_code=404)
 
     # Define daily limits
-    DAILY_FILE_LIMIT = 100  # Max 5 files per day
-    DAILY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024  # 100 MB per day
+    DAILY_FILE_LIMIT = 100
+    DAILY_SIZE_LIMIT = 2 * 1024 * 1024 * 1024
     
     # Get today's upload quota usage
     today = date.today()
@@ -103,6 +378,7 @@ async def upload_course_material(
         )
         db.add(upload_quota)
         db.commit()
+        db.refresh(upload_quota)  # Important: refresh to get the ID
     
     # Check file count limit
     if upload_quota.files_uploaded >= DAILY_FILE_LIMIT:
@@ -113,7 +389,7 @@ async def upload_course_material(
     
     # Read the file content to check size
     contents = await file.read()
-    file_size = len(contents)
+    file_size = len(contents)  # ✅ DEFINED HERE
     
     # Reset file position after reading
     await file.seek(0)
@@ -153,7 +429,10 @@ async def upload_course_material(
                 status_code=200
             )
     
-    # Proceed with file upload
+    # ============================================
+    # STEP 2: Upload to S3 (Keep synchronous)
+    # ============================================
+    
     filename = f"{datetime.utcnow().timestamp()}_{sanitize_filename(file.filename)}"
     s3_key = f"course_materials/{course_id}/{filename}"
     
@@ -162,8 +441,9 @@ async def upload_course_material(
     if not upload_success:
         return HTMLResponse("❌ File upload failed", status_code=500)
     
-    # Generate a presigned URL that expires in 1 hour
-    presigned_url = generate_presigned_url(s3_key)
+    # ============================================
+    # STEP 3: Save to Database
+    # ============================================
     
     # Record the material with file size
     material = CourseMaterial(
@@ -172,41 +452,293 @@ async def upload_course_material(
         filename=filename,
         filepath=f"uploads/{filename}",
         uploaded_by=user["user_id"],
-        file_size=file_size  # Store the file size
+        file_size=file_size  # ✅ Using file_size from above
     )
     db.add(material)
     
     # Update upload quota usage
     upload_quota.files_uploaded += 1
     upload_quota.bytes_uploaded += file_size
-    db.commit()
     
-    # Calculate remaining quota
+    # Commit everything
+    db.commit()
+    db.refresh(material)  # Get the material ID
+    
+    # Calculate remaining quota for display
     files_remaining = DAILY_FILE_LIMIT - upload_quota.files_uploaded
     bytes_remaining = DAILY_SIZE_LIMIT - upload_quota.bytes_uploaded
     mb_remaining = bytes_remaining / (1024 * 1024)
     
-    # Include page count information in success message if PDF
-    pdf_info = f" ({page_count} pages)" if page_count else ""
+    # ============================================
+    # STEP 4: NEW - Queue Background Task
+    # ============================================
     
-    return HTMLResponse(
-        content=f"""
-        <div class='toast success'>
-            ✅ File uploaded successfully!{pdf_info}
-            <div class="text-xs mt-1 text-gray-600">
-                Daily quota remaining: {files_remaining} files / {mb_remaining:.2f} MB
+    try:
+        # Queue the background processing task
+        task = process_single_material_task.apply_async(
+            args=[course_id, material.id],
+            task_id=f"material_{material.id}_{int(time.time())}"
+        )
+        
+        # Save task info for tracking
+        task_status = TaskStatus(
+            task_id=task.id,
+            course_id=course_id,
+            task_type='material_processing',
+            status='pending',
+            metadata={
+                'material_id': material.id, 
+                'filename': file.filename,
+                'page_count': page_count,
+                'file_size': file_size
+            }
+        )
+        db.add(task_status)
+        db.commit()
+        
+        # Success message with background processing info
+        pdf_info = f" ({page_count} pages)" if page_count else ""
+        
+        return HTMLResponse(
+            content=f"""
+            <div class='toast success'>
+                ✅ File uploaded successfully!{pdf_info}
+                <div class="text-xs mt-1 text-gray-600">
+                    Processing in background... You can continue working.
+                </div>
+                <div class="text-xs mt-1 text-gray-500">
+                    Daily quota remaining: {files_remaining} files / {mb_remaining:.2f} MB
+                </div>
             </div>
-        </div>
-        <script>
-            // Refresh the page after successful upload to show the new material in the table
-            setTimeout(() => {{
-                window.location.reload();
-            }}, 2000);
-        </script>
-        """,
-        status_code=200
-    )
+            <script>
+                // Refresh the page after successful upload
+                setTimeout(() => {{
+                    window.location.reload();
+                }}, 2000);
+            </script>
+            """,
+            status_code=200
+        )
+        
+    except Exception as e:
+        # If background task queueing fails, still return success for upload
+        # The file is uploaded and saved, just not processed yet
+        print(f"Warning: Failed to queue background task: {e}")
+        
+        pdf_info = f" ({page_count} pages)" if page_count else ""
+        
+        return HTMLResponse(
+            content=f"""
+            <div class='toast success'>
+                ✅ File uploaded successfully!{pdf_info}
+                <div class="text-xs mt-1 text-yellow-600">
+                    ⚠️ Background processing unavailable. Use "Process Materials" button.
+                </div>
+                <div class="text-xs mt-1 text-gray-500">
+                    Daily quota remaining: {files_remaining} files / {mb_remaining:.2f} MB
+                </div>
+            </div>
+            <script>
+                setTimeout(() => {{
+                    window.location.reload();
+                }}, 2000);
+            </script>
+            """,
+            status_code=200
+        )
+@ai_router.get("/courses/{course_id}/tasks/{task_id}", response_class=JSONResponse)
+async def get_task_status(
+    course_id: int,
+    task_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """
+    Get the status of a background task
+    """
+    from celery.result import AsyncResult
+    
+    task_result = AsyncResult(task_id)
+    
+    response = {
+        'task_id': task_id,
+        'status': task_result.state,
+        'result': None
+    }
+    
+    if task_result.state == 'PENDING':
+        response['message'] = 'Task is waiting to start...'
+    elif task_result.state == 'STARTED':
+        response['message'] = 'Task has started processing...'
+    elif task_result.state == 'PROCESSING':
+        # Get custom progress info
+        response['message'] = task_result.info.get('status', 'Processing...')
+        response['progress'] = task_result.info.get('progress', 0)
+        response['pages'] = task_result.info.get('pages', 0)
+    elif task_result.state == 'SUCCESS':
+        response['message'] = 'Processing completed!'
+        response['result'] = task_result.result
+    elif task_result.state == 'FAILURE':
+        response['message'] = 'Processing failed'
+        response['error'] = str(task_result.info)
+    
+    return JSONResponse(content=response)
 
+@ai_router.get("/courses/{course_id}/tasks/{task_id}/status")
+async def get_task_status(
+    course_id: int,
+    task_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get the status of a background task and return HTML"""
+    from backend.ai.celery_config import celery_app
+    from celery.result import AsyncResult
+    
+    # Get task result from Celery
+    task_result = AsyncResult(task_id, app=celery_app)
+    
+    if task_result.state == 'PENDING':
+        response = {
+            'state': 'PENDING',
+            'status': 'Task is waiting to start...',
+            'progress': 0
+        }
+    elif task_result.state == 'STARTED':
+        response = {
+            'state': 'STARTED',
+            'status': 'Task has started...',
+            'progress': 5
+        }
+    elif task_result.state == 'PROCESSING':
+        # Get custom progress info from task
+        info = task_result.info or {}
+        response = {
+            'state': 'PROCESSING',
+            'status': info.get('status', 'Processing...'),
+            'progress': info.get('progress', 50),
+            'processed': info.get('processed', 0),
+            'skipped': info.get('skipped', 0),
+            'failed': info.get('failed', 0)
+        }
+    elif task_result.state == 'SUCCESS':
+        result = task_result.result or {}
+        response = {
+            'state': 'SUCCESS',
+            'status': 'Processing complete!',
+            'progress': 100,
+            'result': result
+        }
+    elif task_result.state == 'FAILURE':
+        response = {
+            'state': 'FAILURE',
+            'status': 'Task failed',
+            'progress': 0,
+            'error': str(task_result.info)
+        }
+    else:
+        response = {
+            'state': task_result.state,
+            'status': 'Unknown state',
+            'progress': 0
+        }
+    
+    # Return HTML based on state
+    progress = response.get('progress', 0)
+    status = response.get('status', 'Processing...')
+    state = response.get('state', 'UNKNOWN')
+    
+    if state == 'SUCCESS':
+        result = response.get('result', {})
+        return HTMLResponse(
+            content=f"""
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
+                <h3 class="font-semibold text-green-700">✅ Processing Complete!</h3>
+                <div class="mt-3 space-y-2 text-sm text-green-600">
+                    <p>✅ Processed: <strong>{result.get('processed', 0)}</strong> materials</p>
+                    <p>⏭️ Skipped: <strong>{result.get('skipped', 0)}</strong> (already processed)</p>
+                    <p>❌ Failed: <strong>{result.get('failed', 0)}</strong></p>
+                    <p>📄 Total: <strong>{result.get('total', 0)}</strong> materials</p>
+                </div>
+                <button 
+                    onclick="window.location.reload()" 
+                    class="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold">
+                    ✨ Refresh Page
+                </button>
+            </div>
+            """,
+            status_code=200
+        )
+    
+    elif state == 'FAILURE':
+        error = response.get('error', 'Unknown error')
+        return HTMLResponse(
+            content=f"""
+            <div class="bg-red-50 border border-red-200 rounded-lg p-4 mt-4">
+                <h3 class="font-semibold text-red-700">❌ Processing Failed</h3>
+                <p class="mt-2 text-sm text-red-600">{error}</p>
+                <button 
+                    onclick="document.getElementById('process-status').innerHTML = ''" 
+                    class="mt-3 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                    Close
+                </button>
+            </div>
+            """,
+            status_code=200
+        )
+    
+    else:
+        # Still processing - auto-refresh every 2 seconds
+        processed = response.get('processed', 0)
+        skipped = response.get('skipped', 0)
+        failed = response.get('failed', 0)
+        
+        return HTMLResponse(
+            content=f"""
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4" 
+                 hx-get="/ai/courses/{course_id}/tasks/{task_id}/status"
+                 hx-trigger="every 2s"
+                 hx-swap="outerHTML">
+                <h3 class="font-semibold text-blue-700">⚙️ Processing Materials...</h3>
+                
+                <!-- Progress Bar -->
+                <div class="mt-4 w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                    <div class="bg-blue-600 h-4 rounded-full transition-all duration-500 flex items-center justify-end pr-2" 
+                         style="width: {progress}%">
+                        <span class="text-xs text-white font-bold">{progress}%</span>
+                    </div>
+                </div>
+                
+                <!-- Status Message -->
+                <p class="mt-3 text-sm text-blue-600 font-medium">{status}</p>
+                
+                <!-- Stats Grid -->
+                <div class="mt-4 grid grid-cols-3 gap-3">
+                    <div class="bg-green-100 p-3 rounded-lg text-center">
+                        <div class="text-2xl font-bold text-green-700">{processed}</div>
+                        <div class="text-xs text-green-600 mt-1">✅ Processed</div>
+                    </div>
+                    <div class="bg-yellow-100 p-3 rounded-lg text-center">
+                        <div class="text-2xl font-bold text-yellow-700">{skipped}</div>
+                        <div class="text-xs text-yellow-600 mt-1">⏭️ Skipped</div>
+                    </div>
+                    <div class="bg-red-100 p-3 rounded-lg text-center">
+                        <div class="text-2xl font-bold text-red-700">{failed}</div>
+                        <div class="text-xs text-red-600 mt-1">❌ Failed</div>
+                    </div>
+                </div>
+                
+                <!-- Animated Spinner -->
+                <div class="mt-4 flex items-center justify-center text-blue-600">
+                    <svg class="animate-spin h-6 w-6 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span class="text-sm font-medium">Processing in background...</span>
+                </div>
+            </div>
+            """,
+            status_code=200
+        )
 @ai_router.post("/courses/{course_id}/materials/{material_id}/create_modules", response_class=HTMLResponse)
 async def create_modules_from_pdf(
     course_id: int,
@@ -322,28 +854,87 @@ async def process_submodule(
     db: Session = Depends(get_db),
     user=Depends(require_teacher_or_ta())
 ):
-    """Process a specific submodule"""
+    """Process a specific submodule in the background - NO PROGRESS TRACKING"""
+    import time
     
-    success, message, pages_used = process_submodule_with_quota_check(course_id, submodule_id, db)
+    # Check if already processed
+    submodule = db.query(CourseSubmodule).filter_by(id=submodule_id).first()
+    if not submodule:
+        return HTMLResponse("❌ Submodule not found", status_code=404)
     
-    if success:
+    if submodule.is_processed:
         return HTMLResponse(
-            content=f"""
-            <div class='toast success'>
-                ✅ {message}
-                <div class="text-xs mt-1 text-gray-600">
-                    Processed {pages_used} pages
-                </div>
-            </div>
+            content="""
+            <div class="toast info">ℹ️ This part is already processed!</div>
             """,
             status_code=200
         )
-    else:
-        return HTMLResponse(
-            content=f"<div class='toast error'>❌ {message}</div>",
-            status_code=200
+    
+    # Start background task (fire and forget)
+    task = process_submodule_task.apply_async(
+        args=[course_id, submodule_id],
+        task_id=f"submodule_{submodule_id}_{int(time.time())}"
+    )
+    
+    # Save task info (optional, for tracking history)
+    from backend.db.models import TaskStatus
+    try:
+        task_status = TaskStatus(
+            task_id=task.id,
+            course_id=course_id,
+            task_type='submodule_processing',
+            status='pending',
+            metadata={'submodule_id': submodule_id}
         )
-
+        db.add(task_status)
+        db.commit()
+    except:
+        pass  # Don't fail if we can't save task status
+    
+    # Return simple success message (NO progress tracking)
+    return HTMLResponse(
+        content="""
+        <div class="inline-flex items-center text-xs text-blue-600 ml-2">
+            <svg class="animate-spin h-3 w-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Processing...
+        </div>
+        """,
+        status_code=200
+    )
+@ai_router.get("/courses/{course_id}/processing-dashboard", response_class=HTMLResponse)
+async def show_processing_dashboard(
+    request: Request,
+    course_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """
+    Dashboard showing all active and recent processing tasks
+    """
+    # Get recent tasks for this course
+    recent_tasks = db.query(TaskStatus).filter_by(
+        course_id=course_id
+    ).order_by(TaskStatus.created_at.desc()).limit(20).all()
+    
+    # Update task statuses from Celery
+    from celery.result import AsyncResult
+    for task in recent_tasks:
+        celery_task = AsyncResult(task.task_id)
+        task.current_status = celery_task.state
+        
+        if celery_task.state == 'PROCESSING':
+            task.progress_info = celery_task.info
+    
+    return templates.TemplateResponse("processing_dashboard.html", {
+        "request": request,
+        "course_id": course_id,
+        "tasks": recent_tasks,
+        "user": user
+    })
+    
 @ai_router.post("/courses/{course_id}/modules/{module_id}/process_all", response_class=HTMLResponse)
 async def process_all_submodules_in_module(
     course_id: int,
@@ -351,7 +942,8 @@ async def process_all_submodules_in_module(
     db: Session = Depends(get_db),
     user=Depends(require_teacher_or_ta())
 ):
-    """Process all unprocessed submodules in a module"""
+    """Process all unprocessed submodules in a module - ASYNC VERSION"""
+    import time
     
     module = db.query(CourseModule).filter_by(id=module_id, course_id=course_id).first()
     if not module:
@@ -364,31 +956,42 @@ async def process_all_submodules_in_module(
     
     if not unprocessed_submodules:
         return HTMLResponse(
-            content="<div class='toast info'>ℹ️ All submodules in this module are already processed</div>",
+            content="<div class='toast info'>ℹ️ All submodules already processed!</div>",
             status_code=200
         )
     
-    processed_count = 0
-    failed_count = 0
-    total_pages = 0
+    # Start background task
+    task = process_module_all_task.apply_async(
+        args=[course_id, module_id],
+        task_id=f"module_all_{module_id}_{int(time.time())}"
+    )
     
-    for submodule in unprocessed_submodules:
-        success, message, pages_used = process_submodule_with_quota_check(course_id, submodule.id, db)
-        if success:
-            processed_count += 1
-            total_pages += pages_used
-        else:
-            failed_count += 1
-            if "quota" in message.lower():
-                break  # Stop processing if quota exceeded
+    # Save task info
+    from backend.db.models import TaskStatus
+    task_status = TaskStatus(
+        task_id=task.id,
+        course_id=course_id,
+        task_type='module_processing',
+        status='pending',
+        metadata={'module_id': module_id}
+    )
+    db.add(task_status)
+    db.commit()
     
+    # Return progress tracker HTML
     return HTMLResponse(
         content=f"""
-        <div class='toast success'>
-            ✅ Module processing complete!
-            <div class="text-xs mt-1 text-gray-600">
-                Processed: {processed_count} submodules ({total_pages} pages)
-                {f" | Failed: {failed_count}" if failed_count > 0 else ""}
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4" 
+             hx-get="/ai/courses/{course_id}/tasks/{task.id}/status"
+             hx-trigger="load delay:1s"
+             hx-swap="outerHTML">
+            <h3 class="font-semibold text-blue-700">⚙️ Processing All Parts...</h3>
+            <div class="mt-3 flex items-center justify-center text-blue-600">
+                <svg class="animate-spin h-6 w-6 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-sm">Starting...</span>
             </div>
         </div>
         """,
@@ -1223,53 +1826,50 @@ async def refresh_materials_list(
 
 
 @ai_router.post("/courses/{course_id}/process_materials")
-async def process_materials(course_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    # Get today's quota usage
-    today = date.today()
-    quota_usage = db.query(PDFQuotaUsage).filter(
-        PDFQuotaUsage.course_id == course_id,
-        PDFQuotaUsage.usage_date == today
-    ).first()
+async def process_materials(
+    course_id: int, 
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Trigger background processing"""
+    import time
     
-    used_pages = quota_usage.pages_processed if quota_usage else 0
-    remaining_quota = PDFQuotaConfig.DAILY_PAGE_QUOTA - used_pages
+    # Start the background task
+    task = process_all_materials_task.apply_async(
+        args=[course_id],
+        task_id=f"batch_process_{course_id}_{int(time.time())}"
+    )
     
-    # Process materials in foreground instead of background for immediate feedback
-    # This change gives instant feedback to the user
-    result = process_materials_in_background(course_id, db)
+    # Save task to database
+    from backend.db.models import TaskStatus
+    task_status = TaskStatus(
+        task_id=task.id,
+        course_id=course_id,
+        task_type='batch_processing',
+        status='pending'
+    )
+    db.add(task_status)
+    db.commit()
     
-    # After processing, get updated quota information
-    quota_usage = db.query(PDFQuotaUsage).filter(
-        PDFQuotaUsage.course_id == course_id,
-        PDFQuotaUsage.usage_date == today
-    ).first()
-    
-    used_pages = quota_usage.pages_processed if quota_usage else 0
-    remaining_quota = PDFQuotaConfig.DAILY_PAGE_QUOTA - used_pages
-    
+    # Return initial progress HTML that will start polling
     return HTMLResponse(
         content=f"""
-        <div class="bg-blue-50 border border-blue-100 rounded-lg p-4 mb-4 mt-4">
-            <h3 class="font-semibold text-blue-700">📊 Processing Results</h3>
-            <ul class="mt-2 text-sm text-blue-600 space-y-1">
-                <li>✅ Processed: {result['processed']} materials</li>
-                <li>⏭️ Skipped: {result['skipped']} (already processed)</li>
-                <li>⚠️ Quota exceeded: {result['quota_exceeded']} materials</li>
-            </ul>
-            <p class="mt-2 text-xs text-blue-700">
-                Daily quota remaining: {remaining_quota} pages
-            </p>
-            <script>
-                // Trigger a page refresh to update the quota bar
-                setTimeout(function() {{
-                    window.location.reload();
-                }}, 3000);
-            </script>
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4" 
+             hx-get="/ai/courses/{course_id}/tasks/{task.id}/status"
+             hx-trigger="load delay:1s"
+             hx-swap="outerHTML">
+            <h3 class="font-semibold text-blue-700">⚙️ Starting Processing...</h3>
+            <div class="mt-3 flex items-center justify-center text-blue-600">
+                <svg class="animate-spin h-6 w-6 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-sm">Initializing...</span>
+            </div>
         </div>
         """,
         status_code=200
     )
-
 @ai_router.get("/courses/{course_id}/materials/{material_id}/download")
 async def download_material(course_id: int, material_id: int, db: Session = Depends(get_db)):
     # Get the material info from DB

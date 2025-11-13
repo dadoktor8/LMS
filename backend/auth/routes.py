@@ -4,7 +4,8 @@ import io
 import random
 import re
 import string
-from fastapi import APIRouter, HTTPException, Depends, Query, Request, Form, Response, logger
+import logging
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, Form, Response
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -31,7 +32,7 @@ load_dotenv()
 
 SECRET_KEY = os.getenv("SECRET_KEY")
 
-
+logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 auth_router = APIRouter()
 templates = Jinja2Templates(directory="backend/templates")

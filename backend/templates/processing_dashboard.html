@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Processing Dashboard</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <style>
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            transition: width 0.3s ease;
+        }
+        .task-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+            background: white;
+        }
+        .status-pending { color: #ff9800; }
+        .status-processing { color: #2196F3; }
+        .status-success { color: #4CAF50; }
+        .status-failed { color: #f44336; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Processing Dashboard - Course {{ course_id }}</h1>
+        
+        <div id="tasks-container">
+            {% for task in tasks %}
+            <div class="task-card" 
+                 hx-get="/ai/courses/{{ course_id }}/tasks/{{ task.task_id }}/status"
+                 hx-trigger="every 2s"
+                 hx-swap="outerHTML">
+                
+                <div class="task-header">
+                    <h3>{{ task.task_type }}</h3>
+                    <span class="status-{{ task.current_status|lower }}">
+                        {{ task.current_status }}
+                    </span>
+                </div>
+                
+                <div class="task-info">
+                    <p><strong>Task ID:</strong> {{ task.task_id }}</p>
+                    <p><strong>Started:</strong> {{ task.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+                    
+                    {% if task.metadata %}
+                    <p><strong>Details:</strong> 
+                        {% if task.metadata.filename %}
+                        File: {{ task.metadata.filename }}
+                        {% endif %}
+                    </p>
+                    {% endif %}
+                </div>
+                
+                {% if task.progress_info %}
+                <div class="progress-section">
+                    <p>{{ task.progress_info.status }}</p>
+                    {% if task.progress_info.progress %}
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{ task.progress_info.progress }}%"></div>
+                    </div>
+                    <p class="text-sm">{{ task.progress_info.progress }}% complete</p>
+                    {% endif %}
+                    
+                    {% if task.progress_info.pages %}
+                    <p class="text-sm">Pages: {{ task.progress_info.pages }}</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+                
+                {% if task.current_status == 'SUCCESS' and task.result %}
+                <div class="result-section">
+                    <p class="text-green-600">✅ Processing Complete!</p>
+                    {% if task.result.pages_processed %}
+                    <p>Processed {{ task.result.pages_processed }} pages</p>
+                    {% endif %}
+                    {% if task.result.chunks_created %}
+                    <p>Created {{ task.result.chunks_created }} text chunks</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+                
+                {% if task.current_status == 'FAILURE' %}
+                <div class="error-section">
+                    <p class="text-red-600">❌ Processing Failed</p>
+                    {% if task.result and task.result.error %}
+                    <p class="text-sm">{{ task.result.error }}</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        
+        <div class="mt-4">
+            <a href="/ai/courses/{{ course_id }}/upload_materials" 
+               class="btn btn-primary">
+                Back to Materials
+            </a>
+        </div>
+    </div>
+    
+    <script>
+        // Auto-refresh the page when all tasks are complete
+        function checkAllTasksComplete() {
+            const processingTasks = document.querySelectorAll('.status-processing, .status-pending');
+            if (processingTasks.length === 0) {
+                // All tasks complete, stop polling
+                document.querySelectorAll('[hx-trigger*="every"]').forEach(el => {
+                    el.removeAttribute('hx-trigger');
+                });
+            }
+        }
+        
+        // Check every few seconds
+        setInterval(checkAllTasksComplete, 3000);
+    </script>
+</body>
+</html>

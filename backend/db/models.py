@@ -60,6 +60,7 @@ class Course(Base):
     modules = relationship("CourseModule", back_populates="course", cascade="all, delete-orphan")
     quizzes = relationship("Quiz", back_populates="course", cascade="all, delete-orphan")
     inclass_activities = relationship("InClassActivity", back_populates="course", cascade="all, delete-orphan")
+    task_statuses = relationship("TaskStatus", back_populates="course")
 
 
 class CourseModule(Base):
@@ -554,3 +555,17 @@ class QuizComment(Base):
     creator_participation = relationship("ActivityParticipation", backref="quiz_comments")
     commenter = relationship("User", backref="quiz_comments_made")
     commenter_group = relationship("ActivityGroup", backref="quiz_comments")
+    
+class TaskStatus(Base):
+    __tablename__ = "task_status"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String, unique=True, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"))
+    task_type = Column(String)  # 'material_upload', 'submodule_process', etc.
+    status = Column(String)  # 'pending', 'processing', 'completed', 'failed'
+    result = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    course = relationship("Course", back_populates="task_statuses")

@@ -16,3 +16,5 @@ backend/model
 .env.*
 *.db
 backend/uploads
+lms-env/Lib/site-packages/
+lms-env/Lib/

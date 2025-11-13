@@ -23,3 +23,8 @@ boto3
 botocore
 PyPDF2
 alembic
+celery==5.3.4
+redis==5.0.1
+flower==2.0.1 
+kombu==5.3.4  # Celery dependency
+vine==5.1.0

@@ -169,52 +169,59 @@
                 </div>
               </div>
               
-              <div class="flex items-center space-x-3">
-                <button onclick="toggleLessonDetails({{ module.id }})" class="simple-button">
+<!-- Replace the existing "Process All" button section (around line 160-180) with this: -->
+
+          <div class="flex items-center space-x-3">
+              <button onclick="toggleLessonDetails({{ module.id }})" class="simple-button">
                   View Details
-                </button>
-                  {% if module.is_published %}
-                  <button 
-                    hx-post="/ai/courses/{{ course.id }}/modules/{{ module.id }}/unpublish"
-                    hx-target="this"
-                    hx-swap="outerHTML"
-                    class="status-toggle status-published">
-                    ✓ Published
-                  </button>
-                  {% else %}
-                  <button 
-                    hx-post="/ai/courses/{{ course.id }}/modules/{{ module.id }}/publish"
-                    hx-target="this"
-                    hx-swap="outerHTML"
-                    class="status-toggle status-draft">
-                    📝 Draft
-                  </button>
-                  {% endif %}
-                {% if module.submodules and module.submodules|selectattr('is_processed', 'equalto', False)|list %}
-                <button 
+              </button>
+              
+              {% if module.is_published %}
+              <button 
+                  hx-post="/ai/courses/{{ course.id }}/modules/{{ module.id }}/unpublish"
+                  hx-target="this"
+                  hx-swap="outerHTML"
+                  class="status-toggle status-published">
+                  ✓ Published
+              </button>
+              {% else %}
+              <button 
+                  hx-post="/ai/courses/{{ course.id }}/modules/{{ module.id }}/publish"
+                  hx-target="this"
+                  hx-swap="outerHTML"
+                  class="status-toggle status-draft">
+                  📝 Draft
+              </button>
+              {% endif %}
+              
+              <!-- ✅ FIXED: Only show "Process All" if there are unprocessed submodules -->
+              {% set unprocessed_submodules = module.submodules|selectattr('is_processed', 'equalto', False)|list %}
+              {% if unprocessed_submodules and unprocessed_submodules|length > 0 %}
+              <button 
                   hx-post="/ai/courses/{{ course.id }}/modules/{{ module.id }}/process_all"
                   hx-target="closest .simple-card"
                   hx-swap="none"
                   hx-indicator="#process-all-{{ module.id }}-indicator"
                   class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors relative">
-                  Process All
+                  Process All ({{ unprocessed_submodules|length }})
                   <div id="process-all-{{ module.id }}-indicator" class="htmx-indicator absolute inset-0 flex items-center justify-center bg-green-600 rounded-lg">
-                    <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
+                      <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
                   </div>
-                </button>
-                {% endif %}
-                <button 
+              </button>
+              {% endif %}
+              
+              <button 
                   hx-post="/ai/courses/{{course.id}}/modules/{{module.id}}?_method=DELETE"
                   hx-target="closest .simple-card"
                   hx-swap="delete"
                   hx-confirm="Are you sure you want to delete this lesson?"
                   class="bg-red-100 text-red-600 px-4 py-2 rounded-lg hover:bg-red-200 transition-colors">
                   Delete
-                </button>
-              </div>
+              </button>
+          </div>
             </div>
             
             <!-- Lesson Details (Hidden by default) -->
@@ -222,70 +229,66 @@
               {% if module.submodules %}
                 <h5 class="font-medium text-gray-900 mb-3">Lesson Parts:</h5>
                 <div class="space-y-2">
-                  {% for submodule in module.submodules %}
-                  <div class="p-3 bg-gray-50 rounded-lg">
+                {% for submodule in module.submodules %}
+                <div class="p-3 bg-gray-50 rounded-lg">
                     <div class="mb-2">
-                      <span class="font-medium text-gray-900">{{ submodule.title }}</span>
-                      {% if submodule.page_range %}
-                      <span class="text-sm text-gray-500 ml-2">(Pages {{ submodule.page_range }})</span>
-                      {% endif %}
-                      {% if submodule.is_processed %}
-                      <span class="ml-2 text-green-600 text-sm">✓ Ready</span>
-                      {% else %}
-                      <span class="ml-2 text-yellow-600 text-sm">⏳ Pending</span>
-                      {% endif %}
+                        <span class="font-medium text-gray-900">{{ submodule.title }}</span>
+                        {% if submodule.page_range %}
+                        <span class="text-sm text-gray-500 ml-2">(Pages {{ submodule.page_range }})</span>
+                        {% endif %}
+                        {% if submodule.is_processed %}
+                        <span class="ml-2 text-green-600 text-sm">✓ Ready</span>
+                        {% else %}
+                        <span class="ml-2 text-yellow-600 text-sm">⏳ Pending</span>
+                        {% endif %}
                     </div>
 
                     <div class="flex items-center space-x-2">
-                      <!-- Publish/Unpublish for processed submodules -->
-                      {% if submodule.is_processed %}
-                        {% if submodule.is_published %}
+                        <!-- Publish/Unpublish for processed submodules -->
+                        {% if submodule.is_processed %}
+                            {% if submodule.is_published %}
+                            <button 
+                                hx-post="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/unpublish"
+                                hx-target="closest .p-3"
+                                hx-swap="outerHTML"
+                                class="text-xs bg-orange-500 text-white px-2 py-1 rounded">
+                                Unpublish
+                            </button>
+                            {% else %}
+                            <button 
+                                hx-post="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/publish"
+                                hx-target="closest .p-3"
+                                hx-swap="outerHTML"
+                                class="text-xs bg-blue-500 text-white px-2 py-1 rounded">
+                                Publish
+                            </button>
+                            {% endif %}
+                        {% endif %}
+
+                        {% if submodule.page_range and submodule.material %}
+                        <a href="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/download/preview" 
+                            target="_blank"
+                            class="text-xs bg-purple-500 text-white px-2 py-1 rounded hover:bg-purple-600 transition-colors"
+                            title="Download pages {{ submodule.page_range }} as PDF">
+                            📄 Preview PDF
+                        </a>
+                        {% endif %}
+
+                        <!-- ✅ FIXED: Only show Process button if NOT processed AND has page range -->
+                        {% if not submodule.is_processed and submodule.page_range %}
                         <button 
-                          hx-post="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/unpublish"
-                          hx-target="closest .p-3"
-                          hx-swap="outerHTML"
-                          class="text-xs bg-orange-500 text-white px-2 py-1 rounded">
-                          Unpublish
-                        </button>
-                        {% else %}
-                        <button 
-                          hx-post="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/publish"
-                          hx-target="closest .p-3"
-                          hx-swap="outerHTML"
-                          class="text-xs bg-blue-500 text-white px-2 py-1 rounded">
-                          Publish
+                            hx-post="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/process"
+                            hx-target="closest .p-3"
+                            hx-swap="beforeend"
+                            class="simple-button text-sm">
+                            Process
                         </button>
                         {% endif %}
-                      {% endif %}
-
-                      {% if submodule.page_range and submodule.material %}
-                      <a href="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/download/preview" 
-                        target="_blank"
-                        class="text-xs bg-purple-500 text-white px-2 py-1 rounded hover:bg-purple-600 transition-colors"
-                        title="Download pages {{ submodule.page_range }} as PDF">
-                        📄 Preview PDF
-                      </a>
-                      {% endif %}
-
-                      {% if not submodule.is_processed and submodule.page_range %}
-                      <button 
-                        hx-post="/ai/courses/{{ course.id }}/submodules/{{ submodule.id }}/process"
-                        hx-target="this"
-                        hx-swap="none"
-                        hx-indicator="#process-{{ submodule.id }}-indicator"
-                        class="simple-button text-sm relative">
-                        Process
-                        <div id="process-{{ submodule.id }}-indicator" class="htmx-indicator absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
-                          <svg class="animate-spin h-4 w-4 text-gray-600" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                        </div>
-                      </button>
-                      {% endif %}
                     </div>
-                  </div>
-                  {% endfor %}
+                    
+                    <!-- Progress will be inserted here -->
+                </div>
+                {% endfor %}
                 </div>
               {% else %}
                 <p class="text-gray-500 text-center py-4">No parts added yet</p>
@@ -676,53 +679,45 @@ document.body.addEventListener('htmx:afterRequest', function(event) {
   const xhr = event.detail.xhr;
   const target = event.detail.target;
   
-  // Handle process responses
-  if (xhr.responseURL && xhr.responseURL.includes('/process')) {
+  // Handle individual submodule processing (fire-and-forget)
+  if (xhr.responseURL && xhr.responseURL.includes('/submodules/') && xhr.responseURL.includes('/process')) {
     if (xhr.status === 200) {
-      // Check if this was a "Process All" operation
-      if (xhr.responseURL.includes('/process_all')) {
-        showToast('All lesson parts have been processed and are ready to teach! 🎉', 'success');
-        const moduleMatch = xhr.responseURL.match(/modules\/(\d+)\/process_all/);
-        if (moduleMatch) {
-          const moduleId = moduleMatch[1];
-          updateModuleStatus(moduleId);
-        }
-        event.preventDefault();
-        return false;
-      } else {
-        // Individual submodule processing
-        showToast('Part processed successfully!', 'success');
-        const submoduleMatch = xhr.responseURL.match(/submodules\/(\d+)\/process/);
-        if (submoduleMatch) {
-          const button = event.detail.elt;
-          updateIndividualSubmoduleStatus(button);
-        }
-        event.preventDefault();
-        return false;
+      showToast('Part queued for processing! Refresh page in a few moments to see results.', 'info');
+    } else {
+      showToast('Failed to queue processing. Please try again.', 'error');
+    }
+    return; // Exit early to avoid duplicate handling
+  }
+  
+  // Handle "Process All" operation
+  if (xhr.responseURL && xhr.responseURL.includes('/process_all')) {
+    if (xhr.status === 200) {
+      showToast('All lesson parts are being processed! 🎉', 'success');
+      const moduleMatch = xhr.responseURL.match(/modules\/(\d+)\/process_all/);
+      if (moduleMatch) {
+        const moduleId = moduleMatch[1];
+        updateModuleStatus(moduleId);
       }
     } else {
       showToast('Processing failed. Please try again.', 'error');
     }
+    return;
   }
   
   // Handle delete responses
   if (xhr.responseURL && xhr.responseURL.includes('_method=DELETE')) {
     if (xhr.status === 200) {
-      // Find the module card and remove it smoothly
-      const button = event.detail.elt; // The button that triggered the request
+      const button = event.detail.elt;
       const moduleCard = button.closest('.simple-card');
       
       if (moduleCard) {
-        // Add fade out animation
         moduleCard.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
         moduleCard.style.opacity = '0';
         moduleCard.style.transform = 'translateX(-20px)';
         
-        // Remove the card after animation
         setTimeout(() => {
           moduleCard.remove();
           
-          // Check if there are no more lessons and show empty state
           const lessonsContainer = document.querySelector('#lessons-section .space-y-4');
           if (lessonsContainer && lessonsContainer.children.length === 0) {
             showEmptyLessonsState();
@@ -731,8 +726,6 @@ document.body.addEventListener('htmx:afterRequest', function(event) {
       }
       
       showToast('Lesson deleted successfully!', 'success');
-      
-      // Prevent default swap behavior
       event.preventDefault();
       return false;
     } else {
@@ -780,8 +773,8 @@ function updateIndividualSubmoduleStatus(processButton) {
   }
 }
 // Function to update module status after processing
+// Find this function around line 450 and update it:
 function updateModuleStatus(moduleId) {
-  // Find the module card
   const moduleCard = document.querySelector(`[data-module-id="${moduleId}"]`) || 
                     document.querySelector(`button[hx-post*="modules/${moduleId}/process_all"]`)?.closest('.simple-card');
   
@@ -789,26 +782,27 @@ function updateModuleStatus(moduleId) {
     // Update status badges
     const statusArea = moduleCard.querySelector('.flex.items-center.text-sm.text-gray-500');
     if (statusArea) {
-      // Remove old "Ready to teach" badge if it exists
       const existingBadge = statusArea.querySelector('.bg-green-100');
       if (existingBadge && existingBadge.textContent.includes('Ready to teach')) {
         existingBadge.remove();
       }
       
-      // Add the "Ready to teach" badge
       const readyBadge = document.createElement('span');
       readyBadge.className = 'ml-2 bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs font-medium';
       readyBadge.textContent = 'Ready to teach';
       statusArea.appendChild(readyBadge);
     }
     
-    // Remove the "Process All" button
+    // ✅ ENHANCED: Smoothly fade out and remove the "Process All" button
     const processAllButton = moduleCard.querySelector('button[hx-post*="/process_all"]');
     if (processAllButton) {
-      processAllButton.remove();
+      processAllButton.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
+      processAllButton.style.opacity = '0';
+      processAllButton.style.transform = 'scale(0.95)';
+      setTimeout(() => processAllButton.remove(), 300);
     }
     
-    // Update individual submodule statuses in details if they're visible
+    // Update individual submodule statuses in details if visible
     const detailsSection = moduleCard.querySelector(`#lesson-details-${moduleId}`);
     if (detailsSection && !detailsSection.classList.contains('hidden')) {
       const submoduleStatuses = detailsSection.querySelectorAll('.text-yellow-600');
@@ -819,7 +813,6 @@ function updateModuleStatus(moduleId) {
         }
       });
       
-      // Remove individual "Process" buttons
       const processButtons = detailsSection.querySelectorAll('button[hx-post*="/process"]');
       processButtons.forEach(button => button.remove());
     }

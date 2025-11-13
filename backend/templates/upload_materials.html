@@ -660,11 +660,11 @@
     });
     document.getElementById('proceed-process-btn').addEventListener('click', function() {
       closeProcessConfirmationModal();
-      // Trigger the actual HTMX request
-      htmx.ajax('POST', `/ai/courses/{{ course_id }}/process_materials`, {
+      
+      // Trigger processing with HTMX
+      htmx.ajax('POST', '/ai/courses/{{ course_id }}/process_materials', {
         target: '#process-status',
-        indicator: '#loader',
-        swap: 'outerHTML'
+        swap: 'innerHTML'
       });
     });
     // Delete functionality
