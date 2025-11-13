@@ -13,9 +13,11 @@ pandas
 openpyxl
 PyMuPDF 
 faiss-cpu
-langchain
-langchain-community
-langchain-openai
+langchain==0.3.13
+langchain-community==0.3.13
+langchain-openai==0.2.14
+langchain-core==0.3.28
+langchain-text-splitters==0.3.5
 reportlab
 psycopg2-binary==2.9.9
 openai
