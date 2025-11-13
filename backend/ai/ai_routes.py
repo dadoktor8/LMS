@@ -475,7 +475,6 @@ async def upload_course_material(
         filepath=s3_key,  # Store S3 key directly
         uploaded_by=user["user_id"],
         file_size=file_size,
-        page_count=page_count
     )
     db.add(material)
     
