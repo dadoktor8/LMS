@@ -16,7 +16,7 @@ faiss-cpu
 langchain==0.3.11
 langchain-community==0.3.11
 langchain-openai==0.2.14
-langchain-text-splitters==0.3.11
+langchain-text-splitters
 langchain-core==0.3.28
 reportlab
 psycopg2-binary==2.9.9
