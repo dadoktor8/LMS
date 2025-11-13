@@ -1,5 +1,6 @@
 """
 Celery Configuration with SSL Support for Upstash Redis
+Optimized for low-memory environments (512MB)
 """
 from celery import Celery
 import os
@@ -46,41 +47,44 @@ celery_app.conf.update(
     
     # Task execution
     task_track_started=True,
-    task_time_limit=1800,  # 30 minutes max per task (reduced from 1 hour)
-    task_soft_time_limit=1500,  # 25 minutes soft limit (warning before hard kill)
+    task_time_limit=1800,  # 30 minutes max per task
+    task_soft_time_limit=1500,  # 25 minutes soft limit
     
-    # Worker configuration
-    worker_prefetch_multiplier=1,  # Process one task at a time per worker
-    worker_max_tasks_per_child=20,  # Restart worker after 20 tasks (prevents memory leaks)
-    worker_disable_rate_limits=True,  # Disable rate limits for better performance
+    # Worker configuration (OPTIMIZED FOR LOW MEMORY)
+    worker_prefetch_multiplier=1,  # Process one task at a time
+    worker_max_tasks_per_child=5,  # Restart after 5 tasks (was 20, now more aggressive)
+    worker_max_memory_per_child=400000,  # 400MB limit - restart before hitting 512MB
+    worker_disable_rate_limits=True,
+    worker_pool_restarts=True,
     
-    # Connection retry
+    # Connection settings (MEMORY OPTIMIZED)
     broker_connection_retry_on_startup=True,
     broker_connection_retry=True,
     broker_connection_max_retries=10,
+    broker_pool_limit=1,  # Minimize connection pool
+    broker_heartbeat=None,  # Disable heartbeat to save memory
+    broker_connection_timeout=30,
     
     # Task execution settings
-    task_acks_late=True,  # Acknowledge task after completion (safer)
-    task_reject_on_worker_lost=True,  # Re-queue task if worker dies
+    task_acks_late=True,  # Acknowledge after completion
+    task_reject_on_worker_lost=True,  # Re-queue if worker dies
     
     # Result backend settings
     result_expires=3600,  # Results expire after 1 hour
-    result_persistent=False,  # Don't persist results to disk
+    result_persistent=False,  # Don't persist to disk
+    result_backend_transport_options={
+        'visibility_timeout': 3600,
+        'fanout_prefix': True,
+        'fanout_patterns': True,
+        'retry_policy': {
+            'timeout': 5.0
+        }
+    },
     
-    # SSL Configuration for rediss:// (Upstash)
+    # SSL Configuration
     broker_use_ssl=broker_use_ssl,
     redis_backend_use_ssl=broker_use_ssl,
     
     # Task imports
     imports=('backend.ai.ai_routes',),
-    
-    # Performance optimizations
-    worker_pool_restarts=True,  # Enable pool restarts
 )
-
-# Optional: Add result backend configuration
-celery_app.conf.result_backend_transport_options = {
-    'retry_policy': {
-        'timeout': 5.0
-    }
-}

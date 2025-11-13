@@ -3,6 +3,7 @@ import time
 import logging
 import os
 import re
+import gc 
 from typing import List, Optional
 import PyPDF2
 from fastapi import HTTPException
@@ -101,6 +102,8 @@ def extract_text_from_pdf(file_path_or_key: str) -> str:
         doc = fitz.open(local_path)
         text = "\n".join(page.get_text() for page in doc)
         doc.close()
+        del doc
+        gc.collect()
         
         # Clean up the temporary file
         try:
@@ -110,9 +113,13 @@ def extract_text_from_pdf(file_path_or_key: str) -> str:
             
         return text
     else:
-        # Original local file handling
+    # Original local file handling
         doc = fitz.open(file_path_or_key)
-        return "\n".join(page.get_text() for page in doc)
+        text = "\n".join(page.get_text() for page in doc)
+        doc.close()
+        del doc
+        gc.collect()
+        return text
 
 def download_file_from_s3(s3_key: str, local_path: str) -> bool:
     """Download a file from S3 to a local temporary path"""
@@ -546,6 +553,8 @@ def process_submodule_with_quota_check(
         
         # Save embeddings specifically for this submodule
         save_submodule_embeddings(submodule_id, chunks, db)
+        del text, chunks
+        gc.collect()
         
         # Update quota usage
         if quota_usage:
@@ -763,6 +772,8 @@ def process_materials_in_background(course_id: int, db: Session):
             db.add(ProcessedMaterial(course_id=course_id, material_id=material.id))
             db.commit()
             processed_count += 1
+            del text, chunks
+            gc.collect()
             logging.info(f"✅ Processed {material.filename} ({total_pages} pages, {remaining_quota} remaining in quota)")
             print(f"✅ Processed {material.filename} ({total_pages} pages, {remaining_quota} remaining in quota)")
            
@@ -1410,6 +1421,8 @@ def save_embeddings_to_faiss_openai(course_id: int, chunks: list, db: Session):
     db.commit()
     logging.info(f"✅ Saved FAISS index and OpenAI chunks for course {course_id}")
     print(f"✅ Saved FAISS index and OpenAI chunks for course {course_id}")
+    del normalized_chunks, documents, vectorstore
+    gc.collect()
 
 
 def get_past_messages(student_id, course_id):
