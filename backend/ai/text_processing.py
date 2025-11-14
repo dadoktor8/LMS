@@ -1384,75 +1384,89 @@ def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session
 
 '''
 def save_embeddings_to_faiss_openai(course_id: int, chunks: list, db: Session):
-    """Save embeddings in batches to avoid memory issues"""
+    """Save embeddings ONE AT A TIME - slow but bulletproof"""
     import gc
+    import time
     
-    BATCH_SIZE = 50  # Process 50 chunks at a time
-    
-    logging.info(f"📦 Processing {len(chunks)} chunks in batches of {BATCH_SIZE}")
-    
-    all_documents = []
-    all_embeddings = []
+    logging.info(f"📦 Processing {len(chunks)} chunks ONE AT A TIME (bulletproof mode)")
     
     embeddings_model = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
+    all_documents = []
     
-    # Process chunks in batches
-    for i in range(0, len(chunks), BATCH_SIZE):
-        batch = chunks[i:i + BATCH_SIZE]
-        logging.info(f"📊 Processing batch {i//BATCH_SIZE + 1}/{(len(chunks)-1)//BATCH_SIZE + 1}")
-        
-        # Normalize batch
-        normalized_batch = [chunk.strip().replace("\n", " ") for chunk in batch]
-        
-        # Create documents
-        batch_documents = [Document(page_content=chunk) for chunk in normalized_batch]
-        all_documents.extend(batch_documents)
-        
-        # Save to database immediately
-        for chunk in normalized_batch:
-            try:
-                embedding = embeddings_model.embed_query(chunk)
-                db.add(TextChunk(
-                    course_id=course_id,
-                    chunk_text=chunk,
-                    embedding=str(embedding)
-                ))
-            except Exception as e:
-                logging.error(f"❌ Failed to embed chunk: {e}")
+    # Process ONE chunk at a time
+    for i, chunk in enumerate(chunks):
+        try:
+            logging.info(f"📊 Processing chunk {i+1}/{len(chunks)}")
+            
+            # Clean the chunk
+            clean_chunk = chunk.strip().replace("\n", " ").replace('\x00', '').replace('\ufffd', '')
+            
+            if not clean_chunk:
                 continue
+            
+            # Create document
+            doc = Document(page_content=clean_chunk)
+            all_documents.append(doc)
+            
+            # Embed and save to DB immediately
+            embedding = embeddings_model.embed_query(clean_chunk)
+            
+            db.add(TextChunk(
+                course_id=course_id,
+                chunk_text=clean_chunk,
+                embedding=str(embedding)
+            ))
+            
+            # Commit EVERY chunk
+            db.commit()
+            
+            # Clean up memory aggressively
+            del embedding, clean_chunk
+            gc.collect()
+            
+            # Delay to avoid rate limits
+            time.sleep(0.2)  # 200ms between chunks
+            
+            # Extra cleanup every 10 chunks
+            if (i + 1) % 10 == 0:
+                logging.info(f"✅ Saved {i+1}/{len(chunks)} chunks")
+                gc.collect()
+                time.sleep(1)  # Extra pause every 10 chunks
+                
+        except Exception as e:
+            logging.error(f"❌ Failed chunk {i+1}: {e}")
+            continue
+    
+    logging.info(f"✅ Saved all {len(chunks)} chunks to database")
+    
+    # Build FAISS index from all documents
+    logging.info("🔨 Building FAISS index...")
+    
+    try:
+        vectorstore = FAISS.from_documents(all_documents, embedding=embeddings_model)
         
-        # Commit this batch
-        db.commit()
+        if len(vectorstore.docstore._dict) == 0:
+            logging.warning("⚠️ FAISS index is empty!")
+        else:
+            logging.info(f"✅ FAISS index built with {len(vectorstore.docstore._dict)} documents")
         
-        # Clean up memory after each batch
-        del normalized_batch, batch_documents, batch
+        # Save FAISS index
+        index_path = f"faiss_index_{course_id}"
+        vectorstore.save_local(index_path)
+        logging.info(f"📁 FAISS index saved to {index_path}")
+        
+        # Upload to S3
+        upload_faiss_index_to_s3(index_path, course_id)
+        
+        # Cleanup
+        del vectorstore
         gc.collect()
         
-        logging.info(f"✅ Batch {i//BATCH_SIZE + 1} saved to database")
+    except Exception as e:
+        logging.error(f"❌ Failed to build FAISS index: {e}")
+        raise
     
-    # Build FAISS index from all documents at once
-    logging.info("🔨 Building FAISS index from all documents...")
-    vectorstore = FAISS.from_documents(all_documents, embedding=embeddings_model)
-    
-    # Check if populated
-    if len(vectorstore.docstore._dict) == 0:
-        logging.warning("⚠️ FAISS index is empty!")
-    else:
-        logging.info(f"✅ FAISS index built with {len(vectorstore.docstore._dict)} documents")
-    
-    # Save FAISS index
-    index_path = f"faiss_index_{course_id}"
-    vectorstore.save_local(index_path)
-    logging.info(f"📁 FAISS index saved to {index_path}")
-    
-    # Upload to S3
-    upload_faiss_index_to_s3(index_path, course_id)
-    
-    # Final cleanup
-    del all_documents, vectorstore
-    gc.collect()
-    
-    logging.info(f"✅ Successfully processed {len(chunks)} chunks for course {course_id}")
+    logging.info(f"✅ Processing complete for course {course_id}")
 
 
 def get_past_messages(student_id, course_id):
