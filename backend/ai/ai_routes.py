@@ -526,6 +526,62 @@ async def get_processing_progress(
     user=Depends(require_teacher_or_ta())
 ):
     """Server-Sent Events endpoint for real-time progress"""
+    
+    def get_queue_status_sync():
+        """Synchronous version of queue status"""
+        try:
+            from backend.ai.celery_config import celery_app
+            inspect = celery_app.control.inspect()
+            
+            active_tasks = inspect.active()
+            reserved_tasks = inspect.reserved()
+            
+            active_count = 0
+            reserved_count = 0
+            user_position = None
+            user_status = 'not_found'
+            
+            if active_tasks:
+                for worker, tasks in active_tasks.items():
+                    active_count += len(tasks)
+                    if task_id:
+                        for task in tasks:
+                            if task['id'] == task_id:
+                                user_status = 'processing'
+                                user_position = 0
+            
+            if reserved_tasks:
+                position = active_count
+                for worker, tasks in reserved_tasks.items():
+                    reserved_count += len(tasks)
+                    if task_id and user_status == 'not_found':
+                        for idx, task in enumerate(tasks):
+                            if task['id'] == task_id:
+                                user_status = 'queued'
+                                user_position = position + idx + 1
+                                break
+            
+            total_in_queue = active_count + reserved_count
+            
+            return {
+                'active_tasks': active_count,
+                'queued_tasks': reserved_count,
+                'total_in_queue': total_in_queue,
+                'user_position': user_position,
+                'user_status': user_status,
+                'estimated_wait_minutes': user_position * 5 if user_position else 0
+            }
+        except Exception as e:
+            print(f"Error getting queue status: {e}")
+            return {
+                'active_tasks': 0,
+                'queued_tasks': 0,
+                'total_in_queue': 0,
+                'user_position': None,
+                'user_status': 'unknown',
+                'estimated_wait_minutes': 0
+            }
+    
     async def event_generator():
         """Generate SSE events"""
         try:
@@ -545,8 +601,8 @@ async def get_processing_progress(
                         'message': 'No processing in progress'
                     }
                 
-                # Get queue status
-                queue_status = await get_queue_status(course_id, task_id, user=user)
+                # Get queue status (synchronous)
+                queue_status = get_queue_status_sync()
                 
                 # Combine progress and queue info
                 combined_data = {
@@ -557,18 +613,21 @@ async def get_processing_progress(
                 # Send SSE event
                 yield f"data: {json.dumps(combined_data)}\n\n"
                 
-                # If complete or failed, stop streaming after a delay
+                # If complete or failed, send a few more times then stop
                 if progress['status'] in ['complete', 'failed']:
-                    await asyncio.sleep(2)  # Give time for client to receive
+                    await asyncio.sleep(2)
+                    yield f"data: {json.dumps(combined_data)}\n\n"
                     break
                 
                 # Wait 2 seconds before next update
                 await asyncio.sleep(2)
                 
         except asyncio.CancelledError:
-            pass
+            print("SSE connection cancelled")
         except Exception as e:
             print(f"Error in event generator: {e}")
+            import traceback
+            traceback.print_exc()
     
     return StreamingResponse(
         event_generator(),
@@ -576,7 +635,7 @@ async def get_processing_progress(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
+            "X-Accel-Buffering": "no",
         }
     )
 
