@@ -519,6 +519,37 @@ async def get_queue_status(
         }
 
 
+@ai_router.get("/courses/{course_id}/simple-progress")
+async def get_simple_progress(
+    course_id: int,
+    user=Depends(require_teacher_or_ta())
+):
+    """Simple progress check - no SSE"""
+    try:
+        # Get progress from Redis
+        progress_key = f"processing_progress:{course_id}"
+        progress_json = redis_client.get(progress_key)
+        
+        if progress_json:
+            return json.loads(progress_json)
+        else:
+            return {
+                'status': 'idle',
+                'current': 0,
+                'total': 0,
+                'percentage': 0,
+                'message': 'No processing in progress'
+            }
+    except Exception as e:
+        print(f"Error getting progress: {e}")
+        return {
+            'status': 'idle',
+            'current': 0,
+            'total': 0,
+            'percentage': 0,
+            'message': 'Error checking status'
+        }
+
 @ai_router.get("/courses/{course_id}/processing-progress")
 async def get_processing_progress(
     course_id: int,

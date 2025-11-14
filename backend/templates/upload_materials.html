@@ -338,18 +338,17 @@
 <div id="process-status" class="mt-4"></div>
 
 <script>
-let eventSource = null;
+let pollingInterval = null;
 let currentTaskId = null;
 
 async function startProcessing() {
     const button = document.getElementById('process-btn');
+    const progressContainer = document.getElementById('progress-container');
     
-    // Disable button
     button.disabled = true;
     button.classList.add('opacity-50', 'cursor-not-allowed');
     
     try {
-        // Start processing
         const response = await fetch('/ai/courses/{{ course_id }}/process_materials', {
             method: 'POST'
         });
@@ -357,8 +356,11 @@ async function startProcessing() {
         const data = await response.json();
         currentTaskId = data.task_id;
         
-        // Start listening for progress updates
-        startProgressTracking();
+        // Show progress container
+        progressContainer.classList.remove('hidden');
+        
+        // Start polling
+        startPolling();
         
     } catch (error) {
         console.error('Error:', error);
@@ -367,177 +369,115 @@ async function startProcessing() {
     }
 }
 
-function startProgressTracking() {
-    // Close existing connection if any
-    if (eventSource) {
-        eventSource.close();
+function startPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
     }
     
-    // Create new SSE connection with task ID
-    const url = `/ai/courses/{{ course_id }}/processing-progress${currentTaskId ? '?task_id=' + currentTaskId : ''}`;
-    eventSource = new EventSource(url);
+    // Poll every 3 seconds
+    pollingInterval = setInterval(checkProgress, 3000);
     
-    eventSource.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-        updateDisplay(data);
+    // Check immediately
+    checkProgress();
+}
+
+function stopPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+}
+
+async function checkProgress() {
+    try {
+        const response = await fetch('/ai/courses/{{ course_id }}/simple-progress');
+        const data = await response.json();
         
-        // If complete or failed, close connection
-        if (data.status === 'complete' || data.status === 'failed') {
-            eventSource.close();
-            handleCompletion(data);
+        updateProgressBar(data);
+        
+        if (data.status === 'complete') {
+            stopPolling();
+            showSuccess(data);
+            setTimeout(() => location.reload(), 3000);
+        } else if (data.status === 'failed') {
+            stopPolling();
+            showError(data);
         }
-    };
-    
-    eventSource.onerror = function(error) {
-        console.error('SSE Error:', error);
-        eventSource.close();
-    };
+        
+    } catch (error) {
+        console.error('Polling error:', error);
+    }
 }
 
-function updateDisplay(data) {
-    const queueBanner = document.getElementById('queue-banner');
+function updateProgressBar(data) {
     const progressContainer = document.getElementById('progress-container');
-    const queueInfo = data.queue_info || {};
-    
-    // Update active users count
-    const activeUsersCount = document.getElementById('active-users-count');
-    if (activeUsersCount) {
-        const totalUsers = queueInfo.total_in_queue || 0;
-        activeUsersCount.textContent = totalUsers === 1 ? '1 user processing' : `${totalUsers} users processing`;
-    }
-    
-    // Check if user is in queue
-    if (queueInfo.user_status === 'queued' && queueInfo.user_position > 1) {
-        // Show queue banner
-        queueBanner.classList.remove('hidden');
-        progressContainer.classList.add('hidden');
-        
-        const position = queueInfo.user_position;
-        const estimatedWait = queueInfo.estimated_wait_minutes || 0;
-        
-        document.getElementById('queue-position-text').textContent = 
-            `Position #${position} in queue`;
-        
-        document.getElementById('active-users-text').textContent = 
-            `(${queueInfo.active_tasks} processing now)`;
-        
-        document.getElementById('estimated-wait-text').textContent = 
-            `Estimated wait: ~${estimatedWait} minutes`;
-            
-    } else if (queueInfo.user_status === 'processing' || data.status === 'processing') {
-        // Show progress bar
-        queueBanner.classList.add('hidden');
-        progressContainer.classList.remove('hidden');
-        
-        updateProgressBar(data);
-    } else if (data.status === 'starting') {
-        // Show progress bar
-        queueBanner.classList.add('hidden');
-        progressContainer.classList.remove('hidden');
-        
-        updateProgressBar(data);
-    }
-}
-
-function updateProgressBar(progress) {
     const progressBar = document.getElementById('progress-bar');
     const progressPercentage = document.getElementById('progress-percentage');
     const progressMessage = document.getElementById('progress-message');
     const progressCurrent = document.getElementById('progress-current');
     const progressTotal = document.getElementById('progress-total');
-    const progressTitle = document.getElementById('progress-title');
     
-    // Update values
-    progressBar.style.width = progress.percentage + '%';
-    progressPercentage.textContent = progress.percentage + '%';
-    progressMessage.textContent = progress.message;
-    progressCurrent.textContent = progress.current;
-    progressTotal.textContent = progress.total;
-    
-    // Update title based on status
-    if (progress.status === 'processing') {
-        progressTitle.textContent = 'Processing Materials...';
-    } else if (progress.status === 'starting') {
-        progressTitle.textContent = 'Starting...';
+    if (data.status === 'idle') {
+        progressContainer.classList.add('hidden');
+        return;
     }
+    
+    progressContainer.classList.remove('hidden');
+    progressBar.style.width = data.percentage + '%';
+    progressPercentage.textContent = data.percentage + '%';
+    progressMessage.textContent = data.message;
+    progressCurrent.textContent = data.current;
+    progressTotal.textContent = data.total;
 }
 
-function handleCompletion(progress) {
+function showSuccess(data) {
     const progressContainer = document.getElementById('progress-container');
-    const queueBanner = document.getElementById('queue-banner');
+    progressContainer.innerHTML = `
+        <div class="bg-green-50 border border-green-200 rounded-lg p-6">
+            <div class="flex items-center">
+                <svg class="h-8 w-8 text-green-600 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <div>
+                    <h3 class="font-semibold text-green-700 text-lg">✅ Complete!</h3>
+                    <p class="text-sm text-green-600 mt-1">${data.message}</p>
+                    <p class="text-xs text-green-500 mt-2">Refreshing...</p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function showError(data) {
+    const progressContainer = document.getElementById('progress-container');
     const button = document.getElementById('process-btn');
     
-    // Hide queue banner
-    queueBanner.classList.add('hidden');
+    progressContainer.innerHTML = `
+        <div class="bg-red-50 border border-red-200 rounded-lg p-6">
+            <div class="flex items-center">
+                <svg class="h-8 w-8 text-red-600 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <div>
+                    <h3 class="font-semibold text-red-700 text-lg">❌ Failed</h3>
+                    <p class="text-sm text-red-600 mt-1">${data.message}</p>
+                </div>
+            </div>
+        </div>
+    `;
     
-    if (progress.status === 'complete') {
-        // Show success
-        progressContainer.innerHTML = `
-            <div class="bg-green-50 border border-green-200 rounded-lg p-6">
-                <div class="flex items-center">
-                    <svg class="h-8 w-8 text-green-600 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                    <div>
-                        <h3 class="font-semibold text-green-700 text-lg">✅ Processing Complete!</h3>
-                        <p class="text-sm text-green-600 mt-1">${progress.message}</p>
-                        <p class="text-xs text-green-500 mt-2">Refreshing page in 3 seconds...</p>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        // Auto-refresh after 3 seconds
-        setTimeout(() => {
-            location.reload();
-        }, 3000);
-        
-    } else if (progress.status === 'failed') {
-        // Show error
-        progressContainer.innerHTML = `
-            <div class="bg-red-50 border border-red-200 rounded-lg p-6">
-                <div class="flex items-center">
-                    <svg class="h-8 w-8 text-red-600 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                    </svg>
-                    <div>
-                        <h3 class="font-semibold text-red-700 text-lg">❌ Processing Failed</h3>
-                        <p class="text-sm text-red-600 mt-1">${progress.message}</p>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        // Re-enable button
-        button.disabled = false;
-        button.classList.remove('opacity-50', 'cursor-not-allowed');
-    }
+    button.disabled = false;
+    button.classList.remove('opacity-50', 'cursor-not-allowed');
 }
 
-// Check on page load if there's already processing happening
+// Check on page load
 document.addEventListener('DOMContentLoaded', function() {
-    fetch('/ai/courses/{{ course_id }}/processing-status')
-        .then(response => response.json())
-        .then(data => {
-            if (data.has_active_tasks && data.active_tasks.length > 0) {
-                currentTaskId = data.active_tasks[0].task_id;
-                
-                // Disable button
-                document.getElementById('process-btn').disabled = true;
-                document.getElementById('process-btn').classList.add('opacity-50', 'cursor-not-allowed');
-                
-                // Start tracking
-                startProgressTracking();
-            }
-        })
-        .catch(error => console.error('Status check failed:', error));
+    checkProgress();
 });
 
 // Clean up on page unload
 window.addEventListener('beforeunload', function() {
-    if (eventSource) {
-        eventSource.close();
-    }
+    stopPolling();
 });
 </script>
           </div>
