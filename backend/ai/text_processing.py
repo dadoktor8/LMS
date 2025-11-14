@@ -1384,58 +1384,76 @@ def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session
 
 '''
 def save_embeddings_to_faiss_openai(course_id: int, chunks: list, db: Session):
-    """Save embeddings ONE AT A TIME - slow but bulletproof"""
+    """Save embeddings with PARALLEL processing - FAST MODE"""
     import gc
     import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     
-    logging.info(f"📦 Processing {len(chunks)} chunks ONE AT A TIME (bulletproof mode)")
+    logging.info(f"📦 Processing {len(chunks)} chunks with PARALLEL batching (FAST MODE)")
     
     embeddings_model = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
     all_documents = []
     
-    # Process ONE chunk at a time
-    for i, chunk in enumerate(chunks):
+    BATCH_SIZE = 50  # Process 50 chunks at once
+    PARALLEL_WORKERS = 10  # 10 parallel threads
+    
+    def process_chunk(chunk_data):
+        """Process a single chunk"""
+        chunk, idx = chunk_data
         try:
-            logging.info(f"📊 Processing chunk {i+1}/{len(chunks)}")
-            
-            # Clean the chunk
             clean_chunk = chunk.strip().replace("\n", " ").replace('\x00', '').replace('\ufffd', '')
-            
             if not clean_chunk:
-                continue
+                return None
             
-            # Create document
-            doc = Document(page_content=clean_chunk)
-            all_documents.append(doc)
-            
-            # Embed and save to DB immediately
             embedding = embeddings_model.embed_query(clean_chunk)
-            
-            db.add(TextChunk(
-                course_id=course_id,
-                chunk_text=clean_chunk,
-                embedding=str(embedding)
-            ))
-            
-            # Commit EVERY chunk
-            db.commit()
-            
-            # Clean up memory aggressively
-            del embedding, clean_chunk
-            gc.collect()
-            
-            # Delay to avoid rate limits
-            time.sleep(0.2)  # 200ms between chunks
-            
-            # Extra cleanup every 10 chunks
-            if (i + 1) % 10 == 0:
-                logging.info(f"✅ Saved {i+1}/{len(chunks)} chunks")
-                gc.collect()
-                time.sleep(1)  # Extra pause every 10 chunks
-                
+            return (clean_chunk, embedding, idx)
         except Exception as e:
-            logging.error(f"❌ Failed chunk {i+1}: {e}")
-            continue
+            logging.error(f"❌ Failed chunk {idx}: {e}")
+            return None
+    
+    # Process in large batches with parallelism
+    for i in range(0, len(chunks), BATCH_SIZE):
+        batch = chunks[i:i + BATCH_SIZE]
+        batch_num = i//BATCH_SIZE + 1
+        total_batches = (len(chunks)-1)//BATCH_SIZE + 1
+        
+        logging.info(f"📊 Processing batch {batch_num}/{total_batches} ({len(batch)} chunks)")
+        
+        # Process batch in parallel
+        chunk_data = [(chunk, i+j) for j, chunk in enumerate(batch)]
+        
+        batch_docs = []
+        with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+            futures = [executor.submit(process_chunk, data) for data in chunk_data]
+            
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    clean_chunk, embedding, idx = result
+                    
+                    # Add to documents
+                    batch_docs.append(Document(page_content=clean_chunk))
+                    
+                    # Save to DB
+                    db.add(TextChunk(
+                        course_id=course_id,
+                        chunk_text=clean_chunk,
+                        embedding=str(embedding)
+                    ))
+        
+        all_documents.extend(batch_docs)
+        
+        # Commit batch
+        db.commit()
+        
+        # Cleanup
+        del batch_docs, batch
+        gc.collect()
+        
+        logging.info(f"✅ Batch {batch_num} saved ({len(all_documents)} total docs)")
+        
+        # Small delay between batches
+        time.sleep(0.5)
     
     logging.info(f"✅ Saved all {len(chunks)} chunks to database")
     
