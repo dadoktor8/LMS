@@ -340,6 +340,7 @@
 <script>
 let pollingInterval = null;
 let currentTaskId = null;
+let hasRefreshed = false;  // ADD THIS FLAG
 
 async function startProcessing() {
     const button = document.getElementById('process-btn');
@@ -395,13 +396,19 @@ async function checkProgress() {
         
         updateProgressBar(data);
         
-        if (data.status === 'complete') {
+        if (data.status === 'complete' && !hasRefreshed) {
             stopPolling();
             showSuccess(data);
+            hasRefreshed = true;  // PREVENT MULTIPLE REFRESHES
             setTimeout(() => location.reload(), 3000);
         } else if (data.status === 'failed') {
             stopPolling();
             showError(data);
+        } else if (data.status === 'processing' || data.status === 'starting') {
+            // Currently processing - keep polling
+            if (!pollingInterval) {
+                startPolling();
+            }
         }
         
     } catch (error) {
@@ -417,8 +424,11 @@ function updateProgressBar(data) {
     const progressCurrent = document.getElementById('progress-current');
     const progressTotal = document.getElementById('progress-total');
     
-    if (data.status === 'idle') {
-        progressContainer.classList.add('hidden');
+    // ONLY show progress if actively processing or starting
+    if (data.status === 'idle' || data.status === 'complete') {
+        if (data.status === 'idle') {
+            progressContainer.classList.add('hidden');
+        }
         return;
     }
     
@@ -470,9 +480,22 @@ function showError(data) {
     button.classList.remove('opacity-50', 'cursor-not-allowed');
 }
 
-// Check on page load
+// Check on page load ONLY if there's active processing
 document.addEventListener('DOMContentLoaded', function() {
-    checkProgress();
+    // Check once, but don't auto-refresh on 'complete' status on initial load
+    fetch('/ai/courses/{{ course_id }}/simple-progress')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'processing' || data.status === 'starting') {
+                // Only start polling if actively processing
+                document.getElementById('progress-container').classList.remove('hidden');
+                document.getElementById('process-btn').disabled = true;
+                document.getElementById('process-btn').classList.add('opacity-50', 'cursor-not-allowed');
+                startPolling();
+            }
+            // Ignore 'complete' or 'idle' status on page load
+        })
+        .catch(error => console.error('Initial check failed:', error));
 });
 
 // Clean up on page unload
