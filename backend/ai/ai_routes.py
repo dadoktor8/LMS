@@ -344,6 +344,160 @@ def process_all_materials_task(self, course_id: int):
         
     finally:
         db.close()
+@ai_router.get("/celery/health")
+async def celery_health_check():
+    """Check if Celery workers are running and healthy"""
+    from backend.ai.celery_config import celery_app
+    from celery.result import AsyncResult
+    import time
+    
+    try:
+        # Send a simple test task to Celery
+        test_task_id = f"health_check_{int(time.time())}"
+        
+        # Check active workers
+        inspect = celery_app.control.inspect()
+        active_workers = inspect.active()
+        registered_tasks = inspect.registered()
+        
+        if not active_workers:
+            return {
+                "status": "unhealthy",
+                "message": "No Celery workers running",
+                "workers": 0,
+                "timestamp": time.time()
+            }
+        
+        worker_count = len(active_workers)
+        task_count = sum(len(tasks) for tasks in active_workers.values())
+        
+        return {
+            "status": "healthy",
+            "message": f"{worker_count} worker(s) running",
+            "workers": worker_count,
+            "active_tasks": task_count,
+            "registered_tasks": list(registered_tasks.values())[0] if registered_tasks else [],
+            "timestamp": time.time()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Failed to connect to Celery: {str(e)}",
+            "workers": 0,
+            "timestamp": time.time()
+        }
+     
+     
+from fastapi.responses import JSONResponse
+import json
+
+@ai_router.get("/courses/{course_id}/processing-status")
+async def check_processing_status(
+    course_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Check if there are any active processing tasks for this course"""
+    from backend.db.models import TaskStatus
+    from celery.result import AsyncResult
+    from backend.ai.celery_config import celery_app
+    from datetime import datetime, timedelta
+    
+    try:
+        # Get recent tasks (last 1 hour)
+        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+        recent_tasks = db.query(TaskStatus).filter(
+            TaskStatus.course_id == course_id,
+            TaskStatus.created_at >= one_hour_ago
+        ).order_by(TaskStatus.created_at.desc()).all()
+        
+        active_tasks = []
+        completed_tasks = []
+        
+        for task in recent_tasks:
+            try:
+                celery_task = AsyncResult(task.task_id, app=celery_app)
+                
+                # Safely serialize metadata
+                metadata = {}
+                if task.metadata:
+                    try:
+                        # Convert to JSON-safe dict
+                        metadata = json.loads(json.dumps(task.metadata, default=str))
+                    except:
+                        metadata = {"info": "metadata unavailable"}
+                
+                # Plain dict (NO SQLAlchemy objects)
+                task_dict = {
+                    'task_id': str(task.task_id),
+                    'task_type': str(task.task_type),
+                    'status': str(celery_task.state),
+                    'created_at': task.created_at.isoformat() if task.created_at else None,
+                    'metadata': metadata
+                }
+                
+                if celery_task.state in ['PENDING', 'STARTED', 'PROCESSING']:
+                    active_tasks.append(task_dict)
+                elif celery_task.state in ['SUCCESS', 'FAILURE']:
+                    time_diff = (datetime.utcnow() - task.created_at).total_seconds()
+                    if time_diff < 300:  # 5 minutes
+                        completed_tasks.append(task_dict)
+                        
+            except Exception as e:
+                print(f"⚠️ Skipping task {task.task_id}: {e}")
+                continue
+        
+        # Return as JSONResponse (bypasses FastAPI encoder)
+        return JSONResponse(content={
+            'has_active_tasks': len(active_tasks) > 0,
+            'active_tasks': active_tasks,
+            'completed_tasks': completed_tasks
+        })
+        
+    except Exception as e:
+        print(f"❌ Error in processing-status: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Return safe fallback
+        return JSONResponse(content={
+            'has_active_tasks': False,
+            'active_tasks': [],
+            'completed_tasks': []
+        })
+    
+       
+@ai_router.get("/courses/{course_id}/tasks/recent")
+async def get_recent_tasks(
+    course_id: int,
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    user=Depends(require_teacher_or_ta())
+):
+    """Get recent task status for a course"""
+    from backend.db.models import TaskStatus
+    from celery.result import AsyncResult
+    from backend.ai.celery_config import celery_app
+    
+    tasks = db.query(TaskStatus).filter_by(
+        course_id=course_id
+    ).order_by(TaskStatus.created_at.desc()).limit(limit).all()
+    
+    result = []
+    for task in tasks:
+        # Get real-time status from Celery
+        celery_task = AsyncResult(task.task_id, app=celery_app)
+        
+        result.append({
+            "task_id": task.task_id,
+            "task_type": task.task_type,
+            "status": celery_task.state,
+            "created_at": task.created_at.isoformat(),
+            "metadata": task.metadata
+        })
+    
+    return result
 
 @ai_router.post("/courses/{course_id}/upload_materials", response_class=HTMLResponse)
 async def upload_course_material(

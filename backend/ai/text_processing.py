@@ -1384,55 +1384,75 @@ def save_embeddings_to_faiss_langchain(course_id: int, chunks: list, db: Session
 
 '''
 def save_embeddings_to_faiss_openai(course_id: int, chunks: list, db: Session):
-    # 1. Normalize chunks
-    normalized_chunks = [chunk.strip().replace("\n", " ") for chunk in chunks]
-    for chunk in chunks:
-        # Remove NULL bytes and problematic characters
-        clean_chunk = chunk.replace('\x00', '').replace('\ufffd', '').strip().replace("\n", " ")
-        if clean_chunk:  # Only add non-empty chunks
-            normalized_chunks.append(clean_chunk)
-
-    # 2. Prepare LangChain documents
-    documents = [Document(page_content=chunk) for chunk in normalized_chunks]
-
-    # 3. Load OpenAI embedding model
+    """Save embeddings in batches to avoid memory issues"""
+    import gc
+    
+    BATCH_SIZE = 50  # Process 50 chunks at a time
+    
+    logging.info(f"📦 Processing {len(chunks)} chunks in batches of {BATCH_SIZE}")
+    
+    all_documents = []
+    all_embeddings = []
+    
     embeddings_model = OpenAIEmbeddings(api_key=os.getenv("OPENAI_API_KEY"))
-
-    # 4. Build FAISS vectorstore
-    vectorstore = FAISS.from_documents(documents, embedding=embeddings_model)
-
-    # 5. Check if FAISS index is populated
+    
+    # Process chunks in batches
+    for i in range(0, len(chunks), BATCH_SIZE):
+        batch = chunks[i:i + BATCH_SIZE]
+        logging.info(f"📊 Processing batch {i//BATCH_SIZE + 1}/{(len(chunks)-1)//BATCH_SIZE + 1}")
+        
+        # Normalize batch
+        normalized_batch = [chunk.strip().replace("\n", " ") for chunk in batch]
+        
+        # Create documents
+        batch_documents = [Document(page_content=chunk) for chunk in normalized_batch]
+        all_documents.extend(batch_documents)
+        
+        # Save to database immediately
+        for chunk in normalized_batch:
+            try:
+                embedding = embeddings_model.embed_query(chunk)
+                db.add(TextChunk(
+                    course_id=course_id,
+                    chunk_text=chunk,
+                    embedding=str(embedding)
+                ))
+            except Exception as e:
+                logging.error(f"❌ Failed to embed chunk: {e}")
+                continue
+        
+        # Commit this batch
+        db.commit()
+        
+        # Clean up memory after each batch
+        del normalized_batch, batch_documents, batch
+        gc.collect()
+        
+        logging.info(f"✅ Batch {i//BATCH_SIZE + 1} saved to database")
+    
+    # Build FAISS index from all documents at once
+    logging.info("🔨 Building FAISS index from all documents...")
+    vectorstore = FAISS.from_documents(all_documents, embedding=embeddings_model)
+    
+    # Check if populated
     if len(vectorstore.docstore._dict) == 0:
-        logging.warning("⚠️ FAISS index appears to be empty!")
+        logging.warning("⚠️ FAISS index is empty!")
     else:
         logging.info(f"✅ FAISS index built with {len(vectorstore.docstore._dict)} documents")
-
-    # 6. Save FAISS index (LangChain format)
+    
+    # Save FAISS index
     index_path = f"faiss_index_{course_id}"
     vectorstore.save_local(index_path)
     logging.info(f"📁 FAISS index saved to {index_path}")
+    
+    # Upload to S3
     upload_faiss_index_to_s3(index_path, course_id)
-    # 7. Save chunks + embeddings to DB
-    for chunk in normalized_chunks:
-        try:
-            embedding = embeddings_model.embed_query(chunk)
-
-            db.add(TextChunk(
-                course_id=course_id,
-                chunk_text=chunk,
-                embedding=str(embedding)
-            ))
-
-        except Exception as e:
-            db.rollback()
-            logging.error(f"❌ Failed to insert chunk: {e}")
-            continue
-
-    db.commit()
-    logging.info(f"✅ Saved FAISS index and OpenAI chunks for course {course_id}")
-    print(f"✅ Saved FAISS index and OpenAI chunks for course {course_id}")
-    del normalized_chunks, documents, vectorstore
+    
+    # Final cleanup
+    del all_documents, vectorstore
     gc.collect()
+    
+    logging.info(f"✅ Successfully processed {len(chunks)} chunks for course {course_id}")
 
 
 def get_past_messages(student_id, course_id):
