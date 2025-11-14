@@ -8,9 +8,10 @@ import traceback
 from typing import List, Optional
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form, Depends, Request, BackgroundTasks
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 import pandas as pd
 from pydantic import BaseModel
+import redis
 from sqlalchemy import String, create_engine, func, text
 from sqlalchemy.orm import Session
 import shutil
@@ -39,7 +40,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import joinedload
 
 ai_router = APIRouter()
-
+redis_client = redis.from_url(os.getenv('REDIS_URL'), decode_responses=True)
 UPLOAD_DIR = "uploaded_docs"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -284,51 +285,143 @@ def process_submodule_task(self, course_id: int, submodule_id: int):
 
 @celery_app.task(bind=True, name='backend.ai.ai_routes.process_all_materials')
 def process_all_materials_task(self, course_id: int):
-    """Process all unprocessed materials"""
-    from backend.db.database import SessionLocal
-    from backend.db.models import CourseMaterial, ProcessedMaterial
+    """Background task with progress tracking via Redis"""
     import logging
-    
     logger = logging.getLogger(__name__)
+    
+    logger.info(f"🚀 Starting batch processing for course {course_id}")
+    
+    # Initialize progress in Redis
+    progress_key = f"processing_progress:{course_id}"
+    redis_client.setex(
+        progress_key,
+        3600,  # Expire after 1 hour
+        json.dumps({
+            'status': 'starting',
+            'current': 0,
+            'total': 0,
+            'percentage': 0,
+            'message': 'Initializing...'
+        })
+    )
+    
     db = SessionLocal()
     
     try:
+        # Get materials to process
         materials = db.query(CourseMaterial).filter_by(course_id=course_id).all()
         
+        if not materials:
+            redis_client.setex(
+                progress_key,
+                300,  # Keep for 5 minutes
+                json.dumps({
+                    'status': 'complete',
+                    'current': 0,
+                    'total': 0,
+                    'percentage': 100,
+                    'message': 'No materials found'
+                })
+            )
+            return {'success': True, 'processed': 0, 'skipped': 0, 'failed': 0, 'total': 0}
+        
+        # Update total count
         total_materials = len(materials)
+        redis_client.setex(
+            progress_key,
+            3600,
+            json.dumps({
+                'status': 'processing',
+                'current': 0,
+                'total': total_materials,
+                'percentage': 0,
+                'message': f'Processing {total_materials} materials...'
+            })
+        )
+        
         processed_count = 0
         skipped_count = 0
         failed_count = 0
         
-        for idx, material in enumerate(materials):
-            progress = int((idx / total_materials) * 100) if total_materials > 0 else 0
-            self.update_state(state='PROCESSING', meta={
-                'status': f'Processing material {idx + 1} of {total_materials}',
-                'progress': progress,
-                'processed': processed_count,
-                'skipped': skipped_count,
-                'failed': failed_count
-            })
-            
-            processed_material = db.query(ProcessedMaterial).filter_by(
-                course_id=course_id,
-                material_id=material.id
-            ).first()
-            
-            if processed_material:
-                skipped_count += 1
-                continue
-            
-            # ✅ Call the internal function, not the task
-            result = _process_material(course_id, material.id, db)
-            
-            if result.get('success'):
-                processed_count += 1
-            else:
+        for idx, material in enumerate(materials, 1):
+            try:
+                # Update progress
+                redis_client.setex(
+                    progress_key,
+                    3600,
+                    json.dumps({
+                        'status': 'processing',
+                        'current': idx,
+                        'total': total_materials,
+                        'percentage': int((idx / total_materials) * 100),
+                        'message': f'Processing: {material.filename}'
+                    })
+                )
+                
+                # Check if already processed
+                processed_material = db.query(ProcessedMaterial).filter_by(
+                    course_id=course_id, 
+                    material_id=material.id
+                ).first()
+                
+                if processed_material:
+                    logger.info(f"⏭ Skipping {material.filename} (already processed)")
+                    skipped_count += 1
+                    continue
+                
+                # Process the material
+                file_path = f"uploads/{material.file_path}"
+                
+                if not os.path.exists(file_path):
+                    logger.error(f"❌ File not found: {file_path}")
+                    failed_count += 1
+                    continue
+                
+                logger.info(f"📄 Processing: {material.filename}")
+                
+                # Process based on file type
+                if material.filename.endswith('.pdf'):
+                    from backend.ai.text_processing import process_pdf_with_openai
+                    success = process_pdf_with_openai(file_path, course_id, db)
+                elif material.filename.endswith(('.txt', '.md')):
+                    from backend.ai.text_processing import process_text_file
+                    success = process_text_file(file_path, course_id, db)
+                else:
+                    logger.warning(f"⚠️ Unsupported file type: {material.filename}")
+                    failed_count += 1
+                    continue
+                
+                if success:
+                    # Mark as processed
+                    db.add(ProcessedMaterial(
+                        course_id=course_id,
+                        material_id=material.id,
+                        processed_at=datetime.utcnow()
+                    ))
+                    db.commit()
+                    processed_count += 1
+                    logger.info(f"✅ Successfully processed: {material.filename}")
+                else:
+                    failed_count += 1
+                    logger.error(f"❌ Failed to process: {material.filename}")
+                    
+            except Exception as e:
+                logger.error(f"❌ Error processing {material.filename}: {e}")
                 failed_count += 1
-                logger.error(f"Failed to process material {material.id}: {result.get('error')}")
-                if 'quota' in result.get('error', '').lower():
-                    break
+                continue
+        
+        # Mark as complete in Redis
+        redis_client.setex(
+            progress_key,
+            300,  # Keep for 5 minutes after completion
+            json.dumps({
+                'status': 'complete',
+                'current': total_materials,
+                'total': total_materials,
+                'percentage': 100,
+                'message': f'Complete! Processed: {processed_count}, Skipped: {skipped_count}, Failed: {failed_count}'
+            })
+        )
         
         return {
             'success': True,
@@ -339,11 +432,154 @@ def process_all_materials_task(self, course_id: int):
         }
         
     except Exception as e:
-        logger.error(f"Error in batch processing: {e}")
-        return {'success': False, 'error': str(e)}
-        
+        logger.error(f"❌ Fatal error in batch processing: {e}")
+        redis_client.setex(
+            progress_key,
+            300,
+            json.dumps({
+                'status': 'failed',
+                'current': 0,
+                'total': 0,
+                'percentage': 0,
+                'message': f'Error: {str(e)}'
+            })
+        )
+        raise
     finally:
         db.close()
+
+@ai_router.get("/courses/{course_id}/queue-status")
+async def get_queue_status(
+    course_id: int,
+    task_id: str = None,
+    user=Depends(require_teacher_or_ta())
+):
+    """Get queue position and active tasks"""
+    from backend.ai.celery_config import celery_app
+    
+    try:
+        inspect = celery_app.control.inspect()
+        
+        # Get active tasks
+        active_tasks = inspect.active()
+        reserved_tasks = inspect.reserved()
+        
+        active_count = 0
+        reserved_count = 0
+        user_position = None
+        user_status = 'not_found'
+        
+        # Count active tasks
+        if active_tasks:
+            for worker, tasks in active_tasks.items():
+                active_count += len(tasks)
+                
+                # Check if user's task is active
+                if task_id:
+                    for task in tasks:
+                        if task['id'] == task_id:
+                            user_status = 'processing'
+                            user_position = 0  # Currently processing
+        
+        # Count reserved (queued) tasks
+        if reserved_tasks:
+            position = active_count  # Start counting after active tasks
+            
+            for worker, tasks in reserved_tasks.items():
+                reserved_count += len(tasks)
+                
+                # Find user's position in queue
+                if task_id and user_status == 'not_found':
+                    for idx, task in enumerate(tasks):
+                        if task['id'] == task_id:
+                            user_status = 'queued'
+                            user_position = position + idx + 1
+                            break
+        
+        total_in_queue = active_count + reserved_count
+        
+        return {
+            'active_tasks': active_count,
+            'queued_tasks': reserved_count,
+            'total_in_queue': total_in_queue,
+            'user_position': user_position,
+            'user_status': user_status,
+            'estimated_wait_minutes': user_position * 5 if user_position else 0  # Estimate 5 min per task
+        }
+        
+    except Exception as e:
+        print(f"Error getting queue status: {e}")
+        return {
+            'active_tasks': 0,
+            'queued_tasks': 0,
+            'total_in_queue': 0,
+            'user_position': None,
+            'user_status': 'unknown',
+            'estimated_wait_minutes': 0
+        }
+
+
+@ai_router.get("/courses/{course_id}/processing-progress")
+async def get_processing_progress(
+    course_id: int,
+    task_id: str = None,
+    user=Depends(require_teacher_or_ta())
+):
+    """Server-Sent Events endpoint for real-time progress"""
+    async def event_generator():
+        """Generate SSE events"""
+        try:
+            while True:
+                # Get current progress from Redis
+                progress_key = f"processing_progress:{course_id}"
+                progress_json = redis_client.get(progress_key)
+                
+                if progress_json:
+                    progress = json.loads(progress_json)
+                else:
+                    progress = {
+                        'status': 'idle',
+                        'current': 0,
+                        'total': 0,
+                        'percentage': 0,
+                        'message': 'No processing in progress'
+                    }
+                
+                # Get queue status
+                queue_status = await get_queue_status(course_id, task_id, user=user)
+                
+                # Combine progress and queue info
+                combined_data = {
+                    **progress,
+                    'queue_info': queue_status
+                }
+                
+                # Send SSE event
+                yield f"data: {json.dumps(combined_data)}\n\n"
+                
+                # If complete or failed, stop streaming after a delay
+                if progress['status'] in ['complete', 'failed']:
+                    await asyncio.sleep(2)  # Give time for client to receive
+                    break
+                
+                # Wait 2 seconds before next update
+                await asyncio.sleep(2)
+                
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"Error in event generator: {e}")
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
+
 @ai_router.get("/celery/health")
 async def celery_health_check():
     """Check if Celery workers are running and healthy"""
@@ -1982,45 +2218,53 @@ async def process_materials(
     db: Session = Depends(get_db),
     user=Depends(require_teacher_or_ta())
 ):
-    """Trigger background processing - FIRE AND FORGET"""
+    """Trigger background processing - returns task ID"""
     import time
     
-    # Start the background task (fire and forget)
+    # Check if already processing
+    one_min_ago = datetime.utcnow() - timedelta(minutes=1)
+    existing_task = db.query(TaskStatus).filter(
+        TaskStatus.course_id == course_id,
+        TaskStatus.task_type == 'batch_processing',
+        TaskStatus.created_at >= one_min_ago
+    ).first()
+    
+    if existing_task:
+        from celery.result import AsyncResult
+        from backend.ai.celery_config import celery_app
+        
+        celery_task = AsyncResult(existing_task.task_id, app=celery_app)
+        if celery_task.state in ['PENDING', 'STARTED', 'PROCESSING']:
+            return JSONResponse(
+                content={
+                    'message': 'Already processing',
+                    'task_id': existing_task.task_id
+                },
+                status_code=200
+            )
+    
+    # Start the background task
     task = process_all_materials_task.apply_async(
         args=[course_id],
         task_id=f"batch_process_{course_id}_{int(time.time())}"
     )
     
-    # Save task to database (optional, for history)
-    from backend.db.models import TaskStatus
-    try:
-        task_status = TaskStatus(
-            task_id=task.id,
-            course_id=course_id,
-            task_type='batch_processing',
-            status='pending'
-        )
-        db.add(task_status)
-        db.commit()
-    except:
-        pass  # Don't fail if we can't save task status
+    # Record task in database
+    task_status = TaskStatus(
+        task_id=task.id,
+        course_id=course_id,
+        task_type='batch_processing',
+        status='PENDING',
+        created_at=datetime.utcnow()
+    )
+    db.add(task_status)
+    db.commit()
     
-    # Return simple success message (NO progress tracking)
-    return HTMLResponse(
-        content="""
-        <div class="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
-            <div class="flex items-center">
-                <svg class="animate-spin h-5 w-5 mr-3 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <div>
-                    <h3 class="font-semibold text-green-700">✅ Processing Started!</h3>
-                    <p class="text-sm text-green-600 mt-1">Your materials are being processed in the background. This may take a few minutes. Refresh the page to see results.</p>
-                </div>
-            </div>
-        </div>
-        """,
+    return JSONResponse(
+        content={
+            'message': 'Processing started',
+            'task_id': task.id
+        },
         status_code=200
     )
 @ai_router.get("/courses/{course_id}/materials/{material_id}/download")
